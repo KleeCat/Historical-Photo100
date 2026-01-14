@@ -1,0 +1,33 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.idea/
+
+# outputs / results
+outputs/
+output/
+result/
+results/
+evaluation_results/
+
+# datasets (你这些就是数据集/样例图)
+HR/
+LR/
+SR/
+
+# large model weights
+*.pth
+*.pt
+*.onnx
+*.ckpt
+*.safetensors
+
+# archives
+*.zip
+*.7z
+*.rar
+
+# OS
+Thumbs.db
+.DS_Store
