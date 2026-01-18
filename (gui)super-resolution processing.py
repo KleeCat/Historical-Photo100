@@ -1,5 +1,4 @@
-﻿import os
-import json
+﻿import json
 import sys
 import contextlib
 from datetime import datetime
