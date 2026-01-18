@@ -2,12 +2,39 @@
 import json
 import sys
 import contextlib
+import warnings
 from datetime import datetime
+
+
+@contextlib.contextmanager
+def suppress_stderr():
+    if sys.stderr is None:
+        yield
+        return
+    try:
+        fd = sys.stderr.fileno()
+    except Exception:
+        yield
+        return
+    saved_fd = os.dup(fd)
+    try:
+        with open(os.devnull, "w") as devnull:
+            os.dup2(devnull.fileno(), fd)
+            yield
+    finally:
+        os.dup2(saved_fd, fd)
+        os.close(saved_fd)
+
+
+# Silence noisy third-party warnings on import.
+warnings.filterwarnings("ignore", category=UserWarning, module=r".*_distutils_hack")
+
 import cv2
 import torch
 import numpy as np
 import threading
-import customtkinter as ctk
+with suppress_stderr():
+    import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from PIL import Image
 from basicsr.archs.rrdbnet_arch import RRDBNet
@@ -23,8 +50,9 @@ except ImportError:
     print("Warning: skimage not installed.")
 
 # --- Global Theme Settings ---
-ctk.set_appearance_mode("System")
-ctk.set_default_color_theme("blue")
+with suppress_stderr():
+    ctk.set_appearance_mode("System")
+    ctk.set_default_color_theme("blue")
 
 
 def ensure_dir(path):
@@ -47,7 +75,8 @@ def save_image(path, bgr_img):
     if ext not in [".png", ".jpg", ".jpeg", ".bmp"]:
         ext = ".png"
         path = path + ext
-    success, buf = cv2.imencode(ext, bgr_img)
+    with suppress_stderr():
+        success, buf = cv2.imencode(ext, bgr_img)
     if not success:
         raise RuntimeError("Failed to encode image")
     buf.tofile(path)
@@ -132,26 +161,6 @@ def save_feature_grids(feature_maps, base_name, scale, out_dir):
         save_image(path, grid_img)
         saved.append(path)
     return saved
-
-
-@contextlib.contextmanager
-def suppress_stderr():
-    if sys.stderr is None:
-        yield
-        return
-    try:
-        fd = sys.stderr.fileno()
-    except Exception:
-        yield
-        return
-    saved_fd = os.dup(fd)
-    try:
-        with open(os.devnull, "w") as devnull:
-            os.dup2(devnull.fileno(), fd)
-            yield
-    finally:
-        os.dup2(saved_fd, fd)
-        os.close(saved_fd)
 
 
 class ModernApp(ctk.CTk):
@@ -264,10 +273,27 @@ class ModernApp(ctk.CTk):
         self.metrics_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         self.metrics_frame.grid(row=13, column=0, padx=20, pady=20, sticky="s")
 
-        self.lbl_psnr = ctk.CTkLabel(self.metrics_frame, text="PSNR: --", font=ctk.CTkFont(size=16))
-        self.lbl_psnr.pack(anchor="w")
-        self.lbl_ssim = ctk.CTkLabel(self.metrics_frame, text="SSIM: --", font=ctk.CTkFont(size=16))
-        self.lbl_ssim.pack(anchor="w")
+        self.lbl_resolution_title = ctk.CTkLabel(
+            self.metrics_frame,
+            text="Resolution",
+            font=ctk.CTkFont(size=13, weight="bold")
+        )
+        self.lbl_resolution_title.pack(anchor="w")
+        self.lbl_resolution_in = ctk.CTkLabel(self.metrics_frame, text="Input: -- x --", font=ctk.CTkFont(size=15))
+        self.lbl_resolution_in.pack(anchor="w")
+        self.lbl_resolution_out = ctk.CTkLabel(self.metrics_frame, text="Output: -- x --", font=ctk.CTkFont(size=15))
+        self.lbl_resolution_out.pack(anchor="w", pady=(0, 6))
+
+        self.lbl_metrics_after = ctk.CTkLabel(
+            self.metrics_frame,
+            text="Output vs GT",
+            font=ctk.CTkFont(size=13, weight="bold")
+        )
+        self.lbl_metrics_after.pack(anchor="w")
+        self.lbl_psnr_out = ctk.CTkLabel(self.metrics_frame, text="PSNR: --", font=ctk.CTkFont(size=15))
+        self.lbl_psnr_out.pack(anchor="w")
+        self.lbl_ssim_out = ctk.CTkLabel(self.metrics_frame, text="SSIM: --", font=ctk.CTkFont(size=15))
+        self.lbl_ssim_out.pack(anchor="w")
 
         # === 2. Main Display Area (Right) ===
         self.display_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
@@ -449,11 +475,14 @@ class ModernApp(ctk.CTk):
             self.btn_compare.configure(state="disabled")
             self.btn_features.configure(state="disabled")
             self.progress_bar.set(0)
+            self.update_resolution_labels()
+            self.calculate_metrics()
 
     def load_gt_image(self):
         path = filedialog.askopenfilename(filetypes=[("Image", "*.jpg *.png *.jpeg *.bmp")])
         if path:
             self.img_gt = self.read_image(path)
+            self.calculate_metrics()
             messagebox.showinfo("Info", "Ground Truth loaded")
 
     def read_image(self, path):
@@ -556,6 +585,7 @@ class ModernApp(ctk.CTk):
             self.img_output = output
 
             self.after(0, lambda: self.show_image_ctk(self.img_output, self.lbl_img_out))
+            self.after(0, self.update_resolution_labels)
             self.after(0, self.calculate_metrics)
 
             if self.use_face_enhance.get() and not used_face_enhance:
@@ -575,15 +605,44 @@ class ModernApp(ctk.CTk):
             self.after(0, lambda: self.progress_bar.set(1.0))
             self.after(0, lambda: self.btn_run.configure(state="normal", text="Start Restoration"))
 
+    def update_resolution_labels(self):
+        if self.img_input is None:
+            self.lbl_resolution_in.configure(text="Input: -- x --")
+        else:
+            h, w = self.img_input.shape[:2]
+            self.lbl_resolution_in.configure(text=f"Input: {w} x {h}")
+        if self.img_output is None:
+            self.lbl_resolution_out.configure(text="Output: -- x --")
+        else:
+            h, w = self.img_output.shape[:2]
+            self.lbl_resolution_out.configure(text=f"Output: {w} x {h}")
+
+    def set_metric_labels(self, psnr_label, ssim_label, psnr_value, ssim_value):
+        if psnr_value is None or ssim_value is None:
+            neutral = ("gray20", "gray70")
+            psnr_label.configure(text="PSNR: --", text_color=neutral)
+            ssim_label.configure(text="SSIM: --", text_color=neutral)
+            return
+        psnr_label.configure(text=f"PSNR: {psnr_value:.2f} dB", text_color="#2CC985")
+        ssim_label.configure(text=f"SSIM: {ssim_value:.4f}", text_color="#2CC985")
+
     def calculate_metrics(self):
-        if self.img_gt is None or self.img_output is None: return
+        if psnr is None or ssim is None:
+            self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, None, None)
+            return
+        if self.img_gt is None:
+            self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, None, None)
+            return
+        if self.img_output is None:
+            self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, None, None)
+            return
+
         h, w = self.img_output.shape[:2]
-        img_gt_aligned = cv2.resize(self.img_gt, (w, h))
-        if psnr and ssim:
-            s_psnr = psnr(img_gt_aligned, self.img_output, data_range=255)
-            s_ssim = ssim(img_gt_aligned, self.img_output, data_range=255, channel_axis=2)
-            self.lbl_psnr.configure(text=f"PSNR: {s_psnr:.2f} dB", text_color="#2CC985")
-            self.lbl_ssim.configure(text=f"SSIM: {s_ssim:.4f}", text_color="#2CC985")
+        img_gt_out = cv2.resize(self.img_gt, (w, h))
+        s_psnr_out = psnr(img_gt_out, self.img_output, data_range=255)
+        s_ssim_out = ssim(img_gt_out, self.img_output, data_range=255, channel_axis=2)
+
+        self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, s_psnr_out, s_ssim_out)
 
     def get_output_dir(self, subdir, prompt=False):
         selected = filedialog.askdirectory() if prompt else ""
