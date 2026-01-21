@@ -316,31 +316,40 @@ class ModernApp(ctk.CTk):
 
         self.lbl_face_blend = ctk.CTkLabel(self.sidebar, text=f"Face Blend: {self.face_blend.get():.2f}")
         self.lbl_face_blend.grid(row=9, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_face_blend.grid_remove()
         self.slider_face_blend = ctk.CTkSlider(self.sidebar, from_=0.0, to=1.0, number_of_steps=20,
                                                variable=self.face_blend, command=self.on_face_blend_change)
         self.slider_face_blend.grid(row=10, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_face_blend.grid_remove()
 
         self.lbl_natural_blend = ctk.CTkLabel(self.sidebar, text=f"Natural Blend: {self.natural_blend.get():.2f}")
         self.lbl_natural_blend.grid(row=11, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_natural_blend.grid_remove()
         self.slider_natural_blend = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.6, number_of_steps=12,
                                                   variable=self.natural_blend, command=self.on_natural_blend_change)
         self.slider_natural_blend.grid(row=12, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_natural_blend.grid_remove()
 
         self.lbl_texture_boost = ctk.CTkLabel(self.sidebar, text=f"Texture Boost: {self.texture_boost.get():.2f}")
         self.lbl_texture_boost.grid(row=13, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_texture_boost.grid_remove()
         self.slider_texture_boost = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.6, number_of_steps=12,
                                                   variable=self.texture_boost, command=self.on_texture_boost_change)
         self.slider_texture_boost.grid(row=14, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_texture_boost.grid_remove()
 
         self.lbl_film_grain = ctk.CTkLabel(self.sidebar, text=f"Film Grain: {self.film_grain.get():.2f}")
         self.lbl_film_grain.grid(row=15, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_film_grain.grid_remove()
         self.slider_film_grain = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.5, number_of_steps=10,
                                                variable=self.film_grain, command=self.on_film_grain_change)
         self.slider_film_grain.grid(row=16, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_film_grain.grid_remove()
 
         self.btn_auto_tune = ctk.CTkButton(self.sidebar, text="Auto Tune", command=self.auto_tune_parameters,
                                            fg_color="#5C6BC0", hover_color="#4B5AA6", height=36)
         self.btn_auto_tune.grid(row=17, column=0, padx=20, pady=(10, 6))
+        self.btn_auto_tune.grid_remove()
 
         self.btn_run = ctk.CTkButton(self.sidebar, text="Start Restoration", command=self.run_processing_thread,
                                      fg_color="#2CC985", hover_color="#229A66", height=50,
@@ -365,7 +374,7 @@ class ModernApp(ctk.CTk):
 
         # Metrics Display
         self.metrics_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        self.metrics_frame.grid(row=22, column=0, padx=20, pady=20, sticky="s")
+        self.metrics_frame.grid(row=22, column=0, padx=20, pady=(10, 10), sticky="nw")
 
         self.lbl_resolution_title = ctk.CTkLabel(
             self.metrics_frame,
