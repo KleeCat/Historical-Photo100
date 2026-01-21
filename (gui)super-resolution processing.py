@@ -83,6 +83,68 @@ def save_image(path, bgr_img):
     return path
 
 
+def blend_images(img_a, img_b, alpha):
+    if img_a is None:
+        return img_b
+    if img_b is None:
+        return img_a
+    weight = float(np.clip(alpha, 0.0, 1.0))
+    if weight <= 0.0:
+        return img_b
+    if weight >= 1.0:
+        return img_a
+    return cv2.addWeighted(img_a, weight, img_b, 1.0 - weight, 0)
+
+
+def apply_unsharp_mask(bgr_img, strength, radius=1.5):
+    weight = float(np.clip(strength, 0.0, 1.0))
+    if weight <= 0.0:
+        return bgr_img
+    blurred = cv2.GaussianBlur(bgr_img, (0, 0), radius)
+    sharpened = cv2.addWeighted(bgr_img, 1.0 + weight, blurred, -weight, 0)
+    return np.clip(sharpened, 0, 255).astype(np.uint8)
+
+
+def apply_film_grain(bgr_img, strength):
+    weight = float(np.clip(strength, 0.0, 1.0))
+    if weight <= 0.0:
+        return bgr_img
+    h, w = bgr_img.shape[:2]
+    sigma = 12.0 * weight
+    noise = np.random.normal(0.0, sigma, (h, w, 1)).astype(np.float32)
+    grain = bgr_img.astype(np.float32) + noise
+    return np.clip(grain, 0, 255).astype(np.uint8)
+
+
+def blend_with_lr(sr_bgr, lr_bgr, strength):
+    weight = float(np.clip(strength, 0.0, 1.0))
+    if weight <= 0.0:
+        return sr_bgr
+    h, w = sr_bgr.shape[:2]
+    lr_up = cv2.resize(lr_bgr, (w, h), interpolation=cv2.INTER_CUBIC)
+    return blend_images(lr_up, sr_bgr, weight)
+
+
+def clamp_value(value, min_value, max_value):
+    return max(min_value, min(float(value), max_value))
+
+
+def estimate_image_metrics(bgr_img):
+    gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
+    lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    blur = cv2.GaussianBlur(gray, (0, 0), 1.0)
+    noise_sigma = float(np.std(gray.astype(np.float32) - blur.astype(np.float32)))
+    contrast = float(np.std(gray))
+    edges = cv2.Canny(gray, 60, 120)
+    edge_density = float(np.mean(edges > 0))
+    return {
+        "lap_var": lap_var,
+        "noise_sigma": noise_sigma,
+        "contrast": contrast,
+        "edge_density": edge_density,
+    }
+
+
 def make_comparison_images(lr_bgr, sr_bgr, scale, base_name, out_dir):
     ensure_dir(out_dir)
     ts = timestamp_str()
@@ -183,6 +245,10 @@ class ModernApp(ctk.CTk):
         self.img_gt = None
         self.input_path = None
         self.is_processing = False
+        self.face_blend = ctk.DoubleVar(value=0.7)
+        self.natural_blend = ctk.DoubleVar(value=0.15)
+        self.texture_boost = ctk.DoubleVar(value=0.2)
+        self.film_grain = ctk.DoubleVar(value=0.0)
         self.feature_maps = []
         self.hook_handles = []
         self.max_feature_maps = 6
@@ -207,7 +273,7 @@ class ModernApp(ctk.CTk):
         # === 1. Sidebar (Left) ===
         self.sidebar = ctk.CTkFrame(self, width=240, corner_radius=0)
         self.sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew")
-        self.sidebar.grid_rowconfigure(13, weight=1)
+        self.sidebar.grid_rowconfigure(22, weight=1)
 
         # Logo / Title
         self.logo_label = ctk.CTkLabel(self.sidebar, text="Super Resolution", font=ctk.CTkFont(size=24, weight="bold"))
@@ -248,30 +314,58 @@ class ModernApp(ctk.CTk):
         self.switch_face = ctk.CTkSwitch(self.sidebar, text="Face Enhancement", variable=self.use_face_enhance)
         self.switch_face.grid(row=8, column=0, padx=20, pady=10, sticky="w")
 
+        self.lbl_face_blend = ctk.CTkLabel(self.sidebar, text=f"Face Blend: {self.face_blend.get():.2f}")
+        self.lbl_face_blend.grid(row=9, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.slider_face_blend = ctk.CTkSlider(self.sidebar, from_=0.0, to=1.0, number_of_steps=20,
+                                               variable=self.face_blend, command=self.on_face_blend_change)
+        self.slider_face_blend.grid(row=10, column=0, padx=20, pady=(0, 10), sticky="ew")
+
+        self.lbl_natural_blend = ctk.CTkLabel(self.sidebar, text=f"Natural Blend: {self.natural_blend.get():.2f}")
+        self.lbl_natural_blend.grid(row=11, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.slider_natural_blend = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.6, number_of_steps=12,
+                                                  variable=self.natural_blend, command=self.on_natural_blend_change)
+        self.slider_natural_blend.grid(row=12, column=0, padx=20, pady=(0, 10), sticky="ew")
+
+        self.lbl_texture_boost = ctk.CTkLabel(self.sidebar, text=f"Texture Boost: {self.texture_boost.get():.2f}")
+        self.lbl_texture_boost.grid(row=13, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.slider_texture_boost = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.6, number_of_steps=12,
+                                                  variable=self.texture_boost, command=self.on_texture_boost_change)
+        self.slider_texture_boost.grid(row=14, column=0, padx=20, pady=(0, 10), sticky="ew")
+
+        self.lbl_film_grain = ctk.CTkLabel(self.sidebar, text=f"Film Grain: {self.film_grain.get():.2f}")
+        self.lbl_film_grain.grid(row=15, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.slider_film_grain = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.5, number_of_steps=10,
+                                               variable=self.film_grain, command=self.on_film_grain_change)
+        self.slider_film_grain.grid(row=16, column=0, padx=20, pady=(0, 10), sticky="ew")
+
+        self.btn_auto_tune = ctk.CTkButton(self.sidebar, text="Auto Tune", command=self.auto_tune_parameters,
+                                           fg_color="#5C6BC0", hover_color="#4B5AA6", height=36)
+        self.btn_auto_tune.grid(row=17, column=0, padx=20, pady=(10, 6))
+
         self.btn_run = ctk.CTkButton(self.sidebar, text="Start Restoration", command=self.run_processing_thread,
                                      fg_color="#2CC985", hover_color="#229A66", height=50,
                                      font=ctk.CTkFont(size=16, weight="bold"))
-        self.btn_run.grid(row=9, column=0, padx=20, pady=(20, 10))
+        self.btn_run.grid(row=18, column=0, padx=20, pady=(10, 10))
 
         self.btn_compare = ctk.CTkButton(self.sidebar, text="Save Comparison", command=self.save_comparison,
                                          fg_color="#3A7CA5", hover_color="#2D5F7C", height=40,
                                          font=ctk.CTkFont(size=14, weight="bold"))
-        self.btn_compare.grid(row=10, column=0, padx=20, pady=10)
+        self.btn_compare.grid(row=19, column=0, padx=20, pady=10)
         self.btn_compare.configure(state="disabled")
 
         self.btn_features = ctk.CTkButton(self.sidebar, text="Export Features", command=self.export_feature_maps,
                                           fg_color="#E0A800", hover_color="#B38600", height=40,
                                           font=ctk.CTkFont(size=14, weight="bold"))
-        self.btn_features.grid(row=11, column=0, padx=20, pady=10)
+        self.btn_features.grid(row=20, column=0, padx=20, pady=10)
         self.btn_features.configure(state="disabled")
 
         self.btn_save = ctk.CTkButton(self.sidebar, text="Save Result", command=self.save_result, state="disabled",
                                       height=40)
-        self.btn_save.grid(row=12, column=0, padx=20, pady=10)
+        self.btn_save.grid(row=21, column=0, padx=20, pady=10)
 
         # Metrics Display
         self.metrics_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        self.metrics_frame.grid(row=13, column=0, padx=20, pady=20, sticky="s")
+        self.metrics_frame.grid(row=22, column=0, padx=20, pady=20, sticky="s")
 
         self.lbl_resolution_title = ctk.CTkLabel(
             self.metrics_frame,
@@ -477,6 +571,7 @@ class ModernApp(ctk.CTk):
             self.progress_bar.set(0)
             self.update_resolution_labels()
             self.calculate_metrics()
+            self.auto_tune_parameters()
 
     def load_gt_image(self):
         path = filedialog.askopenfilename(filetypes=[("Image", "*.jpg *.png *.jpeg *.bmp")])
@@ -548,6 +643,64 @@ class ModernApp(ctk.CTk):
         btn_save = ctk.CTkButton(preview, text=save_text, command=lambda: on_save(preview))
         btn_save.pack(pady=(0, 10))
 
+    def update_slider_label(self, label_widget, prefix, value):
+        label_widget.configure(text=f"{prefix}: {float(value):.2f}")
+
+    def on_face_blend_change(self, value):
+        self.update_slider_label(self.lbl_face_blend, "Face Blend", value)
+
+    def on_natural_blend_change(self, value):
+        self.update_slider_label(self.lbl_natural_blend, "Natural Blend", value)
+
+    def on_texture_boost_change(self, value):
+        self.update_slider_label(self.lbl_texture_boost, "Texture Boost", value)
+
+    def on_film_grain_change(self, value):
+        self.update_slider_label(self.lbl_film_grain, "Film Grain", value)
+
+    def detect_faces(self, gray_img):
+        cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
+        if not os.path.exists(cascade_path):
+            return False
+        cascade = cv2.CascadeClassifier(cascade_path)
+        if cascade.empty():
+            return False
+        faces = cascade.detectMultiScale(gray_img, scaleFactor=1.1, minNeighbors=4, minSize=(40, 40))
+        return len(faces) > 0
+
+    def auto_tune_parameters(self):
+        if self.img_input is None:
+            return
+        try:
+            metrics = estimate_image_metrics(self.img_input)
+            sharpness_norm = clamp_value((metrics["lap_var"] - 20.0) / 380.0, 0.0, 1.0)
+            noise_norm = clamp_value((metrics["noise_sigma"] - 2.0) / 18.0, 0.0, 1.0)
+            contrast_norm = clamp_value((metrics["contrast"] - 20.0) / 60.0, 0.0, 1.0)
+            edge_norm = clamp_value((metrics["edge_density"] - 0.02) / 0.08, 0.0, 1.0)
+
+            face_blend = clamp_value(0.6 + sharpness_norm * 0.2 - noise_norm * 0.1, 0.4, 0.9)
+            natural_blend = clamp_value(0.12 + noise_norm * 0.25 + (1.0 - contrast_norm) * 0.15, 0.0, 0.6)
+            texture_boost = clamp_value(0.12 + (1.0 - sharpness_norm) * 0.25 + edge_norm * 0.1 - noise_norm * 0.1,
+                                        0.0, 0.6)
+            film_grain = clamp_value(0.03 + (1.0 - edge_norm) * 0.12 + (1.0 - contrast_norm) * 0.08, 0.0, 0.5)
+
+            self.face_blend.set(face_blend)
+            self.natural_blend.set(natural_blend)
+            self.texture_boost.set(texture_boost)
+            self.film_grain.set(film_grain)
+            self.on_face_blend_change(face_blend)
+            self.on_natural_blend_change(natural_blend)
+            self.on_texture_boost_change(texture_boost)
+            self.on_film_grain_change(film_grain)
+
+            gray = cv2.cvtColor(self.img_input, cv2.COLOR_BGR2GRAY)
+            has_face = self.detect_faces(gray)
+            self.use_face_enhance.set(has_face)
+            status = "Auto tuned (face detected)" if has_face else "Auto tuned"
+            self.status_label.configure(text=status)
+        except Exception as e:
+            self.status_label.configure(text=f"Auto tune failed: {e}")
+
     def run_processing_thread(self):
         if self.img_input is None: return
         self.btn_run.configure(state="disabled", text="Processing...")
@@ -565,22 +718,28 @@ class ModernApp(ctk.CTk):
             output = None
             used_face_enhance = False
 
+            sr_base, _ = self.upsampler.enhance(self.img_input, outscale=self.scale_factor)
+            output = sr_base
+
             if self.use_face_enhance.get():
                 try:
                     from gfpgan import GFPGANer
                     face_enhancer = GFPGANer(
                         model_path='https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth',
                         upscale=self.scale_factor, arch='clean', channel_multiplier=2, bg_upsampler=self.upsampler)
-                    _, _, output = face_enhancer.enhance(self.img_input, has_aligned=False, only_center_face=False,
-                                                         paste_back=True)
-                    used_face_enhance = True
+                    _, _, face_output = face_enhancer.enhance(self.img_input, has_aligned=False, only_center_face=False,
+                                                              paste_back=True)
+                    if face_output is not None:
+                        output = blend_images(face_output, sr_base, self.face_blend.get())
+                        used_face_enhance = True
                 except Exception as e:
                     print(f"Warning: Face enhance failed ({e}), switching to standard mode.")
                     self.after(0, lambda: self.status_label.configure(
                         text="Face enhancement unavailable, switching to standard mode..."))
 
-            if output is None:
-                output, _ = self.upsampler.enhance(self.img_input, outscale=self.scale_factor)
+            output = blend_with_lr(output, self.img_input, self.natural_blend.get())
+            output = apply_unsharp_mask(output, self.texture_boost.get())
+            output = apply_film_grain(output, self.film_grain.get())
 
             self.img_output = output
 
