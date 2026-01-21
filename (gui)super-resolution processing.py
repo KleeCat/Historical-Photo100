@@ -346,11 +346,6 @@ class ModernApp(ctk.CTk):
         self.slider_film_grain.grid(row=16, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.slider_film_grain.grid_remove()
 
-        self.btn_auto_tune = ctk.CTkButton(self.sidebar, text="Auto Tune", command=self.auto_tune_parameters,
-                                           fg_color="#5C6BC0", hover_color="#4B5AA6", height=36)
-        self.btn_auto_tune.grid(row=17, column=0, padx=20, pady=(10, 6))
-        self.btn_auto_tune.grid_remove()
-
         self.btn_run = ctk.CTkButton(self.sidebar, text="Start Restoration", command=self.run_processing_thread,
                                      fg_color="#2CC985", hover_color="#229A66", height=50,
                                      font=ctk.CTkFont(size=16, weight="bold"))
