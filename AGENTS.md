@@ -141,6 +141,7 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 
 ## Proxy Setup
 - Recommended env vars: `HTTP_PROXY=http://127.0.0.1:7897`, `HTTPS_PROXY=http://127.0.0.1:7897`, `ALL_PROXY=socks5://127.0.0.1:7897`.
+- Day-to-day usage: keep HTTP proxy as default and use `ALL_PROXY` as a SOCKS5 fallback; for git push, prefer SOCKS5 and fall back to HTTP.
 - Quick test: `curl -I --proxy socks5h://127.0.0.1:7897 https://api.openai.com/v1/models` (expect 401).
 - Helper script: `set_proxy_env.bat` (sets env vars + runs the test).
 
