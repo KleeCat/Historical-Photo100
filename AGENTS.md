@@ -136,7 +136,8 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 - Respect existing `.gitignore` entries.
 
 ## Git Push Proxy
-- If GitHub push fails on this machine, retry with Clash proxy: `git -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 push origin main`.
+- If GitHub push fails on this machine, retry with Clash proxy (preferred): `git -c http.proxy=socks5://127.0.0.1:7897 -c https.proxy=socks5://127.0.0.1:7897 push origin main`.
+- If SOCKS5 still fails, retry HTTP proxy: `git -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 push origin main`.
 
 ## Proxy Setup
 - Recommended env vars: `HTTP_PROXY=http://127.0.0.1:7897`, `HTTPS_PROXY=http://127.0.0.1:7897`, `ALL_PROXY=socks5://127.0.0.1:7897`.
