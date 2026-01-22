@@ -33,6 +33,10 @@ import cv2
 import torch
 import numpy as np
 import threading
+try:
+    from diffusers import StableDiffusionImg2ImgPipeline
+except ImportError:
+    StableDiffusionImg2ImgPipeline = None
 with suppress_stderr():
     import customtkinter as ctk
 from tkinter import filedialog, messagebox
@@ -53,6 +57,15 @@ except ImportError:
 with suppress_stderr():
     ctk.set_appearance_mode("System")
     ctk.set_default_color_theme("blue")
+
+TEXTURE_MODEL_ID = os.environ.get("TEXTURE_MODEL_ID", r"D:\Tools\models\stable-diffusion-v1-5").strip()
+TEXTURE_PROMPT = os.environ.get(
+    "TEXTURE_PROMPT",
+    "restored vintage photo, realistic skin texture, fabric detail, subtle film grain"
+)
+TEXTURE_STRENGTH = float(os.environ.get("TEXTURE_STRENGTH", "0.35"))
+TEXTURE_GUIDANCE = float(os.environ.get("TEXTURE_GUIDANCE", "5.0"))
+TEXTURE_STEPS = int(os.environ.get("TEXTURE_STEPS", "2"))
 
 
 def ensure_dir(path):
@@ -242,6 +255,7 @@ class ModernApp(ctk.CTk):
         self.scale_factor = 4  # Default
         self.img_input = None
         self.img_output = None
+        self.texture_pipe = None
         self.img_gt = None
         self.input_path = None
         self.is_processing = False
@@ -566,7 +580,8 @@ class ModernApp(ctk.CTk):
             self.input_path = path
             self.img_input = self.read_image(path)
             self.show_image_ctk(self.img_input, self.lbl_img_in)
-            self.status_label.configure(text=f"Loaded: {os.path.basename(path)}")
+            status_text = f"Loaded: {os.path.basename(path)} | {self.get_texture_status_text()}"
+            self.status_label.configure(text=status_text)
             self.img_output = None
             self.lbl_img_out.configure(image=None, text="Waiting for processing...")
             self.btn_save.configure(state="disabled")
@@ -662,6 +677,11 @@ class ModernApp(ctk.CTk):
     def on_film_grain_change(self, value):
         self.update_slider_label(self.lbl_film_grain, "Film Grain", value)
 
+    def get_texture_status_text(self):
+        if TEXTURE_MODEL_ID:
+            return "Texture gen: on"
+        return "Texture gen: off (set TEXTURE_MODEL_ID)"
+
     def detect_faces(self, gray_img):
         cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
         if not os.path.exists(cascade_path):
@@ -705,6 +725,37 @@ class ModernApp(ctk.CTk):
         except Exception as e:
             self.status_label.configure(text=f"Auto tune failed: {e}")
 
+    def get_texture_pipeline(self):
+        if not TEXTURE_MODEL_ID:
+            return None
+        if StableDiffusionImg2ImgPipeline is None:
+            raise RuntimeError("diffusers not installed. Run: pip install diffusers transformers accelerate")
+        if self.texture_pipe is None:
+            dtype = torch.float16 if self.device.type == "cuda" else torch.float32
+            self.texture_pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
+                TEXTURE_MODEL_ID,
+                torch_dtype=dtype
+            )
+            self.texture_pipe.to(self.device)
+            if self.device.type == "cuda":
+                self.texture_pipe.enable_attention_slicing()
+        return self.texture_pipe
+
+    def apply_texture_generation(self, bgr_img):
+        pipe = self.get_texture_pipeline()
+        if pipe is None:
+            return bgr_img
+        rgb_img = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
+        init_image = Image.fromarray(rgb_img)
+        result = pipe(
+            prompt=TEXTURE_PROMPT,
+            image=init_image,
+            strength=TEXTURE_STRENGTH,
+            guidance_scale=TEXTURE_GUIDANCE,
+            num_inference_steps=TEXTURE_STEPS
+        ).images[0]
+        return cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
+
     def run_processing_thread(self):
         if self.img_input is None: return
         self.btn_run.configure(state="disabled", text="Processing...")
@@ -743,6 +794,10 @@ class ModernApp(ctk.CTk):
 
             output = blend_with_lr(output, self.img_input, self.natural_blend.get())
             output = apply_unsharp_mask(output, self.texture_boost.get())
+            try:
+                output = self.apply_texture_generation(output)
+            except Exception as e:
+                self.after(0, lambda: self.status_label.configure(text=f"Texture generation skipped: {e}"))
             output = apply_film_grain(output, self.film_grain.get())
 
             self.img_output = output
