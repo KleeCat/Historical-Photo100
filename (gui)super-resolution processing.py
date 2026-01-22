@@ -3,6 +3,7 @@ import json
 import sys
 import contextlib
 import warnings
+import time
 from datetime import datetime
 
 
@@ -31,6 +32,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module=r".*_distutils_ha
 
 import cv2
 import torch
+import torch.nn as nn
 import numpy as np
 import threading
 try:
@@ -66,6 +68,10 @@ TEXTURE_PROMPT = os.environ.get(
 TEXTURE_STRENGTH = float(os.environ.get("TEXTURE_STRENGTH", "0.35"))
 TEXTURE_GUIDANCE = float(os.environ.get("TEXTURE_GUIDANCE", "5.0"))
 TEXTURE_STEPS = int(os.environ.get("TEXTURE_STEPS", "2"))
+TEXTURE_ENABLED = False
+SCRATCH_MODEL_PATH = os.environ.get("SCRATCH_MODEL_PATH", "").strip()
+SCRATCH_MASK_THRESHOLD = float(os.environ.get("SCRATCH_MASK_THRESHOLD", "0.5"))
+SCRATCH_INPAINT_RADIUS = int(os.environ.get("SCRATCH_INPAINT_RADIUS", "3"))
 
 
 def ensure_dir(path):
@@ -94,6 +100,106 @@ def save_image(path, bgr_img):
         raise RuntimeError("Failed to encode image")
     buf.tofile(path)
     return path
+
+
+class ConvBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+
+class ScratchUNet(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.down1 = ConvBlock(1, 32)
+        self.pool1 = nn.MaxPool2d(2)
+        self.down2 = ConvBlock(32, 64)
+        self.pool2 = nn.MaxPool2d(2)
+        self.down3 = ConvBlock(64, 128)
+        self.pool3 = nn.MaxPool2d(2)
+        self.bottleneck = ConvBlock(128, 256)
+
+        self.up3 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
+        self.dec3 = ConvBlock(256, 128)
+        self.up2 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
+        self.dec2 = ConvBlock(128, 64)
+        self.up1 = nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2)
+        self.dec1 = ConvBlock(64, 32)
+
+        self.out = nn.Conv2d(32, 1, kernel_size=1)
+
+    def forward(self, x):
+        d1 = self.down1(x)
+        d2 = self.down2(self.pool1(d1))
+        d3 = self.down3(self.pool2(d2))
+        b = self.bottleneck(self.pool3(d3))
+
+        u3 = self.up3(b)
+        u3 = self.dec3(torch.cat([u3, d3], dim=1))
+        u2 = self.up2(u3)
+        u2 = self.dec2(torch.cat([u2, d2], dim=1))
+        u1 = self.up1(u2)
+        u1 = self.dec1(torch.cat([u1, d1], dim=1))
+        return self.out(u1)
+
+
+def clean_state_dict(state_dict):
+    cleaned = {}
+    for key, value in state_dict.items():
+        cleaned[key.replace("module.", "")] = value
+    return cleaned
+
+
+def load_scratch_model(model_path, device):
+    if not model_path:
+        return None
+    if not os.path.exists(model_path):
+        return None
+    try:
+        checkpoint = torch.load(model_path, map_location=device)
+    except Exception:
+        return None
+    if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+        state_dict = checkpoint["state_dict"]
+    else:
+        state_dict = checkpoint
+    model = ScratchUNet()
+    model.load_state_dict(clean_state_dict(state_dict), strict=False)
+    model.to(device)
+    model.eval()
+    return model
+
+
+def predict_scratch_mask(bgr_img, model, device, threshold):
+    if model is None:
+        return None
+    gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
+    inp = gray.astype(np.float32) / 255.0
+    tensor = torch.from_numpy(inp).unsqueeze(0).unsqueeze(0).to(device)
+    with torch.no_grad():
+        pred = torch.sigmoid(model(tensor))
+    mask = pred.squeeze().detach().cpu().numpy()
+    mask = (mask >= threshold).astype(np.uint8) * 255
+    if mask.shape[:2] != gray.shape[:2]:
+        mask = cv2.resize(mask, (gray.shape[1], gray.shape[0]), interpolation=cv2.INTER_NEAREST)
+    return mask
+
+
+def apply_scratch_repair(bgr_img, model, device, threshold, inpaint_radius):
+    if model is None:
+        return bgr_img
+    mask = predict_scratch_mask(bgr_img, model, device, threshold)
+    if mask is None or not np.any(mask):
+        return bgr_img
+    return cv2.inpaint(bgr_img, mask, inpaint_radius, cv2.INPAINT_TELEA)
 
 
 def blend_images(img_a, img_b, alpha):
@@ -256,6 +362,7 @@ class ModernApp(ctk.CTk):
         self.img_input = None
         self.img_output = None
         self.texture_pipe = None
+        self.scratch_model = None
         self.img_gt = None
         self.input_path = None
         self.is_processing = False
@@ -263,9 +370,19 @@ class ModernApp(ctk.CTk):
         self.natural_blend = ctk.DoubleVar(value=0.15)
         self.texture_boost = ctk.DoubleVar(value=0.2)
         self.film_grain = ctk.DoubleVar(value=0.0)
+        self.compare_mode = ctk.BooleanVar(value=False)
+        self.compare_split = ctk.DoubleVar(value=0.5)
         self.feature_maps = []
         self.hook_handles = []
         self.max_feature_maps = 6
+        self.zoom_factor = 1.0
+        self.view_center = [0.5, 0.5]
+        self.pan_start = None
+        self.compare_hold_active = False
+        self.progress_target = 0.0
+        self.processing_start_time = None
+        self.overlay_base_text = "Waiting for processing..."
+        self.resize_job = None
         self.project_dir = os.path.dirname(os.path.abspath(__file__))
         self.config_path = os.path.join(self.project_dir, "output_config.json")
         self.default_output_dir = None
@@ -287,7 +404,7 @@ class ModernApp(ctk.CTk):
         # === 1. Sidebar (Left) ===
         self.sidebar = ctk.CTkFrame(self, width=240, corner_radius=0)
         self.sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew")
-        self.sidebar.grid_rowconfigure(22, weight=1)
+        self.sidebar.grid_rowconfigure(25, weight=1)
 
         # Logo / Title
         self.logo_label = ctk.CTkLabel(self.sidebar, text="Super Resolution", font=ctk.CTkFont(size=24, weight="bold"))
@@ -364,6 +481,8 @@ class ModernApp(ctk.CTk):
                                      fg_color="#2CC985", hover_color="#229A66", height=50,
                                      font=ctk.CTkFont(size=16, weight="bold"))
         self.btn_run.grid(row=18, column=0, padx=20, pady=(10, 10))
+        self.btn_run_default_fg = self.btn_run.cget("fg_color")
+        self.btn_run_default_hover = self.btn_run.cget("hover_color")
 
         self.btn_compare = ctk.CTkButton(self.sidebar, text="Save Comparison", command=self.save_comparison,
                                          fg_color="#3A7CA5", hover_color="#2D5F7C", height=40,
@@ -381,9 +500,21 @@ class ModernApp(ctk.CTk):
                                       height=40)
         self.btn_save.grid(row=21, column=0, padx=20, pady=10)
 
+        self.switch_compare = ctk.CTkSwitch(self.sidebar, text="Compare Slider", variable=self.compare_mode,
+                                            command=self.on_compare_mode_toggle)
+        self.switch_compare.grid(row=22, column=0, padx=20, pady=(10, 4), sticky="w")
+        self.lbl_compare_split = ctk.CTkLabel(self.sidebar, text="Split: 50%")
+        self.lbl_compare_split.grid(row=23, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.slider_compare = ctk.CTkSlider(self.sidebar, from_=0.0, to=1.0, number_of_steps=20,
+                                            variable=self.compare_split, command=self.on_compare_split_change)
+        self.slider_compare.grid(row=24, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_compare.configure(state="disabled")
+        self.lbl_compare_split.grid_remove()
+        self.slider_compare.grid_remove()
+
         # Metrics Display
         self.metrics_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        self.metrics_frame.grid(row=22, column=0, padx=20, pady=(10, 10), sticky="nw")
+        self.metrics_frame.grid(row=25, column=0, padx=20, pady=(10, 10), sticky="nw")
 
         self.lbl_resolution_title = ctk.CTkLabel(
             self.metrics_frame,
@@ -395,6 +526,9 @@ class ModernApp(ctk.CTk):
         self.lbl_resolution_in.pack(anchor="w")
         self.lbl_resolution_out = ctk.CTkLabel(self.metrics_frame, text="Output: -- x --", font=ctk.CTkFont(size=15))
         self.lbl_resolution_out.pack(anchor="w", pady=(0, 6))
+        self.lbl_resolution_title.pack_forget()
+        self.lbl_resolution_in.pack_forget()
+        self.lbl_resolution_out.pack_forget()
 
         self.lbl_metrics_after = ctk.CTkLabel(
             self.metrics_frame,
@@ -406,12 +540,21 @@ class ModernApp(ctk.CTk):
         self.lbl_psnr_out.pack(anchor="w")
         self.lbl_ssim_out = ctk.CTkLabel(self.metrics_frame, text="SSIM: --", font=ctk.CTkFont(size=15))
         self.lbl_ssim_out.pack(anchor="w")
+        self.lbl_gt_hint = ctk.CTkLabel(
+            self.metrics_frame,
+            text="Load Ground Truth to calculate metrics.",
+            font=ctk.CTkFont(size=11),
+            text_color=("gray40", "gray60")
+        )
+        self.lbl_gt_hint.pack(anchor="w", pady=(2, 0))
 
         # === 2. Main Display Area (Right) ===
         self.display_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
         self.display_frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
-        self.display_frame.grid_columnconfigure((0, 1), weight=1)
+        self.display_frame.grid_columnconfigure(0, weight=1, uniform="images", minsize=320)
+        self.display_frame.grid_columnconfigure(1, weight=1, uniform="images", minsize=320)
         self.display_frame.grid_rowconfigure(1, weight=1)
+        self.display_frame.grid_rowconfigure(2, weight=0)
 
         # Headers
         ctk.CTkLabel(self.display_frame, text="Original Input", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0,
@@ -421,10 +564,10 @@ class ModernApp(ctk.CTk):
             row=0, column=1, pady=5)
 
         # Image Containers
-        self.frame_input = ctk.CTkFrame(self.display_frame, fg_color=("gray90", "gray16"))
+        self.frame_input = ctk.CTkFrame(self.display_frame, fg_color=("gray85", "#1C1C1C"))
         self.frame_input.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
 
-        self.frame_output = ctk.CTkFrame(self.display_frame, fg_color=("gray90", "gray16"))
+        self.frame_output = ctk.CTkFrame(self.display_frame, fg_color=("gray85", "#1C1C1C"))
         self.frame_output.grid(row=1, column=1, sticky="nsew", padx=5, pady=5)
 
         # Image Labels
@@ -433,6 +576,25 @@ class ModernApp(ctk.CTk):
 
         self.lbl_img_out = ctk.CTkLabel(self.frame_output, text="Waiting for processing...", corner_radius=6)
         self.lbl_img_out.pack(expand=True, fill="both", padx=10, pady=10)
+
+        self.output_overlay = ctk.CTkFrame(self.frame_output, corner_radius=6, fg_color=("gray85", "#222222"))
+        self.output_overlay_label = ctk.CTkLabel(
+            self.output_overlay,
+            text="Waiting for processing...",
+            text_color=("gray20", "gray80"),
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        self.output_overlay_label.pack(expand=True)
+        self.output_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+        self.lbl_resolution_in_display = ctk.CTkLabel(self.display_frame, text="Input: -- x --",
+                                                     font=ctk.CTkFont(size=12))
+        self.lbl_resolution_in_display.grid(row=2, column=0, pady=(0, 5))
+        self.lbl_resolution_out_display = ctk.CTkLabel(self.display_frame, text="Output: -- x --",
+                                                       font=ctk.CTkFont(size=12))
+        self.lbl_resolution_out_display.grid(row=2, column=1, pady=(0, 5))
+
+        self.bind_image_interactions()
 
         # === 3. Status Bar (Bottom) ===
         self.status_frame = ctk.CTkFrame(self, height=30, corner_radius=0)
@@ -444,6 +606,8 @@ class ModernApp(ctk.CTk):
         # Determinate Progress Bar
         self.progress_bar = ctk.CTkProgressBar(self.status_frame, width=300, mode="determinate")
         self.progress_bar.pack(side="right", padx=20, pady=5)
+        self.elapsed_label = ctk.CTkLabel(self.status_frame, text="Elapsed: --", padx=10)
+        self.elapsed_label.pack(side="right")
         self.progress_bar.set(0)
 
     # --- Feature Extraction Hooks ---
@@ -524,14 +688,14 @@ class ModernApp(ctk.CTk):
 
     # --- Logic: Progress Bar Animation ---
     def auto_increment_progress(self):
-        if self.is_processing:
-            current_val = self.progress_bar.get()
-            if current_val < 0.95:
-                increment = (0.95 - current_val) * 0.05
-                if increment < 0.001:
-                    increment = 0.001
-                self.progress_bar.set(current_val + increment)
-            self.after(100, self.auto_increment_progress)
+        if not self.is_processing:
+            return
+        current_val = self.progress_bar.get()
+        target_val = self.progress_target
+        if current_val < target_val:
+            increment = min(0.03, target_val - current_val)
+            self.progress_bar.set(current_val + increment)
+        self.after(120, self.auto_increment_progress)
 
     # --- Logic: Model Loading & Switching ---
     def change_model_scale(self, choice):
@@ -579,15 +743,20 @@ class ModernApp(ctk.CTk):
         if path:
             self.input_path = path
             self.img_input = self.read_image(path)
-            self.show_image_ctk(self.img_input, self.lbl_img_in)
+            self.reset_view_state()
             status_text = f"Loaded: {os.path.basename(path)} | {self.get_texture_status_text()}"
             self.status_label.configure(text=status_text)
             self.img_output = None
-            self.lbl_img_out.configure(image=None, text="Waiting for processing...")
+            self.feature_maps = []
+            self.render_main_images()
+            self.update_compare_controls()
+            self.show_output_overlay("Waiting for processing...", animate=False)
             self.btn_save.configure(state="disabled")
             self.btn_compare.configure(state="disabled")
             self.btn_features.configure(state="disabled")
             self.progress_bar.set(0)
+            self.progress_target = 0.0
+            self.elapsed_label.configure(text="Elapsed: --")
             self.update_resolution_labels()
             self.calculate_metrics()
             self.auto_tune_parameters()
@@ -607,6 +776,245 @@ class ModernApp(ctk.CTk):
         elif img.shape[2] == 4:
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
         return img
+
+    def bind_image_interactions(self):
+        widgets = (self.lbl_img_in, self.lbl_img_out)
+        for widget in widgets:
+            widget.bind("<MouseWheel>", self.on_zoom)
+            widget.bind("<ButtonPress-3>", self.on_pan_start)
+            widget.bind("<B3-Motion>", self.on_pan_move)
+            widget.bind("<ButtonRelease-3>", self.on_pan_end)
+            widget.bind("<Configure>", self.on_display_resize)
+        self.lbl_img_out.bind("<ButtonPress-1>", self.on_compare_press)
+        self.lbl_img_out.bind("<ButtonRelease-1>", self.on_compare_release)
+        self.lbl_img_out.bind("<Leave>", self.on_compare_leave)
+        self.bind("<ButtonRelease-1>", self.on_compare_release)
+
+    def reset_view_state(self):
+        self.zoom_factor = 1.0
+        self.view_center = [0.5, 0.5]
+        self.pan_start = None
+        self.compare_hold_active = False
+
+    def on_display_resize(self, event):
+        if self.resize_job is not None:
+            self.after_cancel(self.resize_job)
+        self.resize_job = self.after(120, self.render_main_images)
+
+    def on_zoom(self, event):
+        if self.img_input is None:
+            return
+        if event.delta > 0:
+            zoom = self.zoom_factor * 1.1
+        elif event.delta < 0:
+            zoom = self.zoom_factor / 1.1
+        else:
+            return
+        self.zoom_factor = float(np.clip(zoom, 1.0, 6.0))
+        self.render_main_images()
+
+    def on_pan_start(self, event):
+        if self.img_input is None:
+            return
+        self.pan_start = (event.x, event.y)
+
+    def on_pan_move(self, event):
+        if self.img_input is None or self.pan_start is None:
+            return
+        dx = event.x - self.pan_start[0]
+        dy = event.y - self.pan_start[1]
+        self.pan_start = (event.x, event.y)
+
+        widget_w = max(event.widget.winfo_width(), 1)
+        widget_h = max(event.widget.winfo_height(), 1)
+        view_w, view_h = self.calculate_view_window(self.img_input, widget_w, widget_h)
+        if view_w <= 0 or view_h <= 0:
+            return
+        self.view_center[0] -= dx / widget_w * (view_w / self.img_input.shape[1])
+        self.view_center[1] -= dy / widget_h * (view_h / self.img_input.shape[0])
+        self.view_center[0] = float(np.clip(self.view_center[0], 0.0, 1.0))
+        self.view_center[1] = float(np.clip(self.view_center[1], 0.0, 1.0))
+        self.render_main_images()
+
+    def on_pan_end(self, event):
+        self.pan_start = None
+
+    def on_compare_press(self, event):
+        if self.img_input is None or self.img_output is None:
+            return
+        if self.is_processing:
+            return
+        if self.compare_mode.get():
+            return
+        self.compare_hold_active = True
+        self.render_main_images()
+
+    def on_compare_release(self, event):
+        if not self.compare_hold_active:
+            return
+        self.compare_hold_active = False
+        self.render_main_images()
+
+    def on_compare_leave(self, event):
+        if not self.compare_hold_active:
+            return
+        self.compare_hold_active = False
+        self.render_main_images()
+
+    def calculate_view_window(self, bgr_img, widget_w, widget_h):
+        h_img, w_img = bgr_img.shape[:2]
+        zoom = max(self.zoom_factor, 1e-3)
+        view_w = max(1, int(w_img / zoom))
+        view_h = max(1, int(h_img / zoom))
+        target_ratio = widget_w / widget_h if widget_h else 1.0
+        view_ratio = view_w / view_h if view_h else 1.0
+        if view_ratio > target_ratio:
+            view_w = int(view_h * target_ratio)
+        else:
+            view_h = int(view_w / target_ratio)
+        view_w = max(1, min(view_w, w_img))
+        view_h = max(1, min(view_h, h_img))
+        return view_w, view_h
+
+    def render_zoomed_image(self, bgr_img, label_widget):
+        widget_w = label_widget.winfo_width()
+        widget_h = label_widget.winfo_height()
+        if widget_w < 10 or widget_h < 10:
+            widget_w, widget_h = 500, 500
+
+        margin = int(min(widget_w, widget_h) * 0.08)
+        render_w = max(1, widget_w - margin * 2)
+        render_h = max(1, widget_h - margin * 2)
+
+        view_w, view_h = self.calculate_view_window(bgr_img, render_w, render_h)
+        h_img, w_img = bgr_img.shape[:2]
+        cx = int(self.view_center[0] * w_img)
+        cy = int(self.view_center[1] * h_img)
+        x1 = max(0, min(cx - view_w // 2, w_img - view_w))
+        y1 = max(0, min(cy - view_h // 2, h_img - view_h))
+        crop = bgr_img[y1:y1 + view_h, x1:x1 + view_w]
+        resized = cv2.resize(crop, (render_w, render_h), interpolation=cv2.INTER_CUBIC)
+        img_rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+        im_pil = Image.fromarray(img_rgb)
+        ctk_img = ctk.CTkImage(light_image=im_pil, dark_image=im_pil, size=(render_w, render_h))
+        label_widget.configure(image=ctk_img, text="")
+        label_widget.image = ctk_img
+
+    def render_main_images(self):
+        if self.img_input is None:
+            self.lbl_img_in.configure(image=None, text="Waiting for input...")
+            self.lbl_img_in.image = None
+        else:
+            self.render_zoomed_image(self.img_input, self.lbl_img_in)
+
+        if self.compare_mode.get() and self.img_input is not None and self.img_output is not None:
+            compare_img = self.build_compare_image(self.img_input, self.img_output, self.compare_split.get())
+            self.render_zoomed_image(compare_img, self.lbl_img_out)
+            return
+        if self.compare_hold_active and self.img_input is not None:
+            self.render_zoomed_image(self.img_input, self.lbl_img_out)
+            return
+        if self.img_output is None:
+            self.lbl_img_out.configure(image=None, text="")
+            self.lbl_img_out.image = None
+            return
+        self.render_zoomed_image(self.img_output, self.lbl_img_out)
+
+    def build_compare_image(self, lr_bgr, sr_bgr, split_ratio):
+        if lr_bgr is None:
+            return sr_bgr
+        if sr_bgr is None:
+            return lr_bgr
+        h, w = sr_bgr.shape[:2]
+        lr_up = cv2.resize(lr_bgr, (w, h), interpolation=cv2.INTER_CUBIC)
+        split = int(w * float(np.clip(split_ratio, 0.0, 1.0)))
+        combined = sr_bgr.copy()
+        if split > 0:
+            combined[:, :split] = lr_up[:, :split]
+        return combined
+
+    def on_compare_mode_toggle(self):
+        self.compare_hold_active = False
+        self.update_compare_controls()
+        self.render_main_images()
+
+    def on_compare_split_change(self, value):
+        percent = int(round(float(value) * 100))
+        self.lbl_compare_split.configure(text=f"Split: {percent}%")
+        if self.compare_mode.get():
+            self.render_main_images()
+
+    def update_compare_controls(self):
+        compare_enabled = self.compare_mode.get()
+        if compare_enabled:
+            self.lbl_compare_split.grid()
+            self.slider_compare.grid()
+        else:
+            self.lbl_compare_split.grid_remove()
+            self.slider_compare.grid_remove()
+        if compare_enabled and not self.is_processing:
+            self.slider_compare.configure(state="normal")
+        else:
+            self.slider_compare.configure(state="disabled")
+
+    def show_output_overlay(self, text, animate=False):
+        self.overlay_base_text = text
+        self.output_overlay_label.configure(text=text)
+        self.output_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+        self.output_overlay.lift()
+        if animate:
+            self.animate_output_overlay()
+
+    def hide_output_overlay(self):
+        self.output_overlay.place_forget()
+
+    def animate_output_overlay(self):
+        if not self.is_processing:
+            return
+        dots = getattr(self, "overlay_dot_count", 0)
+        dots = (dots + 1) % 4
+        self.overlay_dot_count = dots
+        text = f"{self.overlay_base_text}{'.' * dots}"
+        self.output_overlay_label.configure(text=text)
+        self.after(500, self.animate_output_overlay)
+
+    def report_progress(self, value, status_text=None, overlay_text=None):
+        def update():
+            self.progress_target = max(self.progress_target, value)
+            if status_text:
+                self.status_label.configure(text=status_text)
+            if overlay_text:
+                self.overlay_base_text = overlay_text
+                self.overlay_dot_count = 0
+                self.output_overlay_label.configure(text=overlay_text)
+        self.after(0, update)
+
+    def start_elapsed_timer(self):
+        self.processing_start_time = time.perf_counter()
+        self.update_elapsed_time()
+
+    def update_elapsed_time(self):
+        if not self.is_processing or self.processing_start_time is None:
+            return
+        elapsed = time.perf_counter() - self.processing_start_time
+        self.elapsed_label.configure(text=f"Elapsed: {elapsed:.1f}s")
+        self.after(200, self.update_elapsed_time)
+
+    def set_run_button_processing(self, processing):
+        if processing:
+            self.btn_run.configure(
+                state="disabled",
+                text="Processing...",
+                fg_color=("gray70", "#444444"),
+                hover_color=("gray70", "#444444")
+            )
+        else:
+            self.btn_run.configure(
+                state="normal",
+                text="Start Restoration",
+                fg_color=self.btn_run_default_fg,
+                hover_color=self.btn_run_default_hover
+            )
 
     def show_image_ctk(self, cv_img, label_widget):
         img_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
@@ -678,9 +1086,9 @@ class ModernApp(ctk.CTk):
         self.update_slider_label(self.lbl_film_grain, "Film Grain", value)
 
     def get_texture_status_text(self):
-        if TEXTURE_MODEL_ID:
+        if TEXTURE_ENABLED and TEXTURE_MODEL_ID:
             return "Texture gen: on"
-        return "Texture gen: off (set TEXTURE_MODEL_ID)"
+        return "Texture gen: off (disabled)"
 
     def detect_faces(self, gray_img):
         cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
@@ -726,7 +1134,7 @@ class ModernApp(ctk.CTk):
             self.status_label.configure(text=f"Auto tune failed: {e}")
 
     def get_texture_pipeline(self):
-        if not TEXTURE_MODEL_ID:
+        if not TEXTURE_ENABLED or not TEXTURE_MODEL_ID:
             return None
         if StableDiffusionImg2ImgPipeline is None:
             raise RuntimeError("diffusers not installed. Run: pip install diffusers transformers accelerate")
@@ -758,25 +1166,33 @@ class ModernApp(ctk.CTk):
 
     def run_processing_thread(self):
         if self.img_input is None: return
-        self.btn_run.configure(state="disabled", text="Processing...")
-        self.status_label.configure(text=f"Restoring image (x{self.scale_factor})...")
-
         self.is_processing = True
         self.progress_bar.set(0)
-        self.auto_increment_progress()
+        self.progress_target = 0.05
         self.feature_maps = []
+        self.compare_hold_active = False
+        self.start_elapsed_timer()
+        self.set_run_button_processing(True)
+        self.update_compare_controls()
+        self.show_output_overlay("Processing", animate=True)
+        self.status_label.configure(text=f"Restoring image (x{self.scale_factor})...")
+        self.auto_increment_progress()
 
         threading.Thread(target=self.process_image, daemon=True).start()
 
     def process_image(self):
+        success = False
         try:
             output = None
             used_face_enhance = False
 
+            self.report_progress(0.15, f"Upscaling image (x{self.scale_factor})...", "Upscaling")
             sr_base, _ = self.upsampler.enhance(self.img_input, outscale=self.scale_factor)
             output = sr_base
+            self.report_progress(0.45, "Upscale complete. Refining details...", "Refining")
 
             if self.use_face_enhance.get():
+                self.report_progress(0.55, "Applying face enhancement...", "Face enhancement")
                 try:
                     from gfpgan import GFPGANer
                     face_enhancer = GFPGANer(
@@ -792,17 +1208,25 @@ class ModernApp(ctk.CTk):
                     self.after(0, lambda: self.status_label.configure(
                         text="Face enhancement unavailable, switching to standard mode..."))
 
+            self.report_progress(0.7, "Blending fine details...", "Blending")
             output = blend_with_lr(output, self.img_input, self.natural_blend.get())
             output = apply_unsharp_mask(output, self.texture_boost.get())
             try:
+                self.report_progress(0.82, "Generating texture details...", "Texture refinement")
                 output = self.apply_texture_generation(output)
             except Exception as e:
                 self.after(0, lambda: self.status_label.configure(text=f"Texture generation skipped: {e}"))
+            self.report_progress(0.92, "Finalizing output...", "Finalizing")
             output = apply_film_grain(output, self.film_grain.get())
 
             self.img_output = output
+            success = True
 
-            self.after(0, lambda: self.show_image_ctk(self.img_output, self.lbl_img_out))
+            self.compare_hold_active = False
+
+            self.after(0, self.hide_output_overlay)
+            self.after(0, self.render_main_images)
+            self.after(0, self.update_compare_controls)
             self.after(0, self.update_resolution_labels)
             self.after(0, self.calculate_metrics)
 
@@ -818,22 +1242,37 @@ class ModernApp(ctk.CTk):
 
         except Exception as e:
             self.after(0, lambda: messagebox.showerror("Error", f"Processing failed: {str(e)}"))
+            self.after(0, lambda: self.show_output_overlay("Processing failed", animate=False))
         finally:
             self.is_processing = False
+            elapsed = None
+            if self.processing_start_time is not None:
+                elapsed = time.perf_counter() - self.processing_start_time
             self.after(0, lambda: self.progress_bar.set(1.0))
-            self.after(0, lambda: self.btn_run.configure(state="normal", text="Start Restoration"))
+            self.after(0, lambda: self.set_run_button_processing(False))
+            if elapsed is not None:
+                self.after(0, lambda: self.elapsed_label.configure(text=f"Elapsed: {elapsed:.1f}s"))
+            if success and elapsed is not None:
+                self.after(0, lambda: messagebox.showinfo(
+                    "Completed",
+                    f"Restoration finished in {elapsed:.1f}s."
+                ))
 
     def update_resolution_labels(self):
         if self.img_input is None:
-            self.lbl_resolution_in.configure(text="Input: -- x --")
+            input_text = "Input: -- x --"
         else:
             h, w = self.img_input.shape[:2]
-            self.lbl_resolution_in.configure(text=f"Input: {w} x {h}")
+            input_text = f"Input: {w} x {h}"
+        self.lbl_resolution_in.configure(text=input_text)
+        self.lbl_resolution_in_display.configure(text=input_text)
         if self.img_output is None:
-            self.lbl_resolution_out.configure(text="Output: -- x --")
+            output_text = "Output: -- x --"
         else:
             h, w = self.img_output.shape[:2]
-            self.lbl_resolution_out.configure(text=f"Output: {w} x {h}")
+            output_text = f"Output: {w} x {h}"
+        self.lbl_resolution_out.configure(text=output_text)
+        self.lbl_resolution_out_display.configure(text=output_text)
 
     def set_metric_labels(self, psnr_label, ssim_label, psnr_value, ssim_value):
         if psnr_value is None or ssim_value is None:
@@ -847,13 +1286,18 @@ class ModernApp(ctk.CTk):
     def calculate_metrics(self):
         if psnr is None or ssim is None:
             self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, None, None)
+            self.lbl_gt_hint.pack(anchor="w", pady=(2, 0))
             return
         if self.img_gt is None:
             self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, None, None)
+            self.lbl_gt_hint.pack(anchor="w", pady=(2, 0))
             return
         if self.img_output is None:
             self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, None, None)
+            self.lbl_gt_hint.pack(anchor="w", pady=(2, 0))
             return
+
+        self.lbl_gt_hint.pack_forget()
 
         h, w = self.img_output.shape[:2]
         img_gt_out = cv2.resize(self.img_gt, (w, h))
