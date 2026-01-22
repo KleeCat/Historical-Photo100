@@ -138,6 +138,11 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 ## Git Push Proxy
 - If GitHub push fails on this machine, retry with Clash proxy: `git -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 push origin main`.
 
+## Proxy Setup
+- Recommended env vars: `HTTP_PROXY=http://127.0.0.1:7897`, `HTTPS_PROXY=http://127.0.0.1:7897`, `ALL_PROXY=socks5://127.0.0.1:7897`.
+- Quick test: `curl -I --proxy socks5h://127.0.0.1:7897 https://api.openai.com/v1/models` (expect 401).
+- Helper script: `set_proxy_env.bat` (sets env vars + runs the test).
+
 ## Troubleshooting
 - If a script fails to find images, verify the input directory and extensions.
 - If CUDA OOM occurs, lower `tile_size` or switch to CPU.
