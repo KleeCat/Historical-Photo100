@@ -15,25 +15,15 @@
 
 ## Output Style (Save Context)
 - For long outputs (>40 lines or >500 chars), write to a file instead of printing in terminal.
-- Terminal output should be short:
-  1) What was done (1-2 sentences)
-  2) Which files changed (with paths)
-  3) Next steps (max 3)
+- Terminal output should be short: 1) What was done (1-2 sentences) 2) Which files changed (with paths) 3) Next steps (max 3)
 
 ## Workflow
 - Default: Plan (3 bullets) -> Execute -> Verify.
-- If deleting/overwriting files, list targets first, then proceed.
-- If context might be insufficient, suggest starting a new session.
+- If deleting/overwriting files, list targets first; if context might be insufficient, suggest starting a new session.
 
 ## Repository Overview
 - This repo is a set of Python scripts for image super-resolution and evaluation.
-- Key scripts (entry points):
-  - `esrgan_gui.py`: Tk GUI for batch SR, metrics table, CSV export.
-  - `(gui)super-resolution processing.py`: CustomTk GUI with comparison + feature export.
-  - `super-resolution processing.py`: CLI batch SR with optional GFPGAN.
-  - `Quantitative assessment and frequency domain analysis.py`: PSNR/SSIM/LPIPS/FID + plots.
-  - `RRDBNet_arch.py`: RRDBNet architecture definition.
-  - `download.py`: DIV2K LR sample download.
+- Key scripts (entry points): `esrgan_gui.py` (Tk GUI for batch SR, metrics table, CSV export); `(gui)super-resolution processing.py` (CustomTk GUI with comparison + feature export); `super-resolution processing.py` (CLI batch SR with optional GFPGAN); `Quantitative assessment and frequency domain analysis.py` (PSNR/SSIM/LPIPS/FID + plots); `RRDBNet_arch.py` (RRDBNet architecture definition); `download.py` (DIV2K LR sample download).
 
 ## Environment Setup (Windows)
 - Prefer a virtual environment on the D: drive.
@@ -78,6 +68,7 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 - Types: add type hints for new/modified public functions; use `Optional`, `List`, `Tuple`.
 - Types: avoid `Any` unless necessary; prefer precise container types.
 - Docstrings: short English docstrings for non-obvious functions and public APIs.
+- Entrypoints: wrap CLI execution in `if __name__ == "__main__":` and keep top-level code minimal.
 - Error handling: guard file IO, model loading, and GPU ops with try/except and clear messages.
 - Error handling: preserve tracebacks for unexpected errors; do not silently ignore failures.
 - Logging: keep CLI logs concise; avoid noisy per-pixel logging.
@@ -95,8 +86,7 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 
 ## Model/GUI Notes
 - Use `tile_size` for memory-heavy images; 0 means no tiling.
-- Prefer worker threads for SR processing; keep UI responsive.
-- Use queue-based messaging to avoid cross-thread UI access.
+- Prefer worker threads for SR processing; keep UI responsive; use queue-based messaging to avoid cross-thread UI access.
 
 ## Dependency Notes
 - `torch`, `basicsr`, `realesrgan` are required for SR.
@@ -132,18 +122,12 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 - Release temporary tensors promptly to reduce VRAM pressure.
 
 ## Execution Tips
-- Use absolute paths when running from other directories.
-- Quote file paths with spaces or parentheses.
-- For manual checks, start with a small image set.
-- Keep a backup of outputs when overwriting.
-- Validate model weight paths before long batch runs.
+- Use absolute paths when running from other directories; quote file paths with spaces or parentheses.
+- Start with a small image set; keep a backup of outputs when overwriting; validate model weight paths before long batch runs.
 
 ## Reporting and Artifacts
-- `evaluation_results/` stores CSVs, plots, and reports.
-- `outputs/compare` and `outputs/features` are used by the CustomTk GUI.
-- Use timestamps in filenames to avoid overwrites.
-- Confirm write permissions before long batch runs.
-- For long logs, save to a text file and link it in messages.
+- `evaluation_results/` stores CSVs, plots, and reports; `outputs/compare` and `outputs/features` are used by the CustomTk GUI.
+- Use timestamps in filenames to avoid overwrites; confirm write permissions before long batch runs; for long logs, save to a text file and link it in messages.
 
 ## Version Control Hygiene
 - Do not commit datasets, outputs, or model weights.
