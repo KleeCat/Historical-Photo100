@@ -135,6 +135,9 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 - Clean up large local files before committing.
 - Respect existing `.gitignore` entries.
 
+## Git Push Proxy
+- If GitHub push fails on this machine, retry with Clash proxy: `git -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 push origin main`.
+
 ## Troubleshooting
 - If a script fails to find images, verify the input directory and extensions.
 - If CUDA OOM occurs, lower `tile_size` or switch to CPU.

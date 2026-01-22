@@ -1125,11 +1125,7 @@ class ModernApp(ctk.CTk):
             self.on_texture_boost_change(texture_boost)
             self.on_film_grain_change(film_grain)
 
-            gray = cv2.cvtColor(self.img_input, cv2.COLOR_BGR2GRAY)
-            has_face = self.detect_faces(gray)
-            self.use_face_enhance.set(has_face)
-            status = "Auto tuned (face detected)" if has_face else "Auto tuned"
-            self.status_label.configure(text=status)
+            self.status_label.configure(text="Auto tuned")
         except Exception as e:
             self.status_label.configure(text=f"Auto tune failed: {e}")
 
