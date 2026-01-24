@@ -54,6 +54,7 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 ## Build / Lint / Test
 - No build step; scripts run directly with Python.
 - No tests directory is present; no automated test suite by default.
+- If you add tests, place them under `tests/` with `test_*.py` naming.
 - If you add tests under `tests/`, use pytest:
   - Run all tests: `python -m pytest`
   - Run a single file: `python -m pytest tests/test_file.py`
@@ -73,6 +74,8 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 - Docstrings: short English docstrings for non-obvious functions and public APIs.
 - Entrypoints: wrap CLI execution in `if __name__ == "__main__":` and keep top-level code minimal.
 - Error handling: guard file IO, model loading, GPU ops with try/except and clear messages; preserve tracebacks.
+- File IO: prefer context managers and validate paths before read/write.
+- Optional deps: import inside functions and print install hints when missing.
 - Logging: keep CLI logs concise; avoid noisy per-pixel logging; GUI updates via queue on main thread.
 - Image handling: normalize channels (BGR/GRAY/BGRA), clip to uint8 before saving.
 - Config: keep default paths in one place; allow user override via variables/GUI fields.

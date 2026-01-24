@@ -1,5 +1,8 @@
 # Changelog
 
+- 2026-01-25: Added `docs/remote_access.md` for RDP tunnel and texture pipeline notes.
+- 2026-01-25: Captured RDP tunnel and texture pipeline updates in `.context/CURRENT_TASK.md`.
+- 2026-01-25: Refined `AGENTS.md` with test placement and file IO/optional dependency guidance.
 - 2026-01-24: Refined `AGENTS.md` with updated build/test guidance and code style rules.
 - 2026-01-24: Recorded server handoff notes and dependency pins in `.context/CURRENT_TASK.md`.
 - 2026-01-24: Selected RDP (xrdp) for remote desktop workflow.
