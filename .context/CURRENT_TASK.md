@@ -64,6 +64,7 @@ Last update: 2026-01-25
 - Local commit `c570464` pushed to `main` (texture refinement stability under VRAM limits).
 
 ## Done
+- Moved `docs/remote_access.md` to `.context/remote_access.md` and added the response suffix rule to `AGENTS.md`.
 - Added `docs/remote_access.md` with RDP tunnel and texture pipeline notes.
 - Logged 2026-01-25 RDP and texture pipeline handoff notes.
 - Updated `AGENTS.md` with test placement and file IO/optional dependency guidance.
