@@ -1,8 +1,11 @@
 import os
+from typing import Optional, cast
+
 import cv2
+import numpy as np
+from numpy.typing import NDArray
 import torch
 import torch.nn as nn
-import numpy as np
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from realesrgan import RealESRGANer
 from gfpgan import GFPGANer
@@ -141,13 +144,13 @@ def esrgan_super_resolution(
     lr_dir,
     sr_dir,
     model_path,
-    scale_factor=4,
-    use_face_enhance=False,
-    tile_size=0,
-    use_scratch_repair=False,
-    scratch_model_path="",
-    scratch_threshold=0.5,
-    inpaint_radius=3,
+    scale_factor: int = 4,
+    use_face_enhance: bool = False,
+    tile_size: int = 0,
+    use_scratch_repair: bool = False,
+    scratch_model_path: str = "",
+    scratch_threshold: float = 0.5,
+    inpaint_radius: int = 3,
 ):
     """
     Perform super-resolution using Real-ESRGAN
@@ -188,7 +191,23 @@ def esrgan_super_resolution(
         half=False,  # Use FP32 precision for stability
         device=device
     )
-    face_enhancer = None
+    face_enhancer: Optional[GFPGANer] = None
+    if use_face_enhance:
+        try:
+            gfpgan_model_path = os.environ.get(
+                "GFPGAN_MODEL_PATH",
+                "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth",
+            )
+            face_enhancer = GFPGANer(
+                model_path=gfpgan_model_path,
+                upscale=scale_factor,
+                arch="clean",
+                channel_multiplier=2,
+                bg_upsampler=upsampler,
+            )
+        except Exception as exc:
+            print(f"Warning: Face enhancer init failed ({exc}); disabling face enhancement.")
+            face_enhancer = None
 
     scratch_model = None
     if use_scratch_repair:
@@ -217,6 +236,7 @@ def esrgan_super_resolution(
             if img is None:
                 print(f"Cannot read image: {img_name}")
                 continue
+            img = cast(NDArray[np.uint8], img)
 
             # Handle single-channel images
             if len(img.shape) == 2:
@@ -238,7 +258,7 @@ def esrgan_super_resolution(
 
             # Perform super-resolution processing
             with torch.no_grad():
-                if face_enhancer is not None and use_face_enhance:
+                if use_face_enhance and face_enhancer is not None:
                     # Use GFPGAN for face enhancement
                     _, _, output = face_enhancer.enhance(
                         img,
@@ -249,6 +269,10 @@ def esrgan_super_resolution(
                 else:
                     # Use Real-ESRGAN for super-resolution
                     output, _ = upsampler.enhance(img, outscale=scale_factor)
+
+            if output is None:
+                print(f"✗ No output generated for image {img_name}")
+                continue
 
             # Ensure output is within valid range
             output = output.astype(np.float32)
@@ -271,11 +295,20 @@ def esrgan_super_resolution(
 
 def main():
     """Main function to configure and run super-resolution processing"""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
     # Configuration parameters
     CONFIG = {
-        "lr_dir": r"D:\HuaweiMoveData\Users\ihggk\Desktop\Historical-Photo100\LR",  # Low-resolution image directory
-        "sr_dir": r"D:\HuaweiMoveData\Users\ihggk\Desktop\Historical-Photo100\SR",  # Super-resolution output directory
-        "model_path": r"C:\Users\ihggk\.cache\realesrgan\RealESRGAN_x4plus.pth",  # Model path (updated as requested)
+        "lr_dir": os.environ.get("LR_DIR", os.path.join(base_dir, "LR")),  # Low-resolution image directory
+        "sr_dir": os.environ.get("SR_DIR", os.path.join(base_dir, "SR")),  # Super-resolution output directory
+        "model_path": os.environ.get(
+            "REALESRGAN_MODEL_PATH",
+            os.path.join(
+                os.path.expanduser("~"),
+                ".cache",
+                "realesrgan",
+                "RealESRGAN_x4plus.pth",
+            ),
+        ),  # Model path
         "scale_factor": 4,  # Scaling factor
         "use_face_enhance": False,  # Whether to enable face enhancement
         "tile_size": 0,  # Tile size, 0 means no tiling (set to 400-800 if GPU memory is insufficient)

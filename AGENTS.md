@@ -17,6 +17,11 @@
 - For long outputs (>40 lines or >500 chars), write to a file instead of printing in terminal.
 - Terminal output should be short: 1) What was done (1-2 sentences) 2) Which files changed (with paths) 3) Next steps (max 3)
 
+## Context Files
+- Project memory lives under `.context/`.
+- Update `.context/CURRENT_TASK.md` when tasks start/stop or the session ends.
+- Record notable changes in `.context/CHANGELOG.md`.
+
 ## Workflow
 - Default: Plan (3 bullets) -> Execute -> Verify.
 - If deleting/overwriting files, list targets first; if context might be insufficient, suggest starting a new session.
@@ -62,7 +67,7 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 
 ## Code Style Guidelines
 - Imports: standard library, third-party, then local; keep groups separated by blank lines.
-- Imports: prefer one import per line; avoid unused imports.
+- Imports: prefer one import per line; avoid unused or wildcard imports.
 - Formatting: 4-space indent; line length target around 100; prefer f-strings.
 - Naming: snake_case for functions/vars; CamelCase for classes; UPPER_SNAKE for constants.
 - Types: add type hints for new/modified public functions; use `Optional`, `List`, `Tuple`.
@@ -81,6 +86,7 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 - Generated outputs may also appear under `outputs/` or `output/`.
 - Do not commit large datasets, outputs, or weights; respect `.gitignore`.
 - Default Real-ESRGAN weight path:
+  - `~/.cache/realesrgan/RealESRGAN_x4plus.pth` (or set `REALESRGAN_MODEL_PATH`)
   - `C:\Users\ihggk\.cache\realesrgan\RealESRGAN_x4plus.pth`
 - GFPGAN weights are optional and should live in user cache locations.
 
