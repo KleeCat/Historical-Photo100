@@ -41,7 +41,7 @@ except ImportError:
     StableDiffusionImg2ImgPipeline = None
 with suppress_stderr():
     import customtkinter as ctk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, TclError
 from PIL import Image
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from realesrgan import RealESRGANer
@@ -353,8 +353,10 @@ class ModernApp(ctk.CTk):
         self.geometry("1300x900")  # Increased height for new controls
 
         # Core variables
-        # UPDATE THIS FOLDER PATH ONLY
-        self.model_folder = r"C:\Users\ihggk\.cache\realesrgan"
+        self.model_folder = os.environ.get(
+            "REALESRGAN_MODEL_DIR",
+            os.path.join(os.path.expanduser("~"), ".cache", "realesrgan"),
+        )
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.upsampler = None
         self.model = None
@@ -746,6 +748,7 @@ class ModernApp(ctk.CTk):
             self.reset_view_state()
             status_text = f"Loaded: {os.path.basename(path)} | {self.get_texture_status_text()}"
             self.status_label.configure(text=status_text)
+            self.img_gt = None
             self.img_output = None
             self.feature_maps = []
             self.render_main_images()
@@ -877,6 +880,8 @@ class ModernApp(ctk.CTk):
         return view_w, view_h
 
     def render_zoomed_image(self, bgr_img, label_widget):
+        if not label_widget.winfo_exists():
+            return False
         widget_w = label_widget.winfo_width()
         widget_h = label_widget.winfo_height()
         if widget_w < 10 or widget_h < 10:
@@ -897,8 +902,12 @@ class ModernApp(ctk.CTk):
         img_rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
         im_pil = Image.fromarray(img_rgb)
         ctk_img = ctk.CTkImage(light_image=im_pil, dark_image=im_pil, size=(render_w, render_h))
-        label_widget.configure(image=ctk_img, text="")
-        label_widget.image = ctk_img
+        try:
+            label_widget.configure(image=ctk_img, text="")
+            label_widget.image = ctk_img
+        except TclError:
+            return False
+        return True
 
     def render_main_images(self):
         if self.img_input is None:
@@ -918,7 +927,26 @@ class ModernApp(ctk.CTk):
             self.lbl_img_out.configure(image=None, text="")
             self.lbl_img_out.image = None
             return
-        self.render_zoomed_image(self.img_output, self.lbl_img_out)
+        if not self.render_zoomed_image(self.img_output, self.lbl_img_out):
+            try:
+                self.show_image_ctk(self.img_output, self.lbl_img_out)
+            except TclError:
+                return
+
+    def force_output_refresh(self):
+        if self.img_output is None:
+            return
+        if not self.lbl_img_out.winfo_exists():
+            return
+        try:
+            self.render_zoomed_image(self.img_output, self.lbl_img_out)
+            self.show_image_ctk(self.img_output, self.lbl_img_out)
+        except TclError:
+            return
+        try:
+            self.lbl_img_out.update_idletasks()
+        except TclError:
+            return
 
     def build_compare_image(self, lr_bgr, sr_bgr, split_ratio):
         if lr_bgr is None:
@@ -1222,6 +1250,9 @@ class ModernApp(ctk.CTk):
 
             self.after(0, self.hide_output_overlay)
             self.after(0, self.render_main_images)
+            self.after(0, self.update_idletasks)
+            self.after(80, self.render_main_images)
+            self.after(140, self.force_output_refresh)
             self.after(0, self.update_compare_controls)
             self.after(0, self.update_resolution_labels)
             self.after(0, self.calculate_metrics)
