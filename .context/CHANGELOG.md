@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-01-25: Moved `docs/remote_access.md` into `.context` and added the response suffix rule.
 - 2026-01-25: Added `docs/remote_access.md` for RDP tunnel and texture pipeline notes.
 - 2026-01-25: Captured RDP tunnel and texture pipeline updates in `.context/CURRENT_TASK.md`.
 - 2026-01-25: Refined `AGENTS.md` with test placement and file IO/optional dependency guidance.
