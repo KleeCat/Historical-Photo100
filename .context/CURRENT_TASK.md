@@ -54,7 +54,19 @@ Last update: 2026-01-25
 - If diffusers error `torch.distributed.device_mesh` appears, downgrade: diffusers 0.25.1, transformers 4.36.2, accelerate 0.25.0.
 - Server should pull latest commit (336a190) or upload files before retest.
 
+## Handoff Notes (2026-01-25)
+- Local repo at `D:\HuaweiMoveData\Users\ihggk\Desktop\Historical-Photo100`; server repo at `/root/rivermind-data/Historical-Photo100`.
+- RDP works via tunnel: `ssh -L 3390:localhost:3389 root@sh01-ssh.gpuhome.cc -p 30018`, then RDP to `localhost:3390` (Xorg). Restart xrdp as root (no sudo).
+- Terminal paste/encoding fixed; custom motd error silenced in `~/.bashrc` on server.
+- Backup GUI texture updates: filename labels (basename), error handler captures exception string, texture logs (loading/ready/start/done/failed), fp16 variant support, CPU offload + VAE slicing/tiling, `TEXTURE_MAX_DIM` downscale + upsample, and `upsampler` guard in `run_processing_thread`.
+- Diffusers pins on server: diffusers 0.25.1, transformers 4.36.2, accelerate 0.25.0, huggingface_hub 0.20.2, safetensors.
+- Model path: `/root/rivermind-data/models/stable-diffusion-v1-5` (fp16 only). `TEXTURE_MAX_DIM=1024` tested successfully.
+- Local commit `c570464` pushed to `main` (texture refinement stability under VRAM limits).
+
 ## Done
+- Added `docs/remote_access.md` with RDP tunnel and texture pipeline notes.
+- Logged 2026-01-25 RDP and texture pipeline handoff notes.
+- Updated `AGENTS.md` with test placement and file IO/optional dependency guidance.
 - Clone instance created and data disk verified.
 - Real-ESRGAN weights present under `/root/.cache/realesrgan`.
 - GUI output refresh fix applied locally.
