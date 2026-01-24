@@ -97,6 +97,7 @@ TEXTURE_PROMPT = os.environ.get(
 TEXTURE_STRENGTH = float(os.environ.get("TEXTURE_STRENGTH", "0.35"))
 TEXTURE_GUIDANCE = float(os.environ.get("TEXTURE_GUIDANCE", "5.0"))
 TEXTURE_STEPS = int(os.environ.get("TEXTURE_STEPS", "2"))
+TEXTURE_MAX_DIM = int(os.environ.get("TEXTURE_MAX_DIM", "768"))
 TEXTURE_ENABLED = True
 SCRATCH_MODEL_PATH = os.environ.get("SCRATCH_MODEL_PATH", "").strip()
 SCRATCH_MASK_THRESHOLD = float(os.environ.get("SCRATCH_MASK_THRESHOLD", "0.5"))
@@ -602,11 +603,17 @@ class ModernApp(ctk.CTk):
         self.frame_output.grid(row=1, column=1, sticky="nsew", padx=5, pady=5)
 
         # Image Labels
+        self.lbl_input_name = ctk.CTkLabel(self.frame_input, text="--", font=ctk.CTkFont(size=12, weight="bold"))
+        self.lbl_input_name.pack(fill="x", padx=10, pady=(10, 0))
+
         self.lbl_img_in = ctk.CTkLabel(self.frame_input, text="Waiting for input...", corner_radius=6)
-        self.lbl_img_in.pack(expand=True, fill="both", padx=10, pady=10)
+        self.lbl_img_in.pack(expand=True, fill="both", padx=10, pady=(6, 10))
+
+        self.lbl_output_name = ctk.CTkLabel(self.frame_output, text="--", font=ctk.CTkFont(size=12, weight="bold"))
+        self.lbl_output_name.pack(fill="x", padx=10, pady=(10, 0))
 
         self.lbl_img_out = ctk.CTkLabel(self.frame_output, text="Waiting for processing...", corner_radius=6)
-        self.lbl_img_out.pack(expand=True, fill="both", padx=10, pady=10)
+        self.lbl_img_out.pack(expand=True, fill="both", padx=10, pady=(6, 10))
 
         self.output_overlay = ctk.CTkFrame(self.frame_output, corner_radius=6, fg_color=("gray85", "#222222"))
         self.output_overlay_label = ctk.CTkLabel(
@@ -773,10 +780,13 @@ class ModernApp(ctk.CTk):
         path = filedialog.askopenfilename(filetypes=[("Image", "*.jpg *.png *.jpeg *.bmp")])
         if path:
             self.input_path = path
+            filename = os.path.basename(path)
             self.img_input = self.read_image(path)
             self.reset_view_state()
-            status_text = f"Loaded: {os.path.basename(path)} | {self.get_texture_status_text()}"
+            status_text = f"Loaded: {filename} | {self.get_texture_status_text()}"
             self.status_label.configure(text=status_text)
+            self.lbl_input_name.configure(text=filename)
+            self.lbl_output_name.configure(text=filename)
             self.img_gt = None
             self.img_output = None
             self.feature_maps = []
@@ -1192,21 +1202,59 @@ class ModernApp(ctk.CTk):
         if StableDiffusionImg2ImgPipeline is None:
             raise RuntimeError("diffusers not installed. Run: pip install diffusers transformers accelerate")
         if self.texture_pipe is None:
+            print("Texture pipeline: loading", flush=True)
             dtype = torch.float16 if self.device.type == "cuda" else torch.float32
-            self.texture_pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
-                TEXTURE_MODEL_ID,
-                torch_dtype=dtype
-            )
-            self.texture_pipe.to(self.device)
+            variant = None
+            if self.device.type == "cuda":
+                unet_dir = os.path.join(TEXTURE_MODEL_ID, "unet")
+                fp16_bin = os.path.join(unet_dir, "diffusion_pytorch_model.fp16.bin")
+                fp16_safe = os.path.join(unet_dir, "diffusion_pytorch_model.fp16.safetensors")
+                if os.path.exists(fp16_bin) or os.path.exists(fp16_safe):
+                    variant = "fp16"
+                    print("Texture pipeline: using fp16 weights", flush=True)
+            if variant:
+                self.texture_pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
+                    TEXTURE_MODEL_ID,
+                    torch_dtype=dtype,
+                    variant=variant
+                )
+            else:
+                self.texture_pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
+                    TEXTURE_MODEL_ID,
+                    torch_dtype=dtype
+                )
+            use_cpu_offload = False
+            if self.device.type == "cuda" and hasattr(self.texture_pipe, "enable_model_cpu_offload"):
+                self.texture_pipe.enable_model_cpu_offload()
+                use_cpu_offload = True
+                print("Texture pipeline: cpu offload enabled", flush=True)
+            if not use_cpu_offload:
+                self.texture_pipe.to(self.device)
             if self.device.type == "cuda":
                 self.texture_pipe.enable_attention_slicing()
+                if hasattr(self.texture_pipe, "enable_vae_slicing"):
+                    self.texture_pipe.enable_vae_slicing()
+                if hasattr(self.texture_pipe, "enable_vae_tiling"):
+                    self.texture_pipe.enable_vae_tiling()
+            print("Texture pipeline: ready", flush=True)
         return self.texture_pipe
 
     def apply_texture_generation(self, bgr_img):
         pipe = self.get_texture_pipeline()
         if pipe is None:
             return bgr_img
-        rgb_img = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
+        height, width = bgr_img.shape[:2]
+        resized_bgr = bgr_img
+        scale = 1.0
+        if TEXTURE_MAX_DIM > 0:
+            max_dim = max(height, width)
+            if max_dim > TEXTURE_MAX_DIM:
+                scale = TEXTURE_MAX_DIM / float(max_dim)
+                new_width = max(1, int(width * scale))
+                new_height = max(1, int(height * scale))
+                resized_bgr = cv2.resize(bgr_img, (new_width, new_height), interpolation=cv2.INTER_AREA)
+                print(f"Texture generation: downscale {width}x{height} -> {new_width}x{new_height}", flush=True)
+        rgb_img = cv2.cvtColor(resized_bgr, cv2.COLOR_BGR2RGB)
         init_image = Image.fromarray(rgb_img)
         result = pipe(
             prompt=TEXTURE_PROMPT,
@@ -1215,10 +1263,20 @@ class ModernApp(ctk.CTk):
             guidance_scale=TEXTURE_GUIDANCE,
             num_inference_steps=TEXTURE_STEPS
         ).images[0]
-        return cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
+        output_bgr = cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
+        if scale != 1.0:
+            output_bgr = cv2.resize(output_bgr, (width, height), interpolation=cv2.INTER_CUBIC)
+            print(f"Texture generation: upscale back to {width}x{height}", flush=True)
+        return output_bgr
 
     def run_processing_thread(self):
-        if self.img_input is None: return
+        if self.img_input is None:
+            return
+        if self.upsampler is None:
+            self.status_label.configure(text="Model not loaded. Loading model...")
+            self.progress_bar.set(0.2)
+            threading.Thread(target=self.load_model, daemon=True).start()
+            return
         self.is_processing = True
         self.progress_bar.set(0)
         self.progress_target = 0.05
@@ -1266,9 +1324,13 @@ class ModernApp(ctk.CTk):
             output = apply_unsharp_mask(output, self.texture_boost.get())
             try:
                 self.report_progress(0.82, "Generating texture details...", "Texture refinement")
+                print("Texture generation: start", flush=True)
                 output = self.apply_texture_generation(output)
+                print("Texture generation: done", flush=True)
             except Exception as e:
-                self.after(0, lambda: self.status_label.configure(text=f"Texture generation skipped: {e}"))
+                print(f"Texture generation: failed ({e})", flush=True)
+                error_message = f"Texture generation skipped: {e}"
+                self.after(0, lambda message=error_message: self.status_label.configure(text=message))
             self.report_progress(0.92, "Finalizing output...", "Finalizing")
             output = apply_film_grain(output, self.film_grain.get())
 

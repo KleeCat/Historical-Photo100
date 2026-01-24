@@ -1,5 +1,38 @@
 # Changelog
 
+- 2026-01-24: Refined `AGENTS.md` with updated build/test guidance and code style rules.
+- 2026-01-24: Recorded server handoff notes and dependency pins in `.context/CURRENT_TASK.md`.
+- 2026-01-24: Selected RDP (xrdp) for remote desktop workflow.
+- 2026-01-24: Noted provider storage policy and need to find persistent data disk mount.
+- 2026-01-24: Added plan to install xorgxrdp/dbus-x11 for RDP blank screen.
+- 2026-01-24: Confirmed xorgxrdp/dbus-x11 already present; xrdp restart attempted.
+- 2026-01-24: Logged SSH password rejection while setting up RDP tunnel.
+- 2026-01-24: Noted provider reset password not taking effect; advised `passwd` in-session.
+- 2026-01-24: Recorded SSH port change to 30018.
+- 2026-01-24: Logged SSH tunnel connection refused; xrdp likely not listening.
+- 2026-01-24: Installed terminal emulator (xterm) and set xfce4-terminal as default.
+- 2026-01-24: Logged RDP terminal garbled output; plan to set locale for X session.
+- 2026-01-24: Added troubleshooting note for RDP clipboard paste.
+- 2026-01-24: Planned terminalrc update for UTF-8 encoding and unsafe paste dialog.
+- 2026-01-24: Fixed backup GUI texture error handler to capture exception message.
+- 2026-01-24: Applied backup GUI NameError fix on server.
+- 2026-01-24: Verified backup GUI relaunch without NameError (only torchvision warning).
+- 2026-01-24: Added filename labels above input/output images in backup GUI.
+- 2026-01-24: Added explicit texture generation console logs in backup GUI.
+- 2026-01-24: Updated filename labels to show just the basename.
+- 2026-01-24: Noted texture log only showing start; reset steps to default for verification.
+- 2026-01-24: Added texture pipeline load/fail logs for debugging.
+- 2026-01-24: Noted diffusers missing on server; install pinned versions without reinstalling torch.
+- 2026-01-24: Logged diffusers still missing after rerun; need venv-hp install verification.
+- 2026-01-24: Identified huggingface_hub incompatibility with diffusers (cached_download missing).
+- 2026-01-24: Adjusted plan to use huggingface_hub 0.20.x for OfflineModeIsEnabled.
+- 2026-01-24: Logged missing diffusers model weights (diffusion_pytorch_model.bin) for texture pipeline.
+- 2026-01-24: Added fp16 variant handling for diffusers texture pipeline.
+- 2026-01-24: Added guard to reload model when upsampler is missing.
+- 2026-01-24: Enabled diffusers CPU offload and VAE slicing/tiling to reduce VRAM.
+- 2026-01-24: Added TEXTURE_MAX_DIM downscale for texture generation.
+- 2026-01-24: Adjusted TEXTURE_MAX_DIM patch approach after server pattern mismatch.
+- 2026-01-25: Texture generation verified with fp16 weights, CPU offload, and downscale fallback.
 - 2026-01-24: Added `.context/` project memory files for plan, architecture, changelog, and current task tracking.
 - 2026-01-24: Expanded `.context/CURRENT_TASK.md` with command-level runbook steps.
 - 2026-01-24: Added diffusers compatibility shims (torch.xpu and pytree) to backup GUI.

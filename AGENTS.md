@@ -53,7 +53,7 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 
 ## Build / Lint / Test
 - No build step; scripts run directly with Python.
-- No automated test suite is included by default.
+- No tests directory is present; no automated test suite by default.
 - If you add tests under `tests/`, use pytest:
   - Run all tests: `python -m pytest`
   - Run a single file: `python -m pytest tests/test_file.py`
@@ -66,24 +66,19 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
   - `python -m isort .`
 
 ## Code Style Guidelines
-- Imports: standard library, third-party, then local; keep groups separated by blank lines.
-- Imports: prefer one import per line; avoid unused or wildcard imports.
+- Imports: standard library, third-party, then local; blank-line groups; one import per line; no unused/wildcard imports.
 - Formatting: 4-space indent; line length target around 100; prefer f-strings.
 - Naming: snake_case for functions/vars; CamelCase for classes; UPPER_SNAKE for constants.
-- Types: add type hints for new/modified public functions; use `Optional`, `List`, `Tuple`.
-- Types: avoid `Any` unless necessary; prefer precise container types.
+- Types: add type hints for new/modified public functions; use `Optional`, `List`, `Tuple`; avoid `Any` unless necessary.
 - Docstrings: short English docstrings for non-obvious functions and public APIs.
 - Entrypoints: wrap CLI execution in `if __name__ == "__main__":` and keep top-level code minimal.
-- Error handling: guard file IO, model loading, and GPU ops with try/except and clear messages.
-- Error handling: preserve tracebacks for unexpected errors; do not silently ignore failures.
-- Logging: keep CLI logs concise; avoid noisy per-pixel logging.
-- Logging: for GUI, post updates via the queue; update UI on the main thread only.
+- Error handling: guard file IO, model loading, GPU ops with try/except and clear messages; preserve tracebacks.
+- Logging: keep CLI logs concise; avoid noisy per-pixel logging; GUI updates via queue on main thread.
 - Image handling: normalize channels (BGR/GRAY/BGRA), clip to uint8 before saving.
 - Config: keep default paths in one place; allow user override via variables/GUI fields.
 
 ## Paths, Data, and Outputs
-- Default data dirs: `LR/`, `SR/`, optional `HR/`, and `evaluation_results/`.
-- Generated outputs may also appear under `outputs/` or `output/`.
+- Default data dirs: `LR/`, `SR/`, optional `HR/`, and `evaluation_results/`; outputs may also appear under `outputs/` or `output/`.
 - Do not commit large datasets, outputs, or weights; respect `.gitignore`.
 - Default Real-ESRGAN weight path:
   - `~/.cache/realesrgan/RealESRGAN_x4plus.pth` (or set `REALESRGAN_MODEL_PATH`)
@@ -95,37 +90,28 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 - Prefer worker threads for SR processing; keep UI responsive; use queue-based messaging to avoid cross-thread UI access.
 
 ## Dependency Notes
-- `torch`, `basicsr`, `realesrgan` are required for SR.
-- `gfpgan` is optional; only enable face enhancement when installed and weights exist.
+- `torch`, `basicsr`, `realesrgan` are required for SR; `gfpgan` is optional for face enhancement.
 - GUI preview uses `Pillow`; CustomTk GUI needs `customtkinter`.
 - Evaluation uses `scikit-image`, `lpips`, `pytorch-fid`, `matplotlib`, `scipy`.
 - If a dependency is missing, print a clear install hint and exit gracefully.
 - Use `torch.cuda.is_available()` to decide CPU vs GPU execution.
 
 ## Configuration and Defaults
-- Keep default paths in one place (top of file or `CONFIG` dict).
-- Use raw strings for Windows paths.
-- Prefer `os.path.join` over string concatenation.
-- Ensure output directories exist before writing.
-- Avoid writing to repo root unless explicitly requested.
-- Avoid hardcoding user-specific paths in new scripts.
+- Keep default paths in one place (top of file or `CONFIG` dict); use raw strings for Windows paths.
+- Prefer `os.path.join` over string concatenation; ensure output directories exist before writing.
+- Avoid writing to repo root unless explicitly requested; avoid hardcoding user-specific paths in new scripts.
 - Keep config dicts uppercase for clarity in CLI scripts.
 
 ## Image IO and Metrics
-- Read images with `cv2.imread(..., cv2.IMREAD_UNCHANGED)` and normalize channels.
-- Convert GRAY or BGRA to BGR before processing.
-- Clamp/convert outputs to uint8 before saving.
-- Use consistent resize interpolation (`cv2.INTER_CUBIC`) for baselines.
+- Read images with `cv2.imread(..., cv2.IMREAD_UNCHANGED)` and normalize channels; convert GRAY/BGRA to BGR.
+- Clamp/convert outputs to uint8 before saving; use consistent resize interpolation (`cv2.INTER_CUBIC`) for baselines.
 - For evaluation, match HR to LR/SR by filename conventions (e.g., `x4` suffix).
-- Log PSNR/SSIM/LPIPS/FID with clear units and ranges.
-- Prefer BGR for cv2; convert to RGB only for UI previews.
+- Log PSNR/SSIM/LPIPS/FID with clear units and ranges; prefer BGR for cv2 and convert to RGB only for UI previews.
 
 ## Performance and GPU
-- Wrap inference in `torch.no_grad()` to reduce memory.
+- Wrap inference in `torch.no_grad()` to reduce memory; release temporary tensors promptly.
 - Use `tile_size` when GPU memory is limited; keep `tile_size=0` for full image.
-- Prefer CPU-safe defaults (`half=False`) unless performance is validated.
-- Avoid per-pixel logging; log per-image progress only.
-- Release temporary tensors promptly to reduce VRAM pressure.
+- Prefer CPU-safe defaults (`half=False`) unless performance is validated; log per-image progress only.
 
 ## Execution Tips
 - Use absolute paths when running from other directories; quote file paths with spaces or parentheses.
