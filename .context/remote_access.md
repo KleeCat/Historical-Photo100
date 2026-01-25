@@ -7,7 +7,7 @@
 ## RDP via SSH Tunnel (Xorg)
 1) Open tunnel from local machine:
 ```bash
-ssh -L 3390:localhost:3389 root@sh01-ssh.gpuhome.cc -p 30018
+ssh -L 3390:localhost:3389 root@sh01-ssh.gpuhome.cc -p 30011
 ```
 2) Connect RDP client to `localhost:3390`.
 3) If RDP fails to connect, restart xrdp as root (no sudo required):

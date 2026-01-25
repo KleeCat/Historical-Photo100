@@ -56,7 +56,7 @@ Last update: 2026-01-25
 
 ## Handoff Notes (2026-01-25)
 - Local repo at `D:\HuaweiMoveData\Users\ihggk\Desktop\Historical-Photo100`; server repo at `/root/rivermind-data/Historical-Photo100`.
-- RDP works via tunnel: `ssh -L 3390:localhost:3389 root@sh01-ssh.gpuhome.cc -p 30018`, then RDP to `localhost:3390` (Xorg). Restart xrdp as root (no sudo).
+- RDP works via tunnel: `ssh -L 3390:localhost:3389 root@sh01-ssh.gpuhome.cc -p 30011`, then RDP to `localhost:3390` (Xorg). Restart xrdp as root (no sudo).
 - Terminal paste/encoding fixed; custom motd error silenced in `~/.bashrc` on server.
 - Backup GUI texture updates: filename labels (basename), error handler captures exception string, texture logs (loading/ready/start/done/failed), fp16 variant support, CPU offload + VAE slicing/tiling, `TEXTURE_MAX_DIM` downscale + upsample, and `upsampler` guard in `run_processing_thread`.
 - Diffusers pins on server: diffusers 0.25.1, transformers 4.36.2, accelerate 0.25.0, huggingface_hub 0.20.2, safetensors.
@@ -64,6 +64,7 @@ Last update: 2026-01-25
 - Local commit `c570464` pushed to `main` (texture refinement stability under VRAM limits).
 
 ## Done
+- Updated SSH port references to 30011 for the new instance.
 - Set `TEXTURE_MAX_DIM` default to 1536 for the server GUI.
 - Renamed the backup GUI to `(gui)super-resolution processing_server.py` and updated runbook references.
 - Updated `AGENTS.md` response suffix from "喵" to "喵~".
@@ -84,14 +85,14 @@ Last update: 2026-01-25
 ## Command Steps
 1) Upload GUI files
 ```
-scp -P 30017 "D:\HuaweiMoveData\Users\ihggk\Desktop\Historical-Photo100\(gui)super-resolution processing.py" root@sh01-ssh.gpuhome.cc:/root/rivermind-data/Historical-Photo100/
-scp -P 30017 "D:\HuaweiMoveData\Users\ihggk\Desktop\Historical-Photo100\(gui)super-resolution processing_server.py" root@sh01-ssh.gpuhome.cc:/root/rivermind-data/Historical-Photo100/
+scp -P 30011 "D:\HuaweiMoveData\Users\ihggk\Desktop\Historical-Photo100\(gui)super-resolution processing.py" root@sh01-ssh.gpuhome.cc:/root/rivermind-data/Historical-Photo100/
+scp -P 30011 "D:\HuaweiMoveData\Users\ihggk\Desktop\Historical-Photo100\(gui)super-resolution processing_server.py" root@sh01-ssh.gpuhome.cc:/root/rivermind-data/Historical-Photo100/
 ```
 
 2) Connect with X11
 ```
 set DISPLAY=localhost:0.0
-ssh -X -o ForwardX11Trusted=yes -o ExitOnForwardFailure=yes root@sh01-ssh.gpuhome.cc -p 30017
+ssh -X -o ForwardX11Trusted=yes -o ExitOnForwardFailure=yes root@sh01-ssh.gpuhome.cc -p 30011
 ```
 
 3) Run texture GUI
