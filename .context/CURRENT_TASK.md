@@ -64,6 +64,7 @@ Last update: 2026-01-25
 - Local commit `c570464` pushed to `main` (texture refinement stability under VRAM limits).
 
 ## Done
+- Added non-systemd xrdp startup steps to `.context/remote_access.md`.
 - Normalized remaining SSH port references across the repo to 30011.
 - Updated SSH port references to 30011 for the new instance.
 - Set `TEXTURE_MAX_DIM` default to 1536 for the server GUI.

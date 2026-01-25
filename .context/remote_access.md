@@ -10,9 +10,19 @@
 ssh -L 3390:localhost:3389 root@sh01-ssh.gpuhome.cc -p 30011
 ```
 2) Connect RDP client to `localhost:3390`.
-3) If RDP fails to connect, restart xrdp as root (no sudo required):
+3) Ensure xrdp is running on the server (non-systemd):
 ```bash
-systemctl restart xrdp xrdp-sesman
+xrdp-sesman --nodaemon &
+xrdp --nodaemon &
+```
+4) Verify the RDP port is listening:
+```bash
+ss -lntp | grep 3389
+```
+5) If RDP fails to connect, restart xrdp as root (no sudo required):
+```bash
+xrdp-sesman --nodaemon &
+xrdp --nodaemon &
 ```
 
 ## Server Environment
