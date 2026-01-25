@@ -17,8 +17,8 @@ Last update: 2026-01-25
 - xorgxrdp/dbus-x11 already installed; xrdp restarted, xrdp-sesman reported already running.
 - SSH tunnel attempt failed due to password rejection; need current root password or reset via provider console.
 - User reset root password via provider console; still failing SSH auth. Recommend setting password via `passwd` in active session.
-- SSH port changed to 30018; need to update tunnel/known_hosts and re-auth.
-- SSH login succeeded on port 30018.
+- SSH port changed to 30011; need to update tunnel/known_hosts and re-auth.
+- SSH login succeeded on port 30011.
 - RDP connection still failing; need to verify SSH tunnel and local port availability.
 - Windows localhost:3389 already occupied; use alternate local port (e.g., 3390) for tunnel.
 - SSH tunnel reports connection refused; server port 3389 likely not listening (xrdp stopped).
