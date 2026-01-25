@@ -64,6 +64,8 @@ Last update: 2026-01-25
 - Local commit `c570464` pushed to `main` (texture refinement stability under VRAM limits).
 
 ## Done
+- Set `TEXTURE_MAX_DIM` default to 1536 for the server GUI.
+- Renamed the backup GUI to `(gui)super-resolution processing_server.py` and updated runbook references.
 - Updated `AGENTS.md` response suffix from "喵" to "喵~".
 - Moved `docs/remote_access.md` to `.context/remote_access.md` and added the response suffix rule to `AGENTS.md`.
 - Added `docs/remote_access.md` with RDP tunnel and texture pipeline notes.
@@ -83,7 +85,7 @@ Last update: 2026-01-25
 1) Upload GUI files
 ```
 scp -P 30017 "D:\HuaweiMoveData\Users\ihggk\Desktop\Historical-Photo100\(gui)super-resolution processing.py" root@sh01-ssh.gpuhome.cc:/root/rivermind-data/Historical-Photo100/
-scp -P 30017 "D:\HuaweiMoveData\Users\ihggk\Desktop\Historical-Photo100\(gui)super-resolution processing_backup.py" root@sh01-ssh.gpuhome.cc:/root/rivermind-data/Historical-Photo100/
+scp -P 30017 "D:\HuaweiMoveData\Users\ihggk\Desktop\Historical-Photo100\(gui)super-resolution processing_server.py" root@sh01-ssh.gpuhome.cc:/root/rivermind-data/Historical-Photo100/
 ```
 
 2) Connect with X11
@@ -97,7 +99,7 @@ ssh -X -o ForwardX11Trusted=yes -o ExitOnForwardFailure=yes root@sh01-ssh.gpuhom
 cd /root/rivermind-data/Historical-Photo100
 source /root/rivermind-data/venv-hp/bin/activate
 TEXTURE_MODEL_ID="/root/rivermind-data/models/stable-diffusion-v1-5" \
-  python "(gui)super-resolution processing_backup.py"
+  python "(gui)super-resolution processing_server.py"
 ```
 
 4) If diffusers is missing

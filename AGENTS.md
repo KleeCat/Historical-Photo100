@@ -3,7 +3,7 @@
 ## Language
 - Chat with me in Chinese.
 - Comments inside code must be in English (//, #, /* */, docstring).
-- 给我的每一条回复都要加喵~。
+- 给我的每一条回复的最后一句话后面都要加喵~。
 
 ## Install Location
 - When installing tools/dependencies, install to D: drive by default (e.g., D:\Tools\ or D:\Programs\).
