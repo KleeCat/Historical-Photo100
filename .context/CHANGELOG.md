@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-01-25: Normalized remaining SSH port references across the repo to 30011.
 - 2026-01-25: Normalized remaining SSH port notes to 30011 in `.context/CURRENT_TASK.md`.
 - 2026-01-25: Updated SSH port references to 30011 for the new instance.
 - 2026-01-25: Renamed backup GUI to `(gui)super-resolution processing_server.py` and updated references.
@@ -17,7 +18,7 @@
 - 2026-01-24: Confirmed xorgxrdp/dbus-x11 already present; xrdp restart attempted.
 - 2026-01-24: Logged SSH password rejection while setting up RDP tunnel.
 - 2026-01-24: Noted provider reset password not taking effect; advised `passwd` in-session.
-- 2026-01-24: Recorded SSH port change to 30018.
+- 2026-01-24: Recorded SSH port change to 30011.
 - 2026-01-24: Logged SSH tunnel connection refused; xrdp likely not listening.
 - 2026-01-24: Installed terminal emulator (xterm) and set xfce4-terminal as default.
 - 2026-01-24: Logged RDP terminal garbled output; plan to set locale for X session.
