@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-01-25: Renamed backup GUI to `(gui)super-resolution processing_server.py` and updated references.
+- 2026-01-25: Updated `TEXTURE_MAX_DIM` default to 1536 in the backup GUI.
 - 2026-01-25: Updated response suffix rule to use "喵~" in `AGENTS.md`.
 - 2026-01-25: Moved `docs/remote_access.md` into `.context` and added the response suffix rule.
 - 2026-01-25: Added `docs/remote_access.md` for RDP tunnel and texture pipeline notes.

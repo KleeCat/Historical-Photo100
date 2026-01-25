@@ -26,14 +26,14 @@ systemctl restart xrdp xrdp-sesman
   - `safetensors`
 
 ## Texture Pipeline Usage
-Run the backup GUI with the model path set:
+Run the server GUI with the model path set:
 ```bash
 TEXTURE_MODEL_ID="/root/rivermind-data/models/stable-diffusion-v1-5" \
-  python3 "(gui)super-resolution processing_backup.py"
+  python3 "(gui)super-resolution processing_server.py"
 ```
 
 Optional environment overrides:
-- `TEXTURE_MAX_DIM` (default: 768). Set to 1024 to trade quality vs VRAM.
+- `TEXTURE_MAX_DIM` (default: 1536). Set to 1024 if you need lower VRAM.
 
 ## Model Files
 - Diffusers model dir: `/root/rivermind-data/models/stable-diffusion-v1-5`.
