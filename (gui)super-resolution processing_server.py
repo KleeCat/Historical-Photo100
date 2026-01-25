@@ -89,6 +89,12 @@ with suppress_stderr():
     ctk.set_appearance_mode("System")
     ctk.set_default_color_theme("blue")
 
+def env_flag(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
 TEXTURE_MODEL_ID = os.environ.get("TEXTURE_MODEL_ID", r"D:\Tools\models\stable-diffusion-v1-5").strip()
 TEXTURE_PROMPT = os.environ.get(
     "TEXTURE_PROMPT",
@@ -98,10 +104,23 @@ TEXTURE_STRENGTH = float(os.environ.get("TEXTURE_STRENGTH", "0.35"))
 TEXTURE_GUIDANCE = float(os.environ.get("TEXTURE_GUIDANCE", "5.0"))
 TEXTURE_STEPS = int(os.environ.get("TEXTURE_STEPS", "2"))
 TEXTURE_MAX_DIM = int(os.environ.get("TEXTURE_MAX_DIM", "1536"))
-TEXTURE_ENABLED = True
+TEXTURE_ENABLED = env_flag("TEXTURE_ENABLED", True)
 SCRATCH_MODEL_PATH = os.environ.get("SCRATCH_MODEL_PATH", "").strip()
 SCRATCH_MASK_THRESHOLD = float(os.environ.get("SCRATCH_MASK_THRESHOLD", "0.5"))
 SCRATCH_INPAINT_RADIUS = int(os.environ.get("SCRATCH_INPAINT_RADIUS", "3"))
+SCRATCH_ENABLED = env_flag("SCRATCH_ENABLED", bool(SCRATCH_MODEL_PATH))
+COLOR_MODEL_ID = os.environ.get("COLOR_MODEL_ID", TEXTURE_MODEL_ID).strip()
+COLOR_PROMPT = os.environ.get(
+    "COLOR_PROMPT",
+    "colorized vintage portrait photo, natural skin tones, cinematic lighting"
+)
+COLOR_STRENGTH = float(os.environ.get("COLOR_STRENGTH", "0.35"))
+COLOR_GUIDANCE = float(os.environ.get("COLOR_GUIDANCE", "5.0"))
+COLOR_STEPS = int(os.environ.get("COLOR_STEPS", "6"))
+COLOR_MAX_DIM = int(os.environ.get("COLOR_MAX_DIM", "1536"))
+COLORIZE_ENABLED = env_flag("COLORIZE_ENABLED", False)
+COLORIZE_ONLY_IF_GRAY = env_flag("COLORIZE_ONLY_IF_GRAY", True)
+COLOR_GRAY_THRESHOLD = float(os.environ.get("COLOR_GRAY_THRESHOLD", "8.0"))
 
 
 def ensure_dir(path):
@@ -294,6 +313,18 @@ def estimate_image_metrics(bgr_img):
     }
 
 
+def is_probably_gray(bgr_img, threshold):
+    if bgr_img is None:
+        return False
+    b, g, r = cv2.split(bgr_img)
+    diff_rg = cv2.absdiff(r, g)
+    diff_gb = cv2.absdiff(g, b)
+    diff_rb = cv2.absdiff(r, b)
+    max_diff = np.maximum(diff_rg, np.maximum(diff_gb, diff_rb))
+    mean_diff = float(np.mean(max_diff))
+    return mean_diff < float(threshold)
+
+
 def make_comparison_images(lr_bgr, sr_bgr, scale, base_name, out_dir):
     ensure_dir(out_dir)
     ts = timestamp_str()
@@ -394,6 +425,7 @@ class ModernApp(ctk.CTk):
         self.img_input = None
         self.img_output = None
         self.texture_pipe = None
+        self.color_pipe = None
         self.scratch_model = None
         self.img_gt = None
         self.input_path = None
@@ -402,6 +434,8 @@ class ModernApp(ctk.CTk):
         self.natural_blend = ctk.DoubleVar(value=0.15)
         self.texture_boost = ctk.DoubleVar(value=0.2)
         self.film_grain = ctk.DoubleVar(value=0.0)
+        self.use_scratch_repair = ctk.BooleanVar(value=SCRATCH_ENABLED)
+        self.use_colorize = ctk.BooleanVar(value=COLORIZE_ENABLED)
         self.compare_mode = ctk.BooleanVar(value=False)
         self.compare_split = ctk.DoubleVar(value=0.5)
         self.feature_maps = []
@@ -436,7 +470,7 @@ class ModernApp(ctk.CTk):
         # === 1. Sidebar (Left) ===
         self.sidebar = ctk.CTkFrame(self, width=240, corner_radius=0)
         self.sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew")
-        self.sidebar.grid_rowconfigure(25, weight=1)
+        self.sidebar.grid_rowconfigure(27, weight=1)
 
         # Logo / Title
         self.logo_label = ctk.CTkLabel(self.sidebar, text="Super Resolution", font=ctk.CTkFont(size=24, weight="bold"))
@@ -477,76 +511,87 @@ class ModernApp(ctk.CTk):
         self.switch_face = ctk.CTkSwitch(self.sidebar, text="Face Enhancement", variable=self.use_face_enhance)
         self.switch_face.grid(row=8, column=0, padx=20, pady=10, sticky="w")
 
+        self.switch_scratch = ctk.CTkSwitch(self.sidebar, text="Scratch Repair", variable=self.use_scratch_repair)
+        self.switch_scratch.grid(row=9, column=0, padx=20, pady=(0, 10), sticky="w")
+
+        self.switch_colorize = ctk.CTkSwitch(self.sidebar, text="Colorize", variable=self.use_colorize)
+        self.switch_colorize.grid(row=10, column=0, padx=20, pady=(0, 10), sticky="w")
+
+        if not SCRATCH_ENABLED:
+            self.switch_scratch.configure(state="disabled")
+        if not COLORIZE_ENABLED:
+            self.switch_colorize.configure(state="disabled")
+
         self.lbl_face_blend = ctk.CTkLabel(self.sidebar, text=f"Face Blend: {self.face_blend.get():.2f}")
-        self.lbl_face_blend.grid(row=9, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_face_blend.grid(row=11, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_face_blend.grid_remove()
         self.slider_face_blend = ctk.CTkSlider(self.sidebar, from_=0.0, to=1.0, number_of_steps=20,
                                                variable=self.face_blend, command=self.on_face_blend_change)
-        self.slider_face_blend.grid(row=10, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_face_blend.grid(row=12, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.slider_face_blend.grid_remove()
 
         self.lbl_natural_blend = ctk.CTkLabel(self.sidebar, text=f"Natural Blend: {self.natural_blend.get():.2f}")
-        self.lbl_natural_blend.grid(row=11, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_natural_blend.grid(row=13, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_natural_blend.grid_remove()
         self.slider_natural_blend = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.6, number_of_steps=12,
                                                   variable=self.natural_blend, command=self.on_natural_blend_change)
-        self.slider_natural_blend.grid(row=12, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_natural_blend.grid(row=14, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.slider_natural_blend.grid_remove()
 
         self.lbl_texture_boost = ctk.CTkLabel(self.sidebar, text=f"Texture Boost: {self.texture_boost.get():.2f}")
-        self.lbl_texture_boost.grid(row=13, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_texture_boost.grid(row=15, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_texture_boost.grid_remove()
         self.slider_texture_boost = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.6, number_of_steps=12,
                                                   variable=self.texture_boost, command=self.on_texture_boost_change)
-        self.slider_texture_boost.grid(row=14, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_texture_boost.grid(row=16, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.slider_texture_boost.grid_remove()
 
         self.lbl_film_grain = ctk.CTkLabel(self.sidebar, text=f"Film Grain: {self.film_grain.get():.2f}")
-        self.lbl_film_grain.grid(row=15, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_film_grain.grid(row=17, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_film_grain.grid_remove()
         self.slider_film_grain = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.5, number_of_steps=10,
                                                variable=self.film_grain, command=self.on_film_grain_change)
-        self.slider_film_grain.grid(row=16, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_film_grain.grid(row=18, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.slider_film_grain.grid_remove()
 
         self.btn_run = ctk.CTkButton(self.sidebar, text="Start Restoration", command=self.run_processing_thread,
                                      fg_color="#2CC985", hover_color="#229A66", height=50,
                                      font=ctk.CTkFont(size=16, weight="bold"))
-        self.btn_run.grid(row=18, column=0, padx=20, pady=(10, 10))
+        self.btn_run.grid(row=20, column=0, padx=20, pady=(10, 10))
         self.btn_run_default_fg = self.btn_run.cget("fg_color")
         self.btn_run_default_hover = self.btn_run.cget("hover_color")
 
         self.btn_compare = ctk.CTkButton(self.sidebar, text="Save Comparison", command=self.save_comparison,
                                          fg_color="#3A7CA5", hover_color="#2D5F7C", height=40,
                                          font=ctk.CTkFont(size=14, weight="bold"))
-        self.btn_compare.grid(row=19, column=0, padx=20, pady=10)
+        self.btn_compare.grid(row=21, column=0, padx=20, pady=10)
         self.btn_compare.configure(state="disabled")
 
         self.btn_features = ctk.CTkButton(self.sidebar, text="Export Features", command=self.export_feature_maps,
                                           fg_color="#E0A800", hover_color="#B38600", height=40,
                                           font=ctk.CTkFont(size=14, weight="bold"))
-        self.btn_features.grid(row=20, column=0, padx=20, pady=10)
+        self.btn_features.grid(row=22, column=0, padx=20, pady=10)
         self.btn_features.configure(state="disabled")
 
         self.btn_save = ctk.CTkButton(self.sidebar, text="Save Result", command=self.save_result, state="disabled",
                                       height=40)
-        self.btn_save.grid(row=21, column=0, padx=20, pady=10)
+        self.btn_save.grid(row=23, column=0, padx=20, pady=10)
 
         self.switch_compare = ctk.CTkSwitch(self.sidebar, text="Compare Slider", variable=self.compare_mode,
                                             command=self.on_compare_mode_toggle)
-        self.switch_compare.grid(row=22, column=0, padx=20, pady=(10, 4), sticky="w")
+        self.switch_compare.grid(row=24, column=0, padx=20, pady=(10, 4), sticky="w")
         self.lbl_compare_split = ctk.CTkLabel(self.sidebar, text="Split: 50%")
-        self.lbl_compare_split.grid(row=23, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_compare_split.grid(row=25, column=0, padx=20, pady=(0, 4), sticky="w")
         self.slider_compare = ctk.CTkSlider(self.sidebar, from_=0.0, to=1.0, number_of_steps=20,
                                             variable=self.compare_split, command=self.on_compare_split_change)
-        self.slider_compare.grid(row=24, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_compare.grid(row=26, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.slider_compare.configure(state="disabled")
         self.lbl_compare_split.grid_remove()
         self.slider_compare.grid_remove()
 
         # Metrics Display
         self.metrics_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        self.metrics_frame.grid(row=25, column=0, padx=20, pady=(10, 10), sticky="nw")
+        self.metrics_frame.grid(row=27, column=0, padx=20, pady=(10, 10), sticky="nw")
 
         self.lbl_resolution_title = ctk.CTkLabel(
             self.metrics_frame,
@@ -1153,9 +1198,23 @@ class ModernApp(ctk.CTk):
         self.update_slider_label(self.lbl_film_grain, "Film Grain", value)
 
     def get_texture_status_text(self):
+        parts = []
         if TEXTURE_ENABLED and TEXTURE_MODEL_ID:
-            return "Texture gen: on"
-        return "Texture gen: off (disabled)"
+            parts.append("Texture: on")
+        else:
+            parts.append("Texture: off")
+        if SCRATCH_ENABLED and self.use_scratch_repair.get():
+            parts.append("Scratch: on")
+        elif SCRATCH_ENABLED:
+            parts.append("Scratch: off")
+        if COLORIZE_ENABLED and self.use_colorize.get():
+            if COLORIZE_ONLY_IF_GRAY:
+                parts.append("Colorize: auto")
+            else:
+                parts.append("Colorize: on")
+        elif COLORIZE_ENABLED:
+            parts.append("Colorize: off")
+        return " | ".join(parts)
 
     def detect_faces(self, gray_img):
         cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
@@ -1239,6 +1298,58 @@ class ModernApp(ctk.CTk):
             print("Texture pipeline: ready", flush=True)
         return self.texture_pipe
 
+    def get_color_pipeline(self):
+        if not COLORIZE_ENABLED or not COLOR_MODEL_ID:
+            return None
+        if StableDiffusionImg2ImgPipeline is None:
+            raise RuntimeError("diffusers not installed. Run: pip install diffusers transformers accelerate")
+        if self.color_pipe is None:
+            print("Color pipeline: loading", flush=True)
+            dtype = torch.float16 if self.device.type == "cuda" else torch.float32
+            variant = None
+            if self.device.type == "cuda":
+                unet_dir = os.path.join(COLOR_MODEL_ID, "unet")
+                fp16_bin = os.path.join(unet_dir, "diffusion_pytorch_model.fp16.bin")
+                fp16_safe = os.path.join(unet_dir, "diffusion_pytorch_model.fp16.safetensors")
+                if os.path.exists(fp16_bin) or os.path.exists(fp16_safe):
+                    variant = "fp16"
+                    print("Color pipeline: using fp16 weights", flush=True)
+            if variant:
+                self.color_pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
+                    COLOR_MODEL_ID,
+                    torch_dtype=dtype,
+                    variant=variant
+                )
+            else:
+                self.color_pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
+                    COLOR_MODEL_ID,
+                    torch_dtype=dtype
+                )
+            use_cpu_offload = False
+            if self.device.type == "cuda" and hasattr(self.color_pipe, "enable_model_cpu_offload"):
+                self.color_pipe.enable_model_cpu_offload()
+                use_cpu_offload = True
+                print("Color pipeline: cpu offload enabled", flush=True)
+            if not use_cpu_offload:
+                self.color_pipe.to(self.device)
+            if self.device.type == "cuda":
+                self.color_pipe.enable_attention_slicing()
+                if hasattr(self.color_pipe, "enable_vae_slicing"):
+                    self.color_pipe.enable_vae_slicing()
+                if hasattr(self.color_pipe, "enable_vae_tiling"):
+                    self.color_pipe.enable_vae_tiling()
+            print("Color pipeline: ready", flush=True)
+        return self.color_pipe
+
+    def get_scratch_model(self):
+        if not SCRATCH_ENABLED or not SCRATCH_MODEL_PATH:
+            return None
+        if self.scratch_model is None:
+            self.scratch_model = load_scratch_model(SCRATCH_MODEL_PATH, self.device)
+            if self.scratch_model is None:
+                print("Scratch model: load failed", flush=True)
+        return self.scratch_model
+
     def apply_texture_generation(self, bgr_img):
         pipe = self.get_texture_pipeline()
         if pipe is None:
@@ -1269,6 +1380,39 @@ class ModernApp(ctk.CTk):
             print(f"Texture generation: upscale back to {width}x{height}", flush=True)
         return output_bgr
 
+    def apply_colorization(self, bgr_img):
+        pipe = self.get_color_pipeline()
+        if pipe is None:
+            return bgr_img
+        if COLORIZE_ONLY_IF_GRAY and not is_probably_gray(bgr_img, COLOR_GRAY_THRESHOLD):
+            print("Colorization: skipped (already color)", flush=True)
+            return bgr_img
+        height, width = bgr_img.shape[:2]
+        resized_bgr = bgr_img
+        scale = 1.0
+        if COLOR_MAX_DIM > 0:
+            max_dim = max(height, width)
+            if max_dim > COLOR_MAX_DIM:
+                scale = COLOR_MAX_DIM / float(max_dim)
+                new_width = max(1, int(width * scale))
+                new_height = max(1, int(height * scale))
+                resized_bgr = cv2.resize(bgr_img, (new_width, new_height), interpolation=cv2.INTER_AREA)
+                print(f"Colorization: downscale {width}x{height} -> {new_width}x{new_height}", flush=True)
+        rgb_img = cv2.cvtColor(resized_bgr, cv2.COLOR_BGR2RGB)
+        init_image = Image.fromarray(rgb_img)
+        result = pipe(
+            prompt=COLOR_PROMPT,
+            image=init_image,
+            strength=COLOR_STRENGTH,
+            guidance_scale=COLOR_GUIDANCE,
+            num_inference_steps=COLOR_STEPS
+        ).images[0]
+        output_bgr = cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
+        if scale != 1.0:
+            output_bgr = cv2.resize(output_bgr, (width, height), interpolation=cv2.INTER_CUBIC)
+            print(f"Colorization: upscale back to {width}x{height}", flush=True)
+        return output_bgr
+
     def run_processing_thread(self):
         if self.img_input is None:
             return
@@ -1296,9 +1440,27 @@ class ModernApp(ctk.CTk):
         try:
             output = None
             used_face_enhance = False
+            input_bgr = self.img_input
+
+            if SCRATCH_ENABLED and self.use_scratch_repair.get():
+                self.report_progress(0.08, "Repairing scratches...", "Scratch repair")
+                scratch_model = self.get_scratch_model()
+                if scratch_model is not None:
+                    try:
+                        input_bgr = apply_scratch_repair(
+                            input_bgr,
+                            scratch_model,
+                            self.device,
+                            SCRATCH_MASK_THRESHOLD,
+                            SCRATCH_INPAINT_RADIUS
+                        )
+                    except Exception as e:
+                        print(f"Scratch repair: failed ({e})", flush=True)
+                else:
+                    print("Scratch repair: skipped (no model)", flush=True)
 
             self.report_progress(0.15, f"Upscaling image (x{self.scale_factor})...", "Upscaling")
-            sr_base, _ = self.upsampler.enhance(self.img_input, outscale=self.scale_factor)
+            sr_base, _ = self.upsampler.enhance(input_bgr, outscale=self.scale_factor)
             output = sr_base
             self.report_progress(0.45, "Upscale complete. Refining details...", "Refining")
 
@@ -1309,7 +1471,7 @@ class ModernApp(ctk.CTk):
                     face_enhancer = GFPGANer(
                         model_path='https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth',
                         upscale=self.scale_factor, arch='clean', channel_multiplier=2, bg_upsampler=self.upsampler)
-                    _, _, face_output = face_enhancer.enhance(self.img_input, has_aligned=False, only_center_face=False,
+                    _, _, face_output = face_enhancer.enhance(input_bgr, has_aligned=False, only_center_face=False,
                                                               paste_back=True)
                     if face_output is not None:
                         output = blend_images(face_output, sr_base, self.face_blend.get())
@@ -1320,7 +1482,7 @@ class ModernApp(ctk.CTk):
                         text="Face enhancement unavailable, switching to standard mode..."))
 
             self.report_progress(0.7, "Blending fine details...", "Blending")
-            output = blend_with_lr(output, self.img_input, self.natural_blend.get())
+            output = blend_with_lr(output, input_bgr, self.natural_blend.get())
             output = apply_unsharp_mask(output, self.texture_boost.get())
             try:
                 self.report_progress(0.82, "Generating texture details...", "Texture refinement")
@@ -1331,6 +1493,15 @@ class ModernApp(ctk.CTk):
                 print(f"Texture generation: failed ({e})", flush=True)
                 error_message = f"Texture generation skipped: {e}"
                 self.after(0, lambda message=error_message: self.status_label.configure(text=message))
+
+            if COLORIZE_ENABLED and self.use_colorize.get():
+                try:
+                    self.report_progress(0.88, "Colorizing image...", "Colorization")
+                    print("Colorization: start", flush=True)
+                    output = self.apply_colorization(output)
+                    print("Colorization: done", flush=True)
+                except Exception as e:
+                    print(f"Colorization: failed ({e})", flush=True)
             self.report_progress(0.92, "Finalizing output...", "Finalizing")
             output = apply_film_grain(output, self.film_grain.get())
 
