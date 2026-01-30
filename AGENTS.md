@@ -55,13 +55,12 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 ## Build / Lint / Test
 - No build step; scripts run directly with Python.
 - No tests directory is present; no automated test suite by default.
-- If you add tests, place them under `tests/` with `test_*.py` naming.
-- If you add tests under `tests/`, use pytest:
+- If you add tests, place them under `tests/` with `test_*.py` naming and use pytest.
+- Pytest examples:
   - Run all tests: `python -m pytest`
   - Run a single file: `python -m pytest tests/test_file.py`
   - Run a single test: `python -m pytest tests/test_file.py::TestClass::test_name`
-  - Run a single test by pattern: `python -m pytest -k "pattern"`
-  - Run a single test in a file by pattern: `python -m pytest tests/test_file.py -k "pattern"`
+  - Run by pattern (optionally scoped to file): `python -m pytest -k "pattern"` or `python -m pytest tests/test_file.py -k "pattern"`
 - Optional lint/format (only if tools are installed):
   - `python -m ruff check .`
   - `python -m black .`
@@ -71,10 +70,10 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 - Imports: standard library, third-party, then local; blank-line groups; one import per line; no unused/wildcard imports.
 - Formatting: 4-space indent; line length target around 100; prefer f-strings.
 - Naming: snake_case for functions/vars; CamelCase for classes; UPPER_SNAKE for constants.
-- Types: add type hints for new/modified public functions; use `Optional`, `List`, `Tuple`; avoid `Any` unless necessary.
+- Types: add type hints for new/modified public functions and return values; use `Optional`, `List`, `Tuple`; avoid `Any` unless necessary.
 - Docstrings: short English docstrings for non-obvious functions and public APIs.
 - Entrypoints: wrap CLI execution in `if __name__ == "__main__":` and keep top-level code minimal.
-- Error handling: guard file IO, model loading, GPU ops with try/except and clear messages; preserve tracebacks.
+- Error handling: guard file IO, model loading, GPU ops with try/except; avoid bare except; add context and preserve tracebacks.
 - File IO: prefer context managers and validate paths before read/write.
 - Optional deps: import inside functions and print install hints when missing.
 - Logging: keep CLI logs concise; avoid noisy per-pixel logging; GUI updates via queue on main thread.
@@ -148,4 +147,4 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 - When in doubt, run on a single small image first.
 
 ## Cursor/Copilot Rules
-- No `.cursor` rules or Copilot instructions were found in this repo.
+- None found: `.cursor/rules`, `.cursorrules`, `.github/copilot-instructions.md`.
