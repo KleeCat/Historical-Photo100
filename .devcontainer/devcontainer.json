@@ -1,11 +1,6 @@
 {
   "name": "Historical-Photo100",
   "image": "mcr.microsoft.com/devcontainers/python:3.10",
-  "features": {
-    "ghcr.io/devcontainers/features/python:1": {
-      "version": "3.10"
-    }
-  },
   "postCreateCommand": "python -m venv .venv && . .venv/bin/activate && python -m pip install --upgrade pip && python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && python -m pip install basicsr realesrgan opencv-python numpy pillow gfpgan customtkinter scikit-image lpips pytorch-fid matplotlib scipy requests diffusers transformers accelerate safetensors huggingface_hub",
   "customizations": {
     "vscode": {
