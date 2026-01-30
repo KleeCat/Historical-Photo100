@@ -13,6 +13,10 @@
 - When modifying files, only use patch/diff style edits (minimal changes).
 - Do NOT replace entire files with full rewrites.
 - Always show unified diff for modifications.
+- Prefer minimal, targeted edits; avoid full rewrites unless required.
+- Markdown: edit -> Python string replace -> write (full rewrite only if necessary).
+- Word (.docx): python-docx script -> zip media replacement -> full regeneration.
+- HTML: edit -> Python string replace -> write (full rewrite only if needed).
 
 ## Output Style (Save Context)
 - For long outputs (>40 lines or >500 chars), write to a file instead of printing in terminal.
@@ -29,7 +33,7 @@
 
 ## Repository Overview
 - This repo is a set of Python scripts for image super-resolution and evaluation.
-- Key scripts (entry points): `esrgan_gui.py` (Tk GUI for batch SR, metrics table, CSV export); `(gui)super-resolution processing.py` (CustomTk GUI with comparison + feature export); `super-resolution processing.py` (CLI batch SR with optional GFPGAN); `Quantitative assessment and frequency domain analysis.py` (PSNR/SSIM/LPIPS/FID + plots); `RRDBNet_arch.py` (RRDBNet architecture definition); `download.py` (DIV2K LR sample download).
+- Key scripts (entry points): `esrgan_gui.py` (Tk GUI for batch SR, metrics table, CSV export); `(gui)super-resolution processing.py` (CustomTk GUI with comparison + feature export); `(gui)super-resolution processing_server.py` (CustomTk GUI server variant); `super-resolution processing.py` (CLI batch SR with optional GFPGAN); `(model) super-resolution processing.py` (model-focused CLI variant); `Quantitative assessment and frequency domain analysis.py` (PSNR/SSIM/LPIPS/FID + plots); `RRDBNet_arch.py` (RRDBNet architecture definition); `download.py` (DIV2K LR sample download).
 
 ## Environment Setup (Windows)
 - Prefer a virtual environment on the D: drive.
@@ -47,7 +51,9 @@ python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplo
 ## Run Commands (Scripts)
 - GUI (recommended): `python esrgan_gui.py`
 - GUI (CustomTk): `python "(gui)super-resolution processing.py"`
+- GUI server variant: `python "(gui)super-resolution processing_server.py"`
 - CLI batch SR: `python "super-resolution processing.py"`
+- CLI model variant: `python "(model) super-resolution processing.py"`
 - Evaluation + reports: `python "Quantitative assessment and frequency domain analysis.py"`
 - Download sample data: `python download.py`
 - Note: several scripts have hard-coded default paths; update config blocks when needed.
