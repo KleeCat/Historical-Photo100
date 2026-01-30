@@ -1,6 +1,6 @@
 # Current Task
 
-Last update: 2026-01-25
+Last update: 2026-01-26
 
 ## In Progress
 - Validate GT reset behavior on both GUI variants.
@@ -84,6 +84,7 @@ Last update: 2026-01-25
 - GT is cleared when loading a new input image in both GUI files.
 - Added output refresh fallback to force render via `show_image_ctk` if zoom render fails.
 - Updated `AGENTS.md` with build/test commands and code-style guidance.
+- Refined `AGENTS.md` with build/lint/test commands and agent style guidance (2026-01-26).
 
 ## Command Steps
 1) Upload GUI files

@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-01-26: Refined `AGENTS.md` with build/lint/test commands and agent style guidance.
 - 2026-01-25: Added scratch repair and colorization toggles/pipeline to the server GUI.
 - 2026-01-25: Added non-systemd xrdp startup steps to `.context/remote_access.md`.
 - 2026-01-25: Normalized remaining SSH port references across the repo to 30011.
