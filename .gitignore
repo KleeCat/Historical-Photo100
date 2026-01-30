@@ -5,16 +5,10 @@ venv/
 .idea/
 
 # outputs / results
-outputs/
 output/
 result/
 results/
 evaluation_results/
-
-# datasets (你这些就是数据集/样例图)
-HR/
-LR/
-SR/
 
 # large model weights
 *.pth
