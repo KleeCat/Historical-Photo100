@@ -40,28 +40,116 @@ def render_page(body: str) -> bytes:
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Super-Resolution Web UI</title>
+  <title>Super-Resolution Studio</title>
   <style>
-    body {{ font-family: Arial, sans-serif; background: #f5f5f5; margin: 0; }}
-    header {{ padding: 24px 32px; background: #1f2937; color: #fff; }}
-    main {{ padding: 24px 32px; }}
-    form {{ background: #fff; padding: 20px; border-radius: 12px; max-width: 640px; }}
-    label {{ display: block; margin-top: 12px; font-weight: 600; }}
-    input[type="file"], select, input[type="number"] {{ width: 100%; margin-top: 6px; }}
-    .row {{ margin-top: 12px; }}
-    button {{ margin-top: 16px; padding: 10px 16px; background: #2563eb; color: #fff; border: none; border-radius: 8px; }}
-    .note {{ color: #374151; margin-top: 12px; }}
-    .result {{ margin-top: 24px; }}
+    @import url('https://fonts.googleapis.com/css2?family=Barlow:wght@400;600;700&display=swap');
+    :root {{
+      --bg: #0b1220;
+      --panel: #111827;
+      --panel-2: #1f2937;
+      --card: #0f172a;
+      --accent: #4f46e5;
+      --accent-2: #22c55e;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --border: #253041;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      font-family: "Barlow", "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #1f2937 0%, #0b1220 55%);
+      color: var(--text);
+      margin: 0;
+      min-height: 100vh;
+    }}
+    a {{ color: #93c5fd; text-decoration: none; }}
+    .app {{ max-width: 1120px; margin: 32px auto; padding: 0 24px 40px; }}
+    .hero {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 24px 28px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #0f172a 0%, #111827 55%, #1f2937 100%);
+      border: 1px solid var(--border);
+      box-shadow: 0 18px 30px rgba(15, 23, 42, 0.35);
+    }}
+    .hero h1 {{ margin: 0 0 8px; font-size: 28px; letter-spacing: 0.02em; }}
+    .hero p {{ margin: 0; color: var(--muted); }}
+    .badge {{
+      background: rgba(34, 197, 94, 0.15);
+      color: #86efac;
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }}
+    .layout {{ display: grid; grid-template-columns: 260px 1fr; gap: 24px; margin-top: 24px; }}
+    .panel, .card {{
+      background: var(--panel);
+      border-radius: 18px;
+      padding: 20px;
+      border: 1px solid var(--border);
+    }}
+    .panel h2, .card h2 {{
+      margin: 0 0 12px;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }}
+    .list {{ list-style: none; padding: 0; margin: 0; }}
+    .list li {{
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      background: var(--panel-2);
+      border-radius: 12px;
+      color: #d1d5db;
+      font-size: 14px;
+    }}
+    form {{ margin: 0; }}
+    label {{ display: block; margin-top: 12px; font-weight: 600; color: #e2e8f0; }}
+    input[type="file"], select, input[type="number"] {{
+      width: 100%;
+      margin-top: 8px;
+      padding: 10px 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 12px;
+    }}
+    .row {{ margin-top: 10px; display: grid; gap: 8px; }}
+    .toggle {{ display: flex; align-items: center; gap: 10px; color: #d1d5db; }}
+    button {{
+      margin-top: 16px;
+      padding: 12px 16px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 10px 20px rgba(79, 70, 229, 0.35);
+    }}
+    .note {{ color: var(--muted); margin-top: 12px; }}
+    .result {{ margin-top: 20px; }}
+    .result img {{
+      width: 100%;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: #0b1220;
+    }}
+    @media (max-width: 900px) {{
+      .layout {{ grid-template-columns: 1fr; }}
+    }}
   </style>
 </head>
 <body>
-  <header>
-    <h1>Super-Resolution Web UI</h1>
-    <p>Upload one image and run ESRGAN in this container.</p>
-  </header>
-  <main>
+  <div class="app">
     {body}
-  </main>
+  </div>
 </body>
 </html>"""
     return html_doc.encode("utf-8")
@@ -70,23 +158,44 @@ def render_page(body: str) -> bytes:
 def render_form(message: str = "") -> bytes:
     message_html = f"<p class=\"note\">{html.escape(message)}</p>" if message else ""
     body = f"""
-{message_html}
-<form method="POST" enctype="multipart/form-data" action="/process">
-  <label>Input image</label>
-  <input type="file" name="image" accept=".png,.jpg,.jpeg,.bmp" required />
-  <label>Scale factor</label>
-  <select name="scale">
-    <option value="4">x4 (default)</option>
-    <option value="2">x2</option>
-  </select>
-  <label>Tile size (0 = no tiling)</label>
-  <input type="number" name="tile" value="0" min="0" />
-  <div class="row">
-    <label><input type="checkbox" name="face" /> Face enhancement (GFPGAN)</label>
-    <label><input type="checkbox" name="scratch" /> Scratch repair</label>
+<section class="hero">
+  <div>
+    <h1>Super-Resolution Studio</h1>
+    <p>Upload one image and run ESRGAN with the same pipeline as the desktop app.</p>
   </div>
-  <button type="submit">Run Super-Resolution</button>
-</form>
+  <div class="badge">CPU Ready</div>
+</section>
+{message_html}
+<div class="layout">
+  <section class="panel">
+    <h2>Pipeline</h2>
+    <ul class="list">
+      <li>Real-ESRGAN upscale (x2/x4)</li>
+      <li>Optional GFPGAN face restore</li>
+      <li>Scratch repair model if provided</li>
+      <li>Outputs saved in temp workspace</li>
+    </ul>
+  </section>
+  <section class="card">
+    <h2>Input</h2>
+    <form method="POST" enctype="multipart/form-data" action="/process">
+      <label>Input image</label>
+      <input type="file" name="image" accept=".png,.jpg,.jpeg,.bmp" required />
+      <label>Scale factor</label>
+      <select name="scale">
+        <option value="4">x4 (default)</option>
+        <option value="2">x2</option>
+      </select>
+      <label>Tile size (0 = no tiling)</label>
+      <input type="number" name="tile" value="0" min="0" />
+      <div class="row">
+        <label class="toggle"><input type="checkbox" name="face" /> Face enhancement (GFPGAN)</label>
+        <label class="toggle"><input type="checkbox" name="scratch" /> Scratch repair</label>
+      </div>
+      <button type="submit">Run Super-Resolution</button>
+    </form>
+  </section>
+</div>
 """
     return render_page(body)
 
@@ -180,11 +289,29 @@ class WebHandler(BaseHTTPRequestHandler):
         self.end_headers()
         result_url = f"/result/{job_id}"
         body = f"""
-<p class="note">Done! Right click the image to save.</p>
-<div class="result">
-  <img src="{result_url}" style="max-width: 100%; border-radius: 12px;" />
+<section class="hero">
+  <div>
+    <h1>Super-Resolution Studio</h1>
+    <p>Processing complete. Right click to save the output.</p>
+  </div>
+  <div class="badge">Complete</div>
+</section>
+<div class="layout">
+  <section class="panel">
+    <h2>Next steps</h2>
+    <ul class="list">
+      <li>Right click the image to download.</li>
+      <li><a href="/">Process another image</a></li>
+      <li>Keep this tab open while you download.</li>
+    </ul>
+  </section>
+  <section class="card">
+    <h2>Result</h2>
+    <div class="result">
+      <img src="{result_url}" alt="Super-resolution output" />
+    </div>
+  </section>
 </div>
-<p><a href="/">Process another image</a></p>
 """
         self.wfile.write(render_page(body))
 
