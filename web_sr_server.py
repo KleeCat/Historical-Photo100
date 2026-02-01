@@ -1,10 +1,12 @@
 import argparse
 import html
 import importlib.util
+import json
 import mimetypes
 import os
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from http import HTTPStatus
@@ -576,6 +578,62 @@ def render_form(message: str = "") -> bytes:
     return render_page(body, "Upload one image and run ESRGAN with the desktop pipeline.", status_text, "CPU READY")
 
 
+def render_processing(job_id: str, message: str = "Processing image...") -> bytes:
+    status_text = "Processing | Device: cpu"
+    body = f"""
+<div class="app-body">
+  <aside class="sidebar">
+    <h2>Super Resolution</h2>
+    <div class="hint">Job ID: {job_id}</div>
+    <div class="divider"></div>
+    <div class="hint" id="status-msg">{html.escape(message)}</div>
+    <div class="metrics">
+      <h3>Status</h3>
+      <p>Processing…</p>
+      <p>This page will refresh when done.</p>
+    </div>
+  </aside>
+  <section class="workspace">
+    <div class="workspace-header">
+      <div>Original Input</div>
+      <div>Super-Resolution Output</div>
+    </div>
+    <div class="panel-grid">
+      <div class="panel">Processing…</div>
+      <div class="panel">Waiting for output…</div>
+    </div>
+    <div class="panel-footer">
+      <div>Input: -- x --</div>
+      <div>Output: -- x --</div>
+    </div>
+  </section>
+</div>
+<script>
+  async function pollStatus() {{
+    try {{
+      const res = await fetch(`/status/{job_id}`);
+      if (!res.ok) throw new Error("status failed");
+      const data = await res.json();
+      if (data.status === "done") {{
+        window.location.href = `/result/{job_id}`;
+        return;
+      }}
+      if (data.status === "error") {{
+        const msg = document.getElementById("status-msg");
+        if (msg) msg.textContent = data.error || "Processing failed.";
+        return;
+      }}
+    }} catch (err) {{
+      console.warn(err);
+    }}
+    setTimeout(pollStatus, 2000);
+  }}
+  pollStatus();
+</script>
+"""
+    return render_page(body, "Processing in the background. This page will redirect when complete.", status_text, "WORKING")
+
+
 def format_metric(value: Optional[float], digits: int) -> str:
     if value is None:
         return "--"
@@ -692,6 +750,31 @@ class WebHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(render_form())
             return
+        if parsed.path.startswith("/processing/"):
+            job_id = parsed.path.split("/", 2)[2]
+            if job_id not in JOBS:
+                self.send_error(HTTPStatus.NOT_FOUND, "Result not found")
+                return
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(render_processing(job_id))
+            return
+        if parsed.path.startswith("/status/"):
+            job_id = parsed.path.split("/", 2)[2]
+            job = JOBS.get(job_id)
+            if not job:
+                self.send_error(HTTPStatus.NOT_FOUND, "Result not found")
+                return
+            payload = {
+                "status": job.get("status", "running"),
+                "error": job.get("error"),
+            }
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode("utf-8"))
+            return
         if parsed.path.startswith("/result/"):
             job_id = parsed.path.split("/", 2)[2]
             job = JOBS.get(job_id)
@@ -784,49 +867,54 @@ class WebHandler(BaseHTTPRequestHandler):
                 f.write(gt_upload.file.read())
 
         scratch_model_path = os.environ.get("SCRATCH_MODEL_PATH", "")
-        start_time = time.perf_counter()
-        try:
-            result = process_image(
-                input_path=input_path,
-                gt_path=gt_path,
-                output_dir=sr_dir,
-                scale=scale,
-                tile=tile,
-                use_face=use_face,
-                use_scratch=use_scratch,
-                scratch_model_path=scratch_model_path,
-                scratch_threshold=float(os.environ.get("SCRATCH_MASK_THRESHOLD", "0.5")),
-                inpaint_radius=int(os.environ.get("SCRATCH_INPAINT_RADIUS", "3")),
-            )
-        except Exception as exc:
-            message = f"Processing failed: {exc}"
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(render_form(message))
-            return
-
-        elapsed = time.perf_counter() - start_time
         JOBS[job_id] = {
             "id": job_id,
             "name": input_path.name,
-            "elapsed": f"{elapsed:.1f}s",
             "scale": scale,
-            "input": result["input"],
-            "output": result["output"],
-            "pair": result["pair"],
-            "grid": result["grid"],
-            "features": result["features"],
-            "psnr": result["psnr"],
-            "ssim": result["ssim"],
-            "input_size": result["input_size"],
-            "output_size": result["output_size"],
+            "status": "running",
         }
+
+        def run_job():
+            start_time = time.perf_counter()
+            try:
+                result = process_image(
+                    input_path=input_path,
+                    gt_path=gt_path,
+                    output_dir=sr_dir,
+                    scale=scale,
+                    tile=tile,
+                    use_face=use_face,
+                    use_scratch=use_scratch,
+                    scratch_model_path=scratch_model_path,
+                    scratch_threshold=float(os.environ.get("SCRATCH_MASK_THRESHOLD", "0.5")),
+                    inpaint_radius=int(os.environ.get("SCRATCH_INPAINT_RADIUS", "3")),
+                )
+            except Exception as exc:
+                JOBS[job_id]["status"] = "error"
+                JOBS[job_id]["error"] = str(exc)
+                return
+
+            elapsed = time.perf_counter() - start_time
+            JOBS[job_id].update({
+                "elapsed": f"{elapsed:.1f}s",
+                "input": result["input"],
+                "output": result["output"],
+                "pair": result["pair"],
+                "grid": result["grid"],
+                "features": result["features"],
+                "psnr": result["psnr"],
+                "ssim": result["ssim"],
+                "input_size": result["input_size"],
+                "output_size": result["output_size"],
+                "status": "done",
+            })
+
+        threading.Thread(target=run_job, daemon=True).start()
 
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
-        self.wfile.write(render_result(JOBS[job_id]))
+        self.wfile.write(render_processing(job_id))
 
     def parse_form(self):
         import cgi
