@@ -4,6 +4,8 @@ import sys
 import contextlib
 import warnings
 import time
+import uuid
+import uuid
 from datetime import datetime
 
 
@@ -77,6 +79,12 @@ SCRATCH_INPAINT_RADIUS = int(os.environ.get("SCRATCH_INPAINT_RADIUS", "3"))
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
     return path
+
+
+def write_json_file(path, payload):
+    ensure_dir(os.path.dirname(path))
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
 
 
 def timestamp_str():
@@ -368,6 +376,8 @@ class ModernApp(ctk.CTk):
         self.img_gt = None
         self.input_path = None
         self.is_processing = False
+        self.last_run_dir = None
+        self.last_run_id = None
         self.face_blend = ctk.DoubleVar(value=0.7)
         self.natural_blend = ctk.DoubleVar(value=0.15)
         self.texture_boost = ctk.DoubleVar(value=0.2)
@@ -1189,7 +1199,17 @@ class ModernApp(ctk.CTk):
         return cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
 
     def run_processing_thread(self):
-        if self.img_input is None: return
+        if self.is_processing:
+            return
+        if self.img_input is None:
+            self.status_label.configure(text="Load an input image first.")
+            messagebox.showinfo("Info", "Please load an input image first.")
+            return
+        if self.upsampler is None:
+            self.status_label.configure(text="Model not ready. Loading...")
+            threading.Thread(target=self.load_model, daemon=True).start()
+            messagebox.showwarning("Model Loading", "Model is still loading. Please try again shortly.")
+            return
         self.is_processing = True
         self.progress_bar.set(0)
         self.progress_target = 0.05
@@ -1206,6 +1226,27 @@ class ModernApp(ctk.CTk):
 
     def process_image(self):
         success = False
+        run_id, run_dir = self.start_run_record()
+        base_name = safe_basename(self.input_path)
+        run_output_path = os.path.join(run_dir, f"{base_name}_x{self.scale_factor}.png")
+        run_meta = {
+            "run_id": run_id,
+            "timestamp": timestamp_str(),
+            "input_path": self.input_path,
+            "run_dir": run_dir,
+            "output_path": run_output_path,
+            "scale_factor": self.scale_factor,
+            "device": str(self.device),
+            "face_enhance": bool(self.use_face_enhance.get()),
+            "face_blend": float(self.face_blend.get()),
+            "natural_blend": float(self.natural_blend.get()),
+            "texture_boost": float(self.texture_boost.get()),
+            "film_grain": float(self.film_grain.get()),
+            "texture_enabled": bool(TEXTURE_ENABLED),
+            "texture_model": TEXTURE_MODEL_ID,
+            "scratch_model": SCRATCH_MODEL_PATH,
+        }
+        self.after(0, lambda: self.status_label.configure(text=f"Run {run_id} started..."))
         try:
             output = None
             used_face_enhance = False
@@ -1245,6 +1286,10 @@ class ModernApp(ctk.CTk):
 
             self.img_output = output
             success = True
+            save_image(run_output_path, self.img_output)
+            run_input_path = os.path.join(run_dir, f"{base_name}_input.png")
+            save_image(run_input_path, self.img_input)
+            run_meta["input_snapshot"] = run_input_path
 
             self.compare_hold_active = False
 
@@ -1270,11 +1315,21 @@ class ModernApp(ctk.CTk):
         except Exception as e:
             self.after(0, lambda: messagebox.showerror("Error", f"Processing failed: {str(e)}"))
             self.after(0, lambda: self.show_output_overlay("Processing failed", animate=False))
+            run_meta["error"] = str(e)
         finally:
             self.is_processing = False
             elapsed = None
             if self.processing_start_time is not None:
                 elapsed = time.perf_counter() - self.processing_start_time
+            if elapsed is not None:
+                run_meta["elapsed_sec"] = round(elapsed, 3)
+            if self.img_input is not None:
+                h, w = self.img_input.shape[:2]
+                run_meta["input_size"] = [int(w), int(h)]
+            if self.img_output is not None:
+                h, w = self.img_output.shape[:2]
+                run_meta["output_size"] = [int(w), int(h)]
+            self.write_run_log(run_dir, run_meta)
             self.after(0, lambda: self.progress_bar.set(1.0))
             self.after(0, lambda: self.set_run_button_processing(False))
             if elapsed is not None:
@@ -1332,6 +1387,21 @@ class ModernApp(ctk.CTk):
         s_ssim_out = ssim(img_gt_out, self.img_output, data_range=255, channel_axis=2)
 
         self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, s_psnr_out, s_ssim_out)
+
+    def start_run_record(self):
+        run_id = uuid.uuid4().hex[:8]
+        base_name = safe_basename(self.input_path)
+        run_root = self.get_output_dir(f"runs({base_name})")
+        run_dir = os.path.join(run_root, f"{timestamp_str()}_{base_name}_{run_id}")
+        ensure_dir(run_dir)
+        self.last_run_dir = run_dir
+        self.last_run_id = run_id
+        return run_id, run_dir
+
+    def write_run_log(self, run_dir, payload):
+        log_path = os.path.join(run_dir, "run_log.json")
+        write_json_file(log_path, payload)
+        return log_path
 
     def get_output_dir(self, subdir, prompt=False):
         selected = filedialog.askdirectory() if prompt else ""

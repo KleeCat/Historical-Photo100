@@ -3,6 +3,8 @@
 Last update: 2026-01-30
 
 ## In Progress
+- Improve GUI stability (guard processing when model/input missing, unified status messaging).
+- Improve reproducibility (auto run logs + output snapshots under outputs/runs).
 - Validate Codespaces web UI flow (GT upload, PSNR/SSIM, compare slider, feature export).
 - Confirm web UI runs reliably on port 7860 without 504 timeouts on small inputs.
 - Validate GT reset behavior on both GUI variants.
@@ -70,6 +72,8 @@ Last update: 2026-01-30
 - Configured Git LFS tracking and migrated data folders into Git.
 - Added `LR/`, `HR/`, `SR/`, `outputs/` directories with sample assets committed.
 - Implemented `web_sr_server.py` web UI with desktop-like layout and feature parity (GT metrics, comparison, feature export).
+- Added GUI guards for missing input/model before processing to improve stability.
+- Added per-run output snapshots and JSON logs under `outputs/runs` for reproducibility.
 - Added scratch repair and colorization flow to the server GUI pipeline.
 - Added non-systemd xrdp startup steps to `.context/remote_access.md`.
 - Normalized remaining SSH port references across the repo to 30011.
