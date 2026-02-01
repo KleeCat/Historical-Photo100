@@ -1,5 +1,8 @@
 # Changelog
 
+- 2026-01-30: Implemented `web_sr_server.py` web UI with desktop-like layout and feature parity.
+- 2026-01-30: Switched Codespaces devcontainer image to python:3.10 and removed python feature (yarn repo error fix).
+- 2026-01-30: Configured Git LFS tracking and committed LR/HR/SR/outputs assets.
 - 2026-01-26: Refined `AGENTS.md` with build/lint/test commands and agent style guidance.
 - 2026-01-25: Added scratch repair and colorization toggles/pipeline to the server GUI.
 - 2026-01-25: Added non-systemd xrdp startup steps to `.context/remote_access.md`.

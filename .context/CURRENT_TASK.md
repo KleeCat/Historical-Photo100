@@ -1,8 +1,10 @@
 # Current Task
 
-Last update: 2026-01-26
+Last update: 2026-01-30
 
 ## In Progress
+- Validate Codespaces web UI flow (GT upload, PSNR/SSIM, compare slider, feature export).
+- Confirm web UI runs reliably on port 7860 without 504 timeouts on small inputs.
 - Validate GT reset behavior on both GUI variants.
 - Validate output render stability after processing completes.
 - Switch server interaction to RDP (xrdp).
@@ -64,6 +66,10 @@ Last update: 2026-01-26
 - Local commit `c570464` pushed to `main` (texture refinement stability under VRAM limits).
 
 ## Done
+- Switched Codespaces devcontainer image to `mcr.microsoft.com/devcontainers/python:3.10` and removed python feature (yarn repo error fix).
+- Configured Git LFS tracking and migrated data folders into Git.
+- Added `LR/`, `HR/`, `SR/`, `outputs/` directories with sample assets committed.
+- Implemented `web_sr_server.py` web UI with desktop-like layout and feature parity (GT metrics, comparison, feature export).
 - Added scratch repair and colorization flow to the server GUI pipeline.
 - Added non-systemd xrdp startup steps to `.context/remote_access.md`.
 - Normalized remaining SSH port references across the repo to 30011.
