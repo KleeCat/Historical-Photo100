@@ -74,6 +74,8 @@ Last update: 2026-01-30
 - Implemented `web_sr_server.py` web UI with desktop-like layout and feature parity (GT metrics, comparison, feature export).
 - Added GUI guards for missing input/model before processing to improve stability.
 - Added per-run output snapshots and JSON logs under `outputs/runs` for reproducibility.
+- Added per-stage logging (upscale/face/blend/texture/finalize) to `run_log.json`.
+- Added "Open Last Run Folder" button for quick access to outputs.
 - Added scratch repair and colorization flow to the server GUI pipeline.
 - Added non-systemd xrdp startup steps to `.context/remote_access.md`.
 - Normalized remaining SSH port references across the repo to 30011.

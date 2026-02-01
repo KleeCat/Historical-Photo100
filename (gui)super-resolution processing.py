@@ -1,11 +1,11 @@
-﻿import os
+import os
 import json
 import sys
 import contextlib
 import warnings
 import time
 import uuid
-import uuid
+import subprocess
 from datetime import datetime
 
 
@@ -374,6 +374,7 @@ class ModernApp(ctk.CTk):
         self.texture_pipe = None
         self.scratch_model = None
         self.img_gt = None
+        self.gt_path = None
         self.input_path = None
         self.is_processing = False
         self.last_run_dir = None
@@ -496,37 +497,46 @@ class ModernApp(ctk.CTk):
         self.btn_run_default_fg = self.btn_run.cget("fg_color")
         self.btn_run_default_hover = self.btn_run.cget("hover_color")
 
+        self.btn_open_run_dir = ctk.CTkButton(
+            self.sidebar,
+            text="Open Last Run Folder",
+            command=self.open_last_run_folder,
+            height=36,
+        )
+        self.btn_open_run_dir.grid(row=19, column=0, padx=20, pady=(0, 10))
+        self.btn_open_run_dir.configure(state="disabled")
+
         self.btn_compare = ctk.CTkButton(self.sidebar, text="Save Comparison", command=self.save_comparison,
                                          fg_color="#3A7CA5", hover_color="#2D5F7C", height=40,
                                          font=ctk.CTkFont(size=14, weight="bold"))
-        self.btn_compare.grid(row=19, column=0, padx=20, pady=10)
+        self.btn_compare.grid(row=20, column=0, padx=20, pady=10)
         self.btn_compare.configure(state="disabled")
 
         self.btn_features = ctk.CTkButton(self.sidebar, text="Export Features", command=self.export_feature_maps,
                                           fg_color="#E0A800", hover_color="#B38600", height=40,
                                           font=ctk.CTkFont(size=14, weight="bold"))
-        self.btn_features.grid(row=20, column=0, padx=20, pady=10)
+        self.btn_features.grid(row=21, column=0, padx=20, pady=10)
         self.btn_features.configure(state="disabled")
 
         self.btn_save = ctk.CTkButton(self.sidebar, text="Save Result", command=self.save_result, state="disabled",
                                       height=40)
-        self.btn_save.grid(row=21, column=0, padx=20, pady=10)
+        self.btn_save.grid(row=22, column=0, padx=20, pady=10)
 
         self.switch_compare = ctk.CTkSwitch(self.sidebar, text="Compare Slider", variable=self.compare_mode,
                                             command=self.on_compare_mode_toggle)
-        self.switch_compare.grid(row=22, column=0, padx=20, pady=(10, 4), sticky="w")
+        self.switch_compare.grid(row=23, column=0, padx=20, pady=(10, 4), sticky="w")
         self.lbl_compare_split = ctk.CTkLabel(self.sidebar, text="Split: 50%")
-        self.lbl_compare_split.grid(row=23, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_compare_split.grid(row=24, column=0, padx=20, pady=(0, 4), sticky="w")
         self.slider_compare = ctk.CTkSlider(self.sidebar, from_=0.0, to=1.0, number_of_steps=20,
                                             variable=self.compare_split, command=self.on_compare_split_change)
-        self.slider_compare.grid(row=24, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_compare.grid(row=25, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.slider_compare.configure(state="disabled")
         self.lbl_compare_split.grid_remove()
         self.slider_compare.grid_remove()
 
         # Metrics Display
         self.metrics_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        self.metrics_frame.grid(row=25, column=0, padx=20, pady=(10, 10), sticky="nw")
+        self.metrics_frame.grid(row=26, column=0, padx=20, pady=(10, 10), sticky="nw")
 
         self.lbl_resolution_title = ctk.CTkLabel(
             self.metrics_frame,
@@ -759,6 +769,7 @@ class ModernApp(ctk.CTk):
             status_text = f"Loaded: {os.path.basename(path)} | {self.get_texture_status_text()}"
             self.status_label.configure(text=status_text)
             self.img_gt = None
+            self.gt_path = None
             self.img_output = None
             self.feature_maps = []
             self.render_main_images()
@@ -778,6 +789,7 @@ class ModernApp(ctk.CTk):
         path = filedialog.askopenfilename(filetypes=[("Image", "*.jpg *.png *.jpeg *.bmp")])
         if path:
             self.img_gt = self.read_image(path)
+            self.gt_path = path
             self.calculate_metrics()
             messagebox.showinfo("Info", "Ground Truth loaded")
 
@@ -1244,20 +1256,38 @@ class ModernApp(ctk.CTk):
             "film_grain": float(self.film_grain.get()),
             "texture_enabled": bool(TEXTURE_ENABLED),
             "texture_model": TEXTURE_MODEL_ID,
+            "texture_prompt": TEXTURE_PROMPT,
+            "texture_strength": TEXTURE_STRENGTH,
+            "texture_guidance": TEXTURE_GUIDANCE,
+            "texture_steps": TEXTURE_STEPS,
             "scratch_model": SCRATCH_MODEL_PATH,
+            "gt_path": self.gt_path,
+            "model_path": os.path.join(
+                self.model_folder,
+                "RealESRGAN_x2plus.pth" if self.scale_factor == 2 else "RealESRGAN_x4plus.pth",
+            ),
+            "gfpgan_model_path": os.environ.get(
+                "GFPGAN_MODEL_PATH",
+                "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth",
+            ),
         }
+        def set_stage(stage, value, status_text, overlay_text):
+            run_meta["stage"] = stage
+            run_meta["stage_at"] = timestamp_str()
+            self.write_run_log(run_dir, run_meta)
+            self.report_progress(value, status_text, overlay_text)
         self.after(0, lambda: self.status_label.configure(text=f"Run {run_id} started..."))
         try:
             output = None
             used_face_enhance = False
 
-            self.report_progress(0.15, f"Upscaling image (x{self.scale_factor})...", "Upscaling")
+            set_stage("upscale", 0.15, f"Upscaling image (x{self.scale_factor})...", "Upscaling")
             sr_base, _ = self.upsampler.enhance(self.img_input, outscale=self.scale_factor)
             output = sr_base
-            self.report_progress(0.45, "Upscale complete. Refining details...", "Refining")
+            set_stage("refine", 0.45, "Upscale complete. Refining details...", "Refining")
 
             if self.use_face_enhance.get():
-                self.report_progress(0.55, "Applying face enhancement...", "Face enhancement")
+                set_stage("face", 0.55, "Applying face enhancement...", "Face enhancement")
                 try:
                     from gfpgan import GFPGANer
                     face_enhancer = GFPGANer(
@@ -1273,15 +1303,15 @@ class ModernApp(ctk.CTk):
                     self.after(0, lambda: self.status_label.configure(
                         text="Face enhancement unavailable, switching to standard mode..."))
 
-            self.report_progress(0.7, "Blending fine details...", "Blending")
+            set_stage("blend", 0.7, "Blending fine details...", "Blending")
             output = blend_with_lr(output, self.img_input, self.natural_blend.get())
             output = apply_unsharp_mask(output, self.texture_boost.get())
             try:
-                self.report_progress(0.82, "Generating texture details...", "Texture refinement")
+                set_stage("texture", 0.82, "Generating texture details...", "Texture refinement")
                 output = self.apply_texture_generation(output)
             except Exception as e:
                 self.after(0, lambda: self.status_label.configure(text=f"Texture generation skipped: {e}"))
-            self.report_progress(0.92, "Finalizing output...", "Finalizing")
+            set_stage("finalize", 0.92, "Finalizing output...", "Finalizing")
             output = apply_film_grain(output, self.film_grain.get())
 
             self.img_output = output
@@ -1290,6 +1320,8 @@ class ModernApp(ctk.CTk):
             run_input_path = os.path.join(run_dir, f"{base_name}_input.png")
             save_image(run_input_path, self.img_input)
             run_meta["input_snapshot"] = run_input_path
+            run_meta["stage"] = "complete"
+            run_meta["stage_at"] = timestamp_str()
 
             self.compare_hold_active = False
 
@@ -1316,6 +1348,9 @@ class ModernApp(ctk.CTk):
             self.after(0, lambda: messagebox.showerror("Error", f"Processing failed: {str(e)}"))
             self.after(0, lambda: self.show_output_overlay("Processing failed", animate=False))
             run_meta["error"] = str(e)
+            run_meta["stage"] = "error"
+            run_meta["stage_at"] = timestamp_str()
+            self.write_run_log(run_dir, run_meta)
         finally:
             self.is_processing = False
             elapsed = None
@@ -1396,12 +1431,27 @@ class ModernApp(ctk.CTk):
         ensure_dir(run_dir)
         self.last_run_dir = run_dir
         self.last_run_id = run_id
+        self.after(0, lambda: self.btn_open_run_dir.configure(state="normal"))
         return run_id, run_dir
 
     def write_run_log(self, run_dir, payload):
         log_path = os.path.join(run_dir, "run_log.json")
         write_json_file(log_path, payload)
         return log_path
+
+    def open_last_run_folder(self):
+        if not self.last_run_dir or not os.path.exists(self.last_run_dir):
+            messagebox.showinfo("Info", "No run folder available yet.")
+            return
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(self.last_run_dir)
+            elif sys.platform == "darwin":
+                subprocess.run(["open", self.last_run_dir], check=False)
+            else:
+                subprocess.run(["xdg-open", self.last_run_dir], check=False)
+        except Exception as exc:
+            messagebox.showerror("Error", f"Open folder failed: {exc}")
 
     def get_output_dir(self, subdir, prompt=False):
         selected = filedialog.askdirectory() if prompt else ""
