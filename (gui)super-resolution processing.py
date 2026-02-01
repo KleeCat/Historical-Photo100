@@ -1270,6 +1270,20 @@ class ModernApp(ctk.CTk):
                 "GFPGAN_MODEL_PATH",
                 "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth",
             ),
+            "env": {
+                "torch_version": torch.__version__,
+                "cuda_available": torch.cuda.is_available(),
+                "cuda_version": torch.version.cuda,
+            },
+            "timing": {},
+            "metrics": {},
+            "output_files": {
+                "input_snapshot": None,
+                "output_snapshot": run_output_path,
+                "comparison": None,
+                "grid": None,
+                "features": [],
+            },
         }
         def set_stage(stage, value, status_text, overlay_text):
             run_meta["stage"] = stage
@@ -1282,12 +1296,15 @@ class ModernApp(ctk.CTk):
             used_face_enhance = False
 
             set_stage("upscale", 0.15, f"Upscaling image (x{self.scale_factor})...", "Upscaling")
+            stage_start = time.perf_counter()
             sr_base, _ = self.upsampler.enhance(self.img_input, outscale=self.scale_factor)
+            run_meta["timing"]["upscale"] = round(time.perf_counter() - stage_start, 3)
             output = sr_base
             set_stage("refine", 0.45, "Upscale complete. Refining details...", "Refining")
 
             if self.use_face_enhance.get():
                 set_stage("face", 0.55, "Applying face enhancement...", "Face enhancement")
+                stage_start = time.perf_counter()
                 try:
                     from gfpgan import GFPGANer
                     face_enhancer = GFPGANer(
@@ -1302,17 +1319,24 @@ class ModernApp(ctk.CTk):
                     print(f"Warning: Face enhance failed ({e}), switching to standard mode.")
                     self.after(0, lambda: self.status_label.configure(
                         text="Face enhancement unavailable, switching to standard mode..."))
+                run_meta["timing"]["face"] = round(time.perf_counter() - stage_start, 3)
 
             set_stage("blend", 0.7, "Blending fine details...", "Blending")
+            stage_start = time.perf_counter()
             output = blend_with_lr(output, self.img_input, self.natural_blend.get())
             output = apply_unsharp_mask(output, self.texture_boost.get())
+            run_meta["timing"]["blend"] = round(time.perf_counter() - stage_start, 3)
             try:
                 set_stage("texture", 0.82, "Generating texture details...", "Texture refinement")
+                stage_start = time.perf_counter()
                 output = self.apply_texture_generation(output)
+                run_meta["timing"]["texture"] = round(time.perf_counter() - stage_start, 3)
             except Exception as e:
                 self.after(0, lambda: self.status_label.configure(text=f"Texture generation skipped: {e}"))
             set_stage("finalize", 0.92, "Finalizing output...", "Finalizing")
+            stage_start = time.perf_counter()
             output = apply_film_grain(output, self.film_grain.get())
+            run_meta["timing"]["finalize"] = round(time.perf_counter() - stage_start, 3)
 
             self.img_output = output
             success = True
@@ -1320,6 +1344,9 @@ class ModernApp(ctk.CTk):
             run_input_path = os.path.join(run_dir, f"{base_name}_input.png")
             save_image(run_input_path, self.img_input)
             run_meta["input_snapshot"] = run_input_path
+            run_meta["output_files"]["input_snapshot"] = run_input_path
+            run_meta["output_files"]["output_snapshot"] = run_output_path
+            run_meta["output_files"]["features"] = [name for name, _ in self.feature_maps]
             run_meta["stage"] = "complete"
             run_meta["stage_at"] = timestamp_str()
 
@@ -1358,12 +1385,18 @@ class ModernApp(ctk.CTk):
                 elapsed = time.perf_counter() - self.processing_start_time
             if elapsed is not None:
                 run_meta["elapsed_sec"] = round(elapsed, 3)
+                run_meta["timing"]["total"] = round(elapsed, 3)
             if self.img_input is not None:
                 h, w = self.img_input.shape[:2]
                 run_meta["input_size"] = [int(w), int(h)]
             if self.img_output is not None:
                 h, w = self.img_output.shape[:2]
                 run_meta["output_size"] = [int(w), int(h)]
+            if psnr is not None and ssim is not None and self.img_gt is not None and self.img_output is not None:
+                h, w = self.img_output.shape[:2]
+                img_gt_out = cv2.resize(self.img_gt, (w, h))
+                run_meta["metrics"]["psnr"] = float(psnr(img_gt_out, self.img_output, data_range=255))
+                run_meta["metrics"]["ssim"] = float(ssim(img_gt_out, self.img_output, data_range=255, channel_axis=2))
             self.write_run_log(run_dir, run_meta)
             self.after(0, lambda: self.progress_bar.set(1.0))
             self.after(0, lambda: self.set_run_button_processing(False))
