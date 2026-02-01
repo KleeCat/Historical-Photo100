@@ -543,6 +543,7 @@ def render_form(message: str = "") -> bytes:
       <input id="tile" name="tile" type="number" value="0" min="0" />
       <div class="btn secondary disabled">Set Default Output Dir</div>
       <div class="hint">Default output: ./outputs</div>
+      <label class="toggle"><input type="checkbox" name="quick" checked />Fast mode (x2, tile 256)</label>
       <label class="toggle"><input type="checkbox" name="face" />Face Enhancement</label>
       <label class="toggle"><input type="checkbox" name="scratch" />Scratch repair</label>
       <button type="submit" class="btn success">Start Restoration</button>
@@ -851,6 +852,11 @@ class WebHandler(BaseHTTPRequestHandler):
         tile = int(form.get("tile", "0"))
         use_face = "face" in form
         use_scratch = "scratch" in form
+        if "quick" in form:
+            scale = 2
+            tile = 256
+            use_face = False
+            use_scratch = False
         job_id = uuid.uuid4().hex
         work_dir = Path(tempfile.mkdtemp(prefix="sr_web_"))
         lr_dir = work_dir / "lr"
