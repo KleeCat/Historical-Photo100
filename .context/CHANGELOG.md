@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-01-30: Added per-run output snapshots/logs and stability guards in `(gui)super-resolution processing.py`.
 - 2026-01-30: Implemented `web_sr_server.py` web UI with desktop-like layout and feature parity.
 - 2026-01-30: Switched Codespaces devcontainer image to python:3.10 and removed python feature (yarn repo error fix).
 - 2026-01-30: Configured Git LFS tracking and committed LR/HR/SR/outputs assets.
