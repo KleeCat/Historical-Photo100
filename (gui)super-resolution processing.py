@@ -1426,7 +1426,7 @@ class ModernApp(ctk.CTk):
     def start_run_record(self):
         run_id = uuid.uuid4().hex[:8]
         base_name = safe_basename(self.input_path)
-        run_root = self.get_output_dir(f"runs({base_name})")
+        run_root = self.get_output_dir("")
         run_dir = os.path.join(run_root, f"{timestamp_str()}_{base_name}_{run_id}")
         ensure_dir(run_dir)
         self.last_run_dir = run_dir
