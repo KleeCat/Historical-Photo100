@@ -1,12 +1,18 @@
-import os
-import json
-import sys
 import contextlib
-import warnings
+import json
+import os
+import subprocess
+import sys
+import threading
 import time
 import uuid
-import subprocess
+import warnings
 from datetime import datetime
+
+import cv2
+import numpy as np
+import torch
+import torch.nn as nn
 
 
 @contextlib.contextmanager
@@ -31,12 +37,6 @@ def suppress_stderr():
 
 # Silence noisy third-party warnings on import.
 warnings.filterwarnings("ignore", category=UserWarning, module=r".*_distutils_hack")
-
-import cv2
-import torch
-import torch.nn as nn
-import numpy as np
-import threading
 try:
     from diffusers import StableDiffusionImg2ImgPipeline
 except ImportError:
@@ -62,7 +62,7 @@ with suppress_stderr():
     ctk.set_appearance_mode("System")
     ctk.set_default_color_theme("blue")
 
-TEXTURE_MODEL_ID = os.environ.get("TEXTURE_MODEL_ID", r"D:\Tools\models\stable-diffusion-v1-5").strip()
+TEXTURE_MODEL_ID = os.environ.get("TEXTURE_MODEL_ID", "").strip()
 TEXTURE_PROMPT = os.environ.get(
     "TEXTURE_PROMPT",
     "restored vintage photo, realistic skin texture, fabric detail, subtle film grain"
@@ -74,6 +74,13 @@ TEXTURE_ENABLED = False
 SCRATCH_MODEL_PATH = os.environ.get("SCRATCH_MODEL_PATH", "").strip()
 SCRATCH_MASK_THRESHOLD = float(os.environ.get("SCRATCH_MASK_THRESHOLD", "0.5"))
 SCRATCH_INPAINT_RADIUS = int(os.environ.get("SCRATCH_INPAINT_RADIUS", "3"))
+
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp")
+DEFAULT_BATCH_RETRIES = 1
+
+
+class UserCancelledError(Exception):
+    pass
 
 
 def ensure_dir(path):
@@ -377,6 +384,19 @@ class ModernApp(ctk.CTk):
         self.gt_path = None
         self.input_path = None
         self.is_processing = False
+        self.is_batch_processing = False
+        self.batch_queue = []
+        self.batch_index = 0
+        self.batch_total = 0
+        self.batch_cancelled = False
+        self.batch_output_dir = None
+        self.batch_run_id = None
+        self.batch_errors = []
+        self.batch_folder = None
+        self.batch_retry_counts = {}
+        self.batch_retry_limit = DEFAULT_BATCH_RETRIES
+        self.batch_retry_max = ctk.IntVar(value=DEFAULT_BATCH_RETRIES)
+        self.cancel_requested = False
         self.last_run_dir = None
         self.last_run_id = None
         self.face_blend = ctk.DoubleVar(value=0.7)
@@ -417,46 +437,46 @@ class ModernApp(ctk.CTk):
         # === 1. Sidebar (Left) ===
         self.sidebar = ctk.CTkFrame(self, width=240, corner_radius=0)
         self.sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew")
-        self.sidebar.grid_rowconfigure(25, weight=1)
+        self.sidebar.grid_rowconfigure(31, weight=1)
 
         # Logo / Title
         self.logo_label = ctk.CTkLabel(self.sidebar, text="Super Resolution", font=ctk.CTkFont(size=24, weight="bold"))
         self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
 
         # Controls
-        self.btn_load = ctk.CTkButton(self.sidebar, text="Open Image", command=self.load_input_image, height=40)
-        self.btn_load.grid(row=1, column=0, padx=20, pady=10)
+        self.btn_load = ctk.CTkButton(self.sidebar, text="Open Image", command=self.load_input_image, height=38)
+        self.btn_load.grid(row=1, column=0, padx=20, pady=4)
 
         self.btn_gt = ctk.CTkButton(self.sidebar, text="Load Ground Truth", command=self.load_gt_image,
-                                    fg_color="transparent", border_width=2, text_color=("gray10", "#DCE4EE"), height=40)
-        self.btn_gt.grid(row=2, column=0, padx=20, pady=10)
+                                    fg_color="transparent", border_width=2, text_color=("gray10", "#DCE4EE"), height=38)
+        self.btn_gt.grid(row=2, column=0, padx=20, pady=4)
 
         self.separator = ctk.CTkProgressBar(self.sidebar, height=2, progress_color="gray")
-        self.separator.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
+        self.separator.grid(row=3, column=0, padx=20, pady=6, sticky="ew")
         self.separator.set(1)
 
         # === New Scale Selector ===
         ctk.CTkLabel(self.sidebar, text="Upscale Factor:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=4,
                                                                                                           column=0,
                                                                                                           padx=20,
-                                                                                                          pady=(10, 0),
+                                                                                                          pady=(8, 0),
                                                                                                           sticky="w")
         self.scale_var = ctk.StringVar(value="x4")
         self.scale_combo = ctk.CTkComboBox(self.sidebar, values=["x2", "x4"], variable=self.scale_var,
                                            command=self.change_model_scale)
-        self.scale_combo.grid(row=5, column=0, padx=20, pady=(5, 10))
+        self.scale_combo.grid(row=5, column=0, padx=20, pady=(4, 6))
 
         self.btn_output_dir = ctk.CTkButton(self.sidebar, text="Set Default Output Dir",
-                                            command=self.set_default_output_dir, height=36)
-        self.btn_output_dir.grid(row=6, column=0, padx=20, pady=(10, 4))
+                                            command=self.set_default_output_dir, height=34)
+        self.btn_output_dir.grid(row=6, column=0, padx=20, pady=(6, 4))
         self.lbl_output_dir = ctk.CTkLabel(self.sidebar, text=self.get_output_dir_label_text(),
                                            font=ctk.CTkFont(size=11), wraplength=200, justify="left")
-        self.lbl_output_dir.grid(row=7, column=0, padx=20, pady=(0, 10), sticky="w")
+        self.lbl_output_dir.grid(row=7, column=0, padx=20, pady=(0, 6), sticky="w")
 
         # Face Enhance Switch
         self.use_face_enhance = ctk.BooleanVar(value=False)
         self.switch_face = ctk.CTkSwitch(self.sidebar, text="Face Enhancement", variable=self.use_face_enhance)
-        self.switch_face.grid(row=8, column=0, padx=20, pady=10, sticky="w")
+        self.switch_face.grid(row=8, column=0, padx=20, pady=4, sticky="w")
 
         self.lbl_face_blend = ctk.CTkLabel(self.sidebar, text=f"Face Blend: {self.face_blend.get():.2f}")
         self.lbl_face_blend.grid(row=9, column=0, padx=20, pady=(0, 4), sticky="w")
@@ -490,53 +510,81 @@ class ModernApp(ctk.CTk):
         self.slider_film_grain.grid(row=16, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.slider_film_grain.grid_remove()
 
+        self.batch_retry_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        self.batch_retry_frame.grid(row=17, column=0, padx=20, pady=(0, 2), sticky="ew")
+        self.batch_retry_frame.grid_columnconfigure(1, weight=1)
+        self.lbl_batch_retry = ctk.CTkLabel(self.batch_retry_frame, text="Batch Retries")
+        self.lbl_batch_retry.grid(row=0, column=0, sticky="w")
+        self.entry_batch_retry = ctk.CTkEntry(self.batch_retry_frame, width=60, textvariable=self.batch_retry_max)
+        self.entry_batch_retry.grid(row=0, column=1, sticky="e")
+
         self.btn_run = ctk.CTkButton(self.sidebar, text="Start Restoration", command=self.run_processing_thread,
-                                     fg_color="#2CC985", hover_color="#229A66", height=50,
+                                     fg_color="#2CC985", hover_color="#229A66", height=46,
                                      font=ctk.CTkFont(size=16, weight="bold"))
-        self.btn_run.grid(row=18, column=0, padx=20, pady=(10, 10))
+        self.btn_run.grid(row=19, column=0, padx=20, pady=4)
         self.btn_run_default_fg = self.btn_run.cget("fg_color")
         self.btn_run_default_hover = self.btn_run.cget("hover_color")
+
+        self.btn_batch = ctk.CTkButton(
+            self.sidebar,
+            text="Run Folder (Batch)",
+            command=self.run_batch_folder,
+            height=36,
+        )
+        self.btn_batch.grid(row=20, column=0, padx=20, pady=4)
+
+        self.btn_cancel = ctk.CTkButton(
+            self.sidebar,
+            text="Cancel",
+            command=self.request_cancel,
+            fg_color="#D9534F",
+            hover_color="#C9302C",
+            height=32,
+        )
+        self.btn_cancel.grid(row=21, column=0, padx=20, pady=4)
+        self.btn_cancel.configure(state="disabled", text_color_disabled=("gray30", "gray70"))
 
         self.btn_open_run_dir = ctk.CTkButton(
             self.sidebar,
             text="Open Last Run Folder",
             command=self.open_last_run_folder,
-            height=36,
+            height=32,
         )
-        self.btn_open_run_dir.grid(row=19, column=0, padx=20, pady=(0, 10))
-        self.btn_open_run_dir.configure(state="disabled")
+        self.btn_open_run_dir.grid(row=22, column=0, padx=20, pady=4)
+        self.btn_open_run_dir.configure(state="disabled", text_color_disabled=("gray30", "gray70"))
 
         self.btn_compare = ctk.CTkButton(self.sidebar, text="Save Comparison", command=self.save_comparison,
-                                         fg_color="#3A7CA5", hover_color="#2D5F7C", height=40,
+                                         fg_color="#3A7CA5", hover_color="#2D5F7C", height=36,
                                          font=ctk.CTkFont(size=14, weight="bold"))
-        self.btn_compare.grid(row=20, column=0, padx=20, pady=10)
-        self.btn_compare.configure(state="disabled")
+        self.btn_compare.grid(row=23, column=0, padx=20, pady=4)
+        self.btn_compare.configure(state="disabled", text_color_disabled=("gray30", "gray70"))
 
         self.btn_features = ctk.CTkButton(self.sidebar, text="Export Features", command=self.export_feature_maps,
-                                          fg_color="#E0A800", hover_color="#B38600", height=40,
+                                          fg_color="#E0A800", hover_color="#B38600", height=36,
                                           font=ctk.CTkFont(size=14, weight="bold"))
-        self.btn_features.grid(row=21, column=0, padx=20, pady=10)
-        self.btn_features.configure(state="disabled")
+        self.btn_features.grid(row=24, column=0, padx=20, pady=4)
+        self.btn_features.configure(state="disabled", text_color_disabled=("gray30", "gray70"))
 
         self.btn_save = ctk.CTkButton(self.sidebar, text="Save Result", command=self.save_result, state="disabled",
-                                      height=40)
-        self.btn_save.grid(row=22, column=0, padx=20, pady=10)
+                                      height=36)
+        self.btn_save.grid(row=25, column=0, padx=20, pady=4)
+        self.btn_save.configure(text_color_disabled=("gray30", "gray70"))
 
         self.switch_compare = ctk.CTkSwitch(self.sidebar, text="Compare Slider", variable=self.compare_mode,
                                             command=self.on_compare_mode_toggle)
-        self.switch_compare.grid(row=23, column=0, padx=20, pady=(10, 4), sticky="w")
+        self.switch_compare.grid(row=26, column=0, padx=20, pady=(4, 2), sticky="w")
         self.lbl_compare_split = ctk.CTkLabel(self.sidebar, text="Split: 50%")
-        self.lbl_compare_split.grid(row=24, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_compare_split.grid(row=27, column=0, padx=20, pady=(0, 2), sticky="w")
         self.slider_compare = ctk.CTkSlider(self.sidebar, from_=0.0, to=1.0, number_of_steps=20,
                                             variable=self.compare_split, command=self.on_compare_split_change)
-        self.slider_compare.grid(row=25, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_compare.grid(row=28, column=0, padx=20, pady=(0, 4), sticky="ew")
         self.slider_compare.configure(state="disabled")
         self.lbl_compare_split.grid_remove()
         self.slider_compare.grid_remove()
 
         # Metrics Display
         self.metrics_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        self.metrics_frame.grid(row=26, column=0, padx=20, pady=(10, 10), sticky="nw")
+        self.metrics_frame.grid(row=18, column=0, padx=20, pady=(2, 4), sticky="nw")
 
         self.lbl_resolution_title = ctk.CTkLabel(
             self.metrics_frame,
@@ -547,7 +595,7 @@ class ModernApp(ctk.CTk):
         self.lbl_resolution_in = ctk.CTkLabel(self.metrics_frame, text="Input: -- x --", font=ctk.CTkFont(size=15))
         self.lbl_resolution_in.pack(anchor="w")
         self.lbl_resolution_out = ctk.CTkLabel(self.metrics_frame, text="Output: -- x --", font=ctk.CTkFont(size=15))
-        self.lbl_resolution_out.pack(anchor="w", pady=(0, 6))
+        self.lbl_resolution_out.pack(anchor="w", pady=(0, 4))
         self.lbl_resolution_title.pack_forget()
         self.lbl_resolution_in.pack_forget()
         self.lbl_resolution_out.pack_forget()
@@ -763,8 +811,14 @@ class ModernApp(ctk.CTk):
     def load_input_image(self):
         path = filedialog.askopenfilename(filetypes=[("Image", "*.jpg *.png *.jpeg *.bmp")])
         if path:
+            try:
+                img = self.read_image(path)
+            except Exception as exc:
+                self.status_label.configure(text=f"Load failed: {exc}")
+                messagebox.showerror("Error", f"Failed to load image: {exc}")
+                return
             self.input_path = path
-            self.img_input = self.read_image(path)
+            self.img_input = img
             self.reset_view_state()
             status_text = f"Loaded: {os.path.basename(path)} | {self.get_texture_status_text()}"
             self.status_label.configure(text=status_text)
@@ -788,14 +842,29 @@ class ModernApp(ctk.CTk):
     def load_gt_image(self):
         path = filedialog.askopenfilename(filetypes=[("Image", "*.jpg *.png *.jpeg *.bmp")])
         if path:
-            self.img_gt = self.read_image(path)
+            try:
+                img = self.read_image(path)
+            except Exception as exc:
+                self.status_label.configure(text=f"Load failed: {exc}")
+                messagebox.showerror("Error", f"Failed to load ground truth: {exc}")
+                return
+            self.img_gt = img
             self.gt_path = path
             self.calculate_metrics()
             messagebox.showinfo("Info", "Ground Truth loaded")
 
     def read_image(self, path):
+        if not path:
+            raise ValueError("Empty path")
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"File not found: {os.path.basename(path)}")
         with suppress_stderr():
-            img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+            data = np.fromfile(path, dtype=np.uint8)
+            if data.size == 0:
+                raise ValueError("Empty image file")
+            img = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
+        if img is None:
+            raise ValueError("Failed to decode image")
         if len(img.shape) == 2:
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         elif img.shape[2] == 4:
@@ -933,8 +1002,11 @@ class ModernApp(ctk.CTk):
 
     def render_main_images(self):
         if self.img_input is None:
-            self.lbl_img_in.configure(image=None, text="Waiting for input...")
-            self.lbl_img_in.image = None
+            try:
+                self.lbl_img_in.configure(image=None, text="Waiting for input...")
+                self.lbl_img_in.image = None
+            except TclError:
+                return
         else:
             self.render_zoomed_image(self.img_input, self.lbl_img_in)
 
@@ -946,8 +1018,11 @@ class ModernApp(ctk.CTk):
             self.render_zoomed_image(self.img_input, self.lbl_img_out)
             return
         if self.img_output is None:
-            self.lbl_img_out.configure(image=None, text="")
-            self.lbl_img_out.image = None
+            try:
+                self.lbl_img_out.configure(image=None, text="")
+                self.lbl_img_out.image = None
+            except TclError:
+                return
             return
         if not self.render_zoomed_image(self.img_output, self.lbl_img_out):
             try:
@@ -1065,6 +1140,41 @@ class ModernApp(ctk.CTk):
                 fg_color=self.btn_run_default_fg,
                 hover_color=self.btn_run_default_hover
             )
+
+    def set_run_button_batch(self, processing):
+        if processing:
+            self.btn_run.configure(
+                state="disabled",
+                text="Batch Running...",
+                fg_color=("gray70", "#444444"),
+                hover_color=("gray70", "#444444")
+            )
+        else:
+            self.set_run_button_processing(False)
+
+    def update_action_buttons(self):
+        if self.is_processing or self.is_batch_processing:
+            self.btn_cancel.configure(state="normal")
+            self.btn_batch.configure(state="disabled")
+        else:
+            self.btn_cancel.configure(state="disabled")
+            self.btn_batch.configure(state="normal")
+
+    def get_batch_retry_limit(self):
+        try:
+            value = int(self.batch_retry_max.get())
+        except (TypeError, ValueError):
+            value = DEFAULT_BATCH_RETRIES
+        return max(0, min(value, 5))
+
+    def request_cancel(self):
+        if not self.is_processing and not self.is_batch_processing:
+            return
+        self.cancel_requested = True
+        if self.is_batch_processing:
+            self.batch_cancelled = True
+        self.status_label.configure(text="Cancelling after current step...")
+        self.show_output_overlay("Cancelling", animate=True)
 
     def show_image_ctk(self, cv_img, label_widget):
         img_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
@@ -1213,6 +1323,9 @@ class ModernApp(ctk.CTk):
     def run_processing_thread(self):
         if self.is_processing:
             return
+        if self.is_batch_processing:
+            messagebox.showinfo("Info", "Batch processing is already running.")
+            return
         if self.img_input is None:
             self.status_label.configure(text="Load an input image first.")
             messagebox.showinfo("Info", "Please load an input image first.")
@@ -1222,23 +1335,43 @@ class ModernApp(ctk.CTk):
             threading.Thread(target=self.load_model, daemon=True).start()
             messagebox.showwarning("Model Loading", "Model is still loading. Please try again shortly.")
             return
+        self.cancel_requested = False
+        self.start_processing(batch_mode=False, on_complete=None)
+
+    def start_processing(self, batch_mode=False, on_complete=None):
         self.is_processing = True
         self.progress_bar.set(0)
         self.progress_target = 0.05
         self.feature_maps = []
         self.compare_hold_active = False
         self.start_elapsed_timer()
-        self.set_run_button_processing(True)
+        if batch_mode:
+            self.set_run_button_batch(True)
+        else:
+            self.set_run_button_processing(True)
+        self.update_action_buttons()
         self.update_compare_controls()
         self.show_output_overlay("Processing", animate=True)
-        self.status_label.configure(text=f"Restoring image (x{self.scale_factor})...")
+        if batch_mode:
+            status_text = f"Batch {self.batch_index + 1}/{self.batch_total}: {os.path.basename(self.input_path)}"
+        else:
+            status_text = f"Restoring image (x{self.scale_factor})..."
+        self.status_label.configure(text=status_text)
         self.auto_increment_progress()
 
-        threading.Thread(target=self.process_image, daemon=True).start()
+        threading.Thread(
+            target=self.process_image,
+            args=(batch_mode, on_complete),
+            daemon=True,
+        ).start()
+        return True
 
-    def process_image(self):
+    def process_image(self, batch_mode=False, on_complete=None):
         success = False
-        run_id, run_dir = self.start_run_record()
+        cancelled = False
+        error_message = None
+        run_root = self.batch_output_dir if batch_mode else None
+        run_id, run_dir = self.start_run_record(run_root=run_root)
         base_name = safe_basename(self.input_path)
         run_output_path = os.path.join(run_dir, f"{base_name}_x{self.scale_factor}.png")
         run_meta = {
@@ -1290,8 +1423,12 @@ class ModernApp(ctk.CTk):
             run_meta["stage_at"] = timestamp_str()
             self.write_run_log(run_dir, run_meta)
             self.report_progress(value, status_text, overlay_text)
+        def check_cancel():
+            if self.cancel_requested:
+                raise UserCancelledError("Cancelled")
         self.after(0, lambda: self.status_label.configure(text=f"Run {run_id} started..."))
         try:
+            check_cancel()
             output = None
             used_face_enhance = False
 
@@ -1300,9 +1437,11 @@ class ModernApp(ctk.CTk):
             sr_base, _ = self.upsampler.enhance(self.img_input, outscale=self.scale_factor)
             run_meta["timing"]["upscale"] = round(time.perf_counter() - stage_start, 3)
             output = sr_base
+            check_cancel()
             set_stage("refine", 0.45, "Upscale complete. Refining details...", "Refining")
 
             if self.use_face_enhance.get():
+                check_cancel()
                 set_stage("face", 0.55, "Applying face enhancement...", "Face enhancement")
                 stage_start = time.perf_counter()
                 try:
@@ -1327,6 +1466,7 @@ class ModernApp(ctk.CTk):
             output = apply_unsharp_mask(output, self.texture_boost.get())
             run_meta["timing"]["blend"] = round(time.perf_counter() - stage_start, 3)
             try:
+                check_cancel()
                 set_stage("texture", 0.82, "Generating texture details...", "Texture refinement")
                 stage_start = time.perf_counter()
                 output = self.apply_texture_generation(output)
@@ -1372,10 +1512,20 @@ class ModernApp(ctk.CTk):
                 self.after(0, lambda: self.btn_features.configure(state="normal"))
 
         except Exception as e:
-            self.after(0, lambda: messagebox.showerror("Error", f"Processing failed: {str(e)}"))
-            self.after(0, lambda: self.show_output_overlay("Processing failed", animate=False))
-            run_meta["error"] = str(e)
-            run_meta["stage"] = "error"
+            if isinstance(e, UserCancelledError):
+                cancelled = True
+                error_message = "Cancelled"
+                self.after(0, lambda: self.status_label.configure(text="Cancelled"))
+                self.after(0, lambda: self.show_output_overlay("Cancelled", animate=False))
+                run_meta["error"] = "Cancelled"
+                run_meta["stage"] = "cancelled"
+            else:
+                error_message = str(e)
+                if not batch_mode:
+                    self.after(0, lambda: messagebox.showerror("Error", f"Processing failed: {str(e)}"))
+                self.after(0, lambda: self.show_output_overlay("Processing failed", animate=False))
+                run_meta["error"] = str(e)
+                run_meta["stage"] = "error"
             run_meta["stage_at"] = timestamp_str()
             self.write_run_log(run_dir, run_meta)
         finally:
@@ -1399,14 +1549,20 @@ class ModernApp(ctk.CTk):
                 run_meta["metrics"]["ssim"] = float(ssim(img_gt_out, self.img_output, data_range=255, channel_axis=2))
             self.write_run_log(run_dir, run_meta)
             self.after(0, lambda: self.progress_bar.set(1.0))
-            self.after(0, lambda: self.set_run_button_processing(False))
+            if batch_mode and self.is_batch_processing:
+                self.after(0, lambda: self.set_run_button_batch(True))
+            else:
+                self.after(0, lambda: self.set_run_button_processing(False))
+            self.after(0, self.update_action_buttons)
             if elapsed is not None:
                 self.after(0, lambda: self.elapsed_label.configure(text=f"Elapsed: {elapsed:.1f}s"))
-            if success and elapsed is not None:
+            if success and elapsed is not None and not batch_mode:
                 self.after(0, lambda: messagebox.showinfo(
                     "Completed",
                     f"Restoration finished in {elapsed:.1f}s."
                 ))
+            if batch_mode and on_complete is not None:
+                self.after(0, lambda: on_complete(success, cancelled, error_message))
 
     def update_resolution_labels(self):
         if self.img_input is None:
@@ -1456,16 +1612,149 @@ class ModernApp(ctk.CTk):
 
         self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, s_psnr_out, s_ssim_out)
 
-    def start_run_record(self):
+    def start_run_record(self, run_root=None):
         run_id = uuid.uuid4().hex[:8]
         base_name = safe_basename(self.input_path)
-        run_root = self.get_output_dir("")
+        run_root = run_root or self.get_output_dir("")
         run_dir = os.path.join(run_root, f"{timestamp_str()}_{base_name}_{run_id}")
         ensure_dir(run_dir)
         self.last_run_dir = run_dir
         self.last_run_id = run_id
         self.after(0, lambda: self.btn_open_run_dir.configure(state="normal"))
         return run_id, run_dir
+
+    def run_batch_folder(self):
+        if self.is_processing or self.is_batch_processing:
+            messagebox.showinfo("Info", "Processing is already running.")
+            return
+        folder = filedialog.askdirectory()
+        if not folder:
+            return
+        if not os.path.isdir(folder):
+            messagebox.showerror("Error", "Selected folder is invalid.")
+            return
+        files = [
+            os.path.join(folder, name)
+            for name in os.listdir(folder)
+            if name.lower().endswith(IMAGE_EXTS)
+        ]
+        files.sort()
+        if not files:
+            messagebox.showinfo("Info", "No supported images found in the folder.")
+            return
+        self.batch_queue = files
+        self.batch_total = len(files)
+        self.batch_index = 0
+        self.batch_errors = []
+        self.batch_cancelled = False
+        self.cancel_requested = False
+        self.is_batch_processing = True
+        self.batch_folder = folder
+        self.batch_retry_counts = {}
+        self.batch_retry_limit = self.get_batch_retry_limit()
+        self.batch_run_id = uuid.uuid4().hex[:8]
+        batch_subdir = os.path.join("batch", timestamp_str())
+        self.batch_output_dir = self.get_output_dir(batch_subdir)
+        queue_path = os.path.join(self.batch_output_dir, "batch_queue.json")
+        write_json_file(queue_path, {
+            "batch_run_id": self.batch_run_id,
+            "timestamp": timestamp_str(),
+            "folder": folder,
+            "total": self.batch_total,
+            "files": [os.path.basename(path) for path in files],
+        })
+        messagebox.showinfo(
+            "Batch",
+            f"Found {self.batch_total} images.\nQueue saved to: {queue_path}"
+        )
+        self.set_run_button_batch(True)
+        self.update_action_buttons()
+        self.show_output_overlay("Batch processing", animate=True)
+        self.start_next_batch_item()
+
+    def start_next_batch_item(self):
+        if self.cancel_requested or self.batch_index >= self.batch_total:
+            self.finish_batch()
+            return
+        path = self.batch_queue[self.batch_index]
+        try:
+            img = self.read_image(path)
+        except Exception as exc:
+            retry_count = self.batch_retry_counts.get(path, 0)
+            if retry_count < self.batch_retry_limit:
+                self.batch_retry_counts[path] = retry_count + 1
+                self.after(0, self.start_next_batch_item)
+                return
+            self.batch_errors.append({
+                "path": os.path.basename(path),
+                "error": str(exc),
+                "retries": retry_count,
+            })
+            self.batch_index += 1
+            self.after(0, self.start_next_batch_item)
+            return
+        self.input_path = path
+        self.img_input = img
+        self.img_output = None
+        self.feature_maps = []
+        self.compare_hold_active = False
+        self.reset_view_state()
+        self.render_main_images()
+        self.update_resolution_labels()
+        self.calculate_metrics()
+        self.start_processing(batch_mode=True, on_complete=self.on_batch_item_complete)
+
+    def on_batch_item_complete(self, success, cancelled, error_message):
+        if cancelled:
+            self.batch_cancelled = True
+        if not success and error_message:
+            self.batch_errors.append({
+                "path": os.path.basename(self.input_path or ""),
+                "error": error_message,
+                "retries": self.batch_retry_counts.get(self.input_path, 0),
+            })
+        self.batch_index += 1
+        if cancelled or self.cancel_requested:
+            self.finish_batch()
+        else:
+            self.after(0, self.start_next_batch_item)
+
+    def finish_batch(self):
+        total = self.batch_total
+        done = min(self.batch_index, total)
+        error_count = len(self.batch_errors)
+        self.is_batch_processing = False
+        self.cancel_requested = False
+        self.set_run_button_processing(False)
+        self.update_action_buttons()
+        self.hide_output_overlay()
+        error_report_path = None
+        if error_count:
+            error_report_path = os.path.join(self.batch_output_dir or "", "batch_errors.json")
+            write_json_file(error_report_path, {
+                "batch_run_id": self.batch_run_id,
+                "timestamp": timestamp_str(),
+                "total": total,
+                "processed": done,
+                "max_retries": self.batch_retry_limit,
+                "errors": self.batch_errors,
+            })
+        if self.batch_cancelled:
+            status = "Batch cancelled"
+        else:
+            status = "Batch completed"
+        self.status_label.configure(text=f"{status}. {done}/{total} processed.")
+        if error_count:
+            if error_report_path:
+                message = (
+                    f"{status}. Completed {done}/{total}. Errors: {error_count}.\n"
+                    f"Saved: {error_report_path}"
+                )
+            else:
+                message = f"{status}. Completed {done}/{total}. Errors: {error_count}."
+        else:
+            message = f"{status}. Completed {done}/{total}."
+        messagebox.showinfo("Batch", message)
 
     def write_run_log(self, run_dir, payload):
         log_path = os.path.join(run_dir, "run_log.json")

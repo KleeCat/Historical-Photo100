@@ -1,6 +1,6 @@
 # Current Task
 
-Last update: 2026-01-30
+Last update: 2026-02-02
 
 ## In Progress
 - Improve GUI stability (guard processing when model/input missing, unified status messaging).
@@ -68,6 +68,8 @@ Last update: 2026-01-30
 - Local commit `c570464` pushed to `main` (texture refinement stability under VRAM limits).
 
 ## Done
+- Compacted sidebar spacing and improved disabled button label contrast in `(gui)super-resolution processing.py`.
+- Added batch queue count pop-up and `batch_queue.json` output for batch runs.
 - Switched Codespaces devcontainer image to `mcr.microsoft.com/devcontainers/python:3.10` and removed python feature (yarn repo error fix).
 - Configured Git LFS tracking and migrated data folders into Git.
 - Added `LR/`, `HR/`, `SR/`, `outputs/` directories with sample assets committed.
