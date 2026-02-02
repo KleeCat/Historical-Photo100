@@ -1,156 +1,296 @@
-# Codex Working Rules (Must Follow)
+# AGENTS Guide for Historical-Photo100
 
-## Language
-- Chat with me in Chinese.
-- Comments inside code must be in English (//, #, /* */, docstring).
-- 给我的每一条回复的最后一句话后面都要加喵~。
+## Purpose
+- This file orients agentic coding tools to the repository conventions.
+- It documents how to run scripts, where outputs land, and how to code consistently.
+- It also hardens “how to edit files” rules to avoid `patch rejected` / `failed to read file` issues.
 
-## Install Location
-- When installing tools/dependencies, install to D: drive by default (e.g., D:\Tools\ or D:\Programs\).
-- Prefer reproducible install commands (show commands and paths).
+## Repository Summary
+- Collection of Python scripts for image super-resolution and evaluation workflows.
+- Primary entry points are standalone scripts, not a package or service.
+- Several GUIs use Tkinter/CustomTkinter and expect Windows paths by default.
 
-## File Editing Policy
-- When modifying files, only use patch/diff style edits (minimal changes).
-- Do NOT replace entire files with full rewrites.
-- Always show unified diff for modifications.
-- Prefer minimal, targeted edits; avoid full rewrites unless required.
-- Markdown: edit -> Python string replace -> write (full rewrite only if necessary).
-- Word (.docx): python-docx script -> zip media replacement -> full regeneration.
-- HTML: edit -> Python string replace -> write (full rewrite only if needed).
+## Cursor/Copilot Rules
+- No Cursor rules found in `.cursor/rules/` or `.cursorrules`.
+- No Copilot instructions found in `.github/copilot-instructions.md`.
 
-## Output Style (Save Context)
-- For long outputs (>40 lines or >500 chars), write to a file instead of printing in terminal.
-- Terminal output should be short: 1) What was done (1-2 sentences) 2) Which files changed (with paths) 3) Next steps (max 3)
+---
 
-## Context Files
-- Project memory lives under `.context/`.
-- Update `.context/CURRENT_TASK.md` when tasks start/stop or the session ends.
-- Record notable changes in `.context/CHANGELOG.md`.
+## 🚨 OpenCode Desktop: Workspace MUST be started (critical)
+**Before ANY file edit tools can work, the workspace must be started/opened.**
 
-## Workflow
-- Default: Plan (3 bullets) -> Execute -> Verify.
-- If deleting/overwriting files, list targets first; if context might be insufficient, suggest starting a new session.
+### Required checklist (do not skip)
+1) In OpenCode Desktop, click the project name menu → **“启用/启动工作区”**.
+2) Confirm the right-side file tree is showing the repo files (not empty).
+3) Do a quick sanity read using a relative path (example below):
+   - `AGENTS.md`
+   - `(gui)super-resolution processing.py`
 
-## Repository Overview
-- This repo is a set of Python scripts for image super-resolution and evaluation.
-- Key scripts (entry points): `esrgan_gui.py` (Tk GUI for batch SR, metrics table, CSV export); `(gui)super-resolution processing.py` (CustomTk GUI with comparison + feature export); `(gui)super-resolution processing_server.py` (CustomTk GUI server variant); `super-resolution processing.py` (CLI batch SR with optional GFPGAN); `(model) super-resolution processing.py` (model-focused CLI variant); `Quantitative assessment and frequency domain analysis.py` (PSNR/SSIM/LPIPS/FID + plots); `RRDBNet_arch.py` (RRDBNet architecture definition); `download.py` (DIV2K LR sample download).
+If the workspace is NOT started, tools may produce:
+- `apply_patch verification failed: Failed to read file to update: D:\...`
+- `The operation was aborted.`
+
+---
+
+## Paths and Tooling Rules (OpenCode)
+### File tools vs Shell tools
+- **File tools** (`read/edit/write/apply_patch`) MUST use **workspace-relative paths only**:
+  - ✅ `AGENTS.md`
+  - ✅ `(gui)super-resolution processing.py`
+  - ❌ `D:\HuaweiMoveData\...`
+  - ❌ `C:\...`
+
+- **Shell / external tools** (Playwright, npm, python, etc.) may use absolute paths if needed by runtime.
+
+### Golden rule
+If you see a drive letter (`D:\` / `C:\`) in any `apply_patch` / `edit` / `write` target, **STOP** and convert to workspace-relative path first.
+
+---
+
+## File Change Strategy (IMPORTANT)
+Goal: make edits reliable and prevent `patch rejected`.
+
+### Default rule (inside OpenCode)
+1) Always `read` the target file first (or at least read the relevant region).
+2) Prefer modifications in this order:
+   - **`edit`** for small targeted changes (recommended).
+   - **`apply_patch`** for structured diffs ONLY when using the correct OpenCode patch format.
+3) If tools fail (aborted / cannot read / patch rejected), output a **standard unified diff** for manual application.
+
+### Do NOT mix two patch formats
+There are **two completely different patch formats**:
+
+- **A) apply_patch tool format** (OpenCode-specific; requires Begin/End markers)
+- **B) unified diff format** (standard `--- a/ +++ b/`; for manual `git apply`)
+
+If you send (B) to `apply_patch`, it will error:
+- `Error: Invalid patch format: missing Begin/End markers`
+
+---
+
+## A) apply_patch TOOL format (OpenCode-specific)
+### Hard requirements
+- MUST be wrapped by:
+  - `*** Begin Patch`
+  - `*** End Patch`
+- MUST contain exactly one of:
+  - `*** Update File: <workspace-relative path>`
+  - `*** Add File: <workspace-relative path>`
+  - `*** Delete File: <workspace-relative path>`
+- The file path MUST be workspace-relative (NO `D:\` / `C:\`).
+- MUST NOT be empty (must include a real change).
+- MUST patch against the latest file content (read first).
+
+### Example (apply_patch tool payload)
+```text
+*** Begin Patch
+*** Update File: (gui)super-resolution processing.py
+@@
+-import warnings
++import warnings
++import math
+*** End Patch
+````
+
+### Common apply_patch failure causes (and how to avoid)
+
+* **Failed to read file to update**:
+
+  * Workspace not started OR wrong path OR file not in current workspace.
+  * Fix: start workspace + use relative path.
+* **empty patch / patch rejected**:
+
+  * Patch contains no changes OR hunks do not match current file.
+  * Fix: read exact lines first; keep hunks minimal; ensure context matches.
+
+---
+
+## B) Unified diff (STANDARD, for manual apply)
+
+Use this ONLY when:
+
+* you are providing a patch for the user to apply manually, OR
+* OpenCode tools are failing.
+
+### Hard requirements
+
+* Must start with:
+
+  * `--- a/<relative path>`
+  * `+++ b/<relative path>`
+* Paths MUST be workspace-relative (no drive letter), and keep filename exact.
+* Do NOT use Windows backslashes in diff headers; use `/` (or keep plain name).
+* Never output empty diffs.
+
+### Example (unified diff)
+
+```diff
+--- a/(gui)super-resolution processing.py
++++ b/(gui)super-resolution processing.py
+@@
+-import warnings
++import warnings
++import math
+```
+
+### Manual apply tips
+
+* In repo root:
+
+  * `git apply -p1 your.patch`
+* If it fails:
+
+  * ensure the diff was produced against the latest file content;
+  * increase context lines or regenerate the diff.
+
+---
+
+## Docx rule
+
+* Do NOT patch `.docx` via diff.
+* Use `python-docx` to edit or regenerate docx while preserving the reference template’s layout.
+
+---
 
 ## Environment Setup (Windows)
-- Prefer a virtual environment on the D: drive.
-- Example (adjust CUDA wheel as needed):
-```
-python -m venv D:\Tools\historical-photo100-venv
-D:\Tools\historical-photo100-venv\Scripts\activate
+
+* Recommend a virtual environment under `tools/`.
+* Example setup (adjust CUDA wheel to your GPU):
+
+```bash
+python -m venv tools/historical-photo100-venv
+tools/historical-photo100-venv/Scripts/activate
 python -m pip install --upgrade pip
 python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 python -m pip install basicsr realesrgan opencv-python numpy pillow
 python -m pip install gfpgan customtkinter scikit-image lpips pytorch-fid matplotlib scipy requests
 ```
-- If GPU is not available, install the CPU torch wheel instead.
+
+* If GPU is not available, install the CPU torch wheel instead.
+
+---
 
 ## Run Commands (Scripts)
-- GUI (recommended): `python esrgan_gui.py`
-- GUI (CustomTk): `python "(gui)super-resolution processing.py"`
-- GUI server variant: `python "(gui)super-resolution processing_server.py"`
-- CLI batch SR: `python "super-resolution processing.py"`
-- CLI model variant: `python "(model) super-resolution processing.py"`
-- Evaluation + reports: `python "Quantitative assessment and frequency domain analysis.py"`
-- Download sample data: `python download.py`
-- Note: several scripts have hard-coded default paths; update config blocks when needed.
+
+* GUI (recommended): `python esrgan_gui.py`
+* GUI (CustomTk): `python "(gui)super-resolution processing.py"`
+* GUI server variant: `python "(gui)super-resolution processing_server.py"`
+* CLI batch SR: `python "super-resolution processing.py"`
+* CLI model variant: `python "(model) super-resolution processing.py"`
+* Evaluation + reports: `python "Quantitative assessment and frequency domain analysis.py"`
+* Download sample data: `python download.py`
+* Some scripts have hard-coded default paths; adjust configuration blocks when needed.
+
+---
 
 ## Build / Lint / Test
-- No build step; scripts run directly with Python.
-- No tests directory is present; no automated test suite by default.
-- If you add tests, place them under `tests/` with `test_*.py` naming and use pytest.
-- Pytest examples:
-  - Run all tests: `python -m pytest`
-  - Run a single file: `python -m pytest tests/test_file.py`
-  - Run a single test: `python -m pytest tests/test_file.py::TestClass::test_name`
-  - Run by pattern (optionally scoped to file): `python -m pytest -k "pattern"` or `python -m pytest tests/test_file.py -k "pattern"`
-- Optional lint/format (only if tools are installed):
-  - `python -m ruff check .`
-  - `python -m black .`
-  - `python -m isort .`
+
+* No build step; scripts run directly with Python.
+* No lint configuration is present; run linters only if you add them.
+* No automated tests are present by default; add tests under `tests/`.
+* Pytest is the preferred runner when tests are added.
+
+### Pytest Examples
+
+* Run all tests: `python -m pytest`
+* Run a single file: `python -m pytest tests/test_file.py`
+* Run a single test: `python -m pytest tests/test_file.py::TestClass::test_name`
+* Run by pattern: `python -m pytest -k "pattern"`
+* Run with verbose output: `python -m pytest -vv`
+
+---
 
 ## Code Style Guidelines
-- Imports: standard library, third-party, then local; blank-line groups; one import per line; no unused/wildcard imports.
-- Formatting: 4-space indent; line length target around 100; prefer f-strings.
-- Naming: snake_case for functions/vars; CamelCase for classes; UPPER_SNAKE for constants.
-- Types: add type hints for new/modified public functions and return values; use `Optional`, `List`, `Tuple`; avoid `Any` unless necessary.
-- Docstrings: short English docstrings for non-obvious functions and public APIs.
-- Entrypoints: wrap CLI execution in `if __name__ == "__main__":` and keep top-level code minimal.
-- Error handling: guard file IO, model loading, GPU ops with try/except; avoid bare except; add context and preserve tracebacks.
-- File IO: prefer context managers and validate paths before read/write.
-- Optional deps: import inside functions and print install hints when missing.
-- Logging: keep CLI logs concise; avoid noisy per-pixel logging; GUI updates via queue on main thread.
-- Image handling: normalize channels (BGR/GRAY/BGRA), clip to uint8 before saving.
-- Config: keep default paths in one place; allow user override via variables/GUI fields.
+
+### Imports
+
+* Order: standard library, third-party, then local modules.
+* Separate import groups with a blank line.
+* One import per line; avoid wildcard imports.
+* Remove unused imports promptly.
+
+### Formatting
+
+* Use 4-space indentation and spaces around operators.
+* Keep line length around 100 characters when practical.
+* Prefer f-strings for string formatting.
+* Avoid excessive reformatting of untouched files.
+
+### Naming Conventions
+
+* Functions and variables: `snake_case`.
+* Classes and exceptions: `CamelCase`.
+* Constants: `UPPER_SNAKE_CASE`.
+* Files should keep their existing naming, even if unconventional.
+
+### Types and Docstrings
+
+* Add type hints for new or modified public functions.
+* Use `Optional[T]` and `Union`/`|` where appropriate.
+* Avoid `Any` unless there is no realistic alternative.
+* Short English docstrings for public functions and non-obvious logic.
+
+### Error Handling
+
+* Guard file IO, model loading, and GPU operations with `try/except`.
+* Avoid bare `except`; catch specific exceptions.
+* Include context in error messages and preserve tracebacks.
+* Fail fast with clear messages when input paths are invalid.
+
+### Logging and UX
+
+* Keep CLI output concise and meaningful.
+* Avoid per-iteration spam in logs.
+* GUI updates should occur on the main thread or via a queue.
+* Prefer deterministic progress messages over noisy prints.
+
+### Image Handling
+
+* Normalize channels (BGR/GRAY/BGRA) explicitly before processing.
+* Clip/convert to `uint8` before saving images.
+* Validate image dimensions and file extensions before processing.
+* When comparing images, ensure alignment and matching filenames.
+
+### Configuration
+
+* Keep default paths and constants in one place per script.
+* Allow user overrides via variables, CLI flags, or GUI inputs when possible.
+* Avoid hard-coding new absolute paths.
+
+---
 
 ## Paths, Data, and Outputs
-- Default data dirs: `LR/`, `SR/`, optional `HR/`, and `evaluation_results/`; outputs may also appear under `outputs/` or `output/`.
-- Do not commit large datasets, outputs, or weights; respect `.gitignore`.
-- Default Real-ESRGAN weight path:
-  - `~/.cache/realesrgan/RealESRGAN_x4plus.pth` (or set `REALESRGAN_MODEL_PATH`)
-  - `C:\Users\ihggk\.cache\realesrgan\RealESRGAN_x4plus.pth`
-- GFPGAN weights are optional and should live in user cache locations.
 
-## Model/GUI Notes
-- Use `tile_size` for memory-heavy images; 0 means no tiling.
-- Prefer worker threads for SR processing; keep UI responsive; use queue-based messaging to avoid cross-thread UI access.
+* Common directories: `LR/`, `SR/`, optional `HR/`, and `evaluation_results/`.
+* Some scripts also use `outputs/` or `output/`.
+* Do not commit datasets, generated outputs, or model weights.
+* Respect existing `.gitignore` entries and keep artifacts local.
 
-## Dependency Notes
-- `torch`, `basicsr`, `realesrgan` are required for SR; `gfpgan` is optional for face enhancement.
-- GUI preview uses `Pillow`; CustomTk GUI needs `customtkinter`.
-- Evaluation uses `scikit-image`, `lpips`, `pytorch-fid`, `matplotlib`, `scipy`.
-- If a dependency is missing, print a clear install hint and exit gracefully.
-- Use `torch.cuda.is_available()` to decide CPU vs GPU execution.
+---
 
-## Configuration and Defaults
-- Keep default paths in one place (top of file or `CONFIG` dict); use raw strings for Windows paths.
-- Prefer `os.path.join` over string concatenation; ensure output directories exist before writing.
-- Avoid writing to repo root unless explicitly requested; avoid hardcoding user-specific paths in new scripts.
-- Keep config dicts uppercase for clarity in CLI scripts.
+## Proxy Setup (Optional)
 
-## Image IO and Metrics
-- Read images with `cv2.imread(..., cv2.IMREAD_UNCHANGED)` and normalize channels; convert GRAY/BGRA to BGR.
-- Clamp/convert outputs to uint8 before saving; use consistent resize interpolation (`cv2.INTER_CUBIC`) for baselines.
-- For evaluation, match HR to LR/SR by filename conventions (e.g., `x4` suffix).
-- Log PSNR/SSIM/LPIPS/FID with clear units and ranges; prefer BGR for cv2 and convert to RGB only for UI previews.
+* Recommended env vars:
 
-## Performance and GPU
-- Wrap inference in `torch.no_grad()` to reduce memory; release temporary tensors promptly.
-- Use `tile_size` when GPU memory is limited; keep `tile_size=0` for full image.
-- Prefer CPU-safe defaults (`half=False`) unless performance is validated; log per-image progress only.
+  * `HTTP_PROXY=http://127.0.0.1:7897`
+  * `HTTPS_PROXY=http://127.0.0.1:7897`
+  * `ALL_PROXY=socks5://127.0.0.1:7897`
 
-## Execution Tips
-- Use absolute paths when running from other directories; quote file paths with spaces or parentheses.
-- Start with a small image set; keep a backup of outputs when overwriting; validate model weight paths before long batch runs.
+* Quick test (expect 401):
 
-## Reporting and Artifacts
-- `evaluation_results/` stores CSVs, plots, and reports; `outputs/compare` and `outputs/features` are used by the CustomTk GUI.
-- Use timestamps in filenames to avoid overwrites; confirm write permissions before long batch runs; for long logs, save to a text file and link it in messages.
+  * `curl -I --proxy socks5h://127.0.0.1:7897 https://api.openai.com/v1/models`
 
-## Version Control Hygiene
-- Do not commit datasets, outputs, or model weights.
-- Keep generated artifacts under `LR/`, `SR/`, `outputs/`, `evaluation_results/`.
-- Clean up large local files before committing.
-- Respect existing `.gitignore` entries.
+---
 
-## Git Push Proxy
-- If GitHub push fails on this machine, retry with Clash proxy (preferred): `git -c http.proxy=socks5://127.0.0.1:7897 -c https.proxy=socks5://127.0.0.1:7897 push origin main`.
-- If SOCKS5 still fails, retry HTTP proxy: `git -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 push origin main`.
+## Troubleshooting: patch rejected quick diagnosis
 
-## Proxy Setup
-- Recommended env vars: `HTTP_PROXY=http://127.0.0.1:7897`, `HTTPS_PROXY=http://127.0.0.1:7897`, `ALL_PROXY=socks5://127.0.0.1:7897`.
-- Day-to-day usage: keep HTTP proxy as default and use `ALL_PROXY` as a SOCKS5 fallback; for git push, prefer SOCKS5 and fall back to HTTP.
-- Quick test: `curl -I --proxy socks5h://127.0.0.1:7897 https://api.openai.com/v1/models` (expect 401).
-- Helper script: `set_proxy_env.bat` (sets env vars + runs the test).
+If you hit `patch rejected`, do this order:
 
-## Troubleshooting
-- If a script fails to find images, verify the input directory and extensions.
-- If CUDA OOM occurs, lower `tile_size` or switch to CPU.
-- If evaluation fails, confirm `LR/`, `HR/`, and `SR/` filenames align.
-- When in doubt, run on a single small image first.
+1. Verify workspace started (“启用/启动工作区”).
+2. Verify the file exists in tree and path is relative (no drive letter).
+3. If using `apply_patch` tool:
 
-## Cursor/Copilot Rules
-- None found: `.cursor/rules`, `.cursorrules`, `.github/copilot-instructions.md`.
+   * ensure Begin/End markers are present,
+   * ensure `*** Update File:` path matches exactly,
+   * ensure you read the file first and patch hunks match current content.
+4. If still failing, output a standard unified diff for manual apply.
