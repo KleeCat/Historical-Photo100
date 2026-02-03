@@ -1306,6 +1306,8 @@ class ModernApp(ctk.CTk):
         return self.texture_pipe
 
     def apply_texture_generation(self, bgr_img):
+        if self.cancel_requested:
+            raise UserCancelledError("Cancelled")
         pipe = self.get_texture_pipeline()
         if pipe is None:
             return bgr_img
@@ -1318,6 +1320,8 @@ class ModernApp(ctk.CTk):
             guidance_scale=TEXTURE_GUIDANCE,
             num_inference_steps=TEXTURE_STEPS
         ).images[0]
+        if self.cancel_requested:
+            raise UserCancelledError("Cancelled")
         return cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
 
     def run_processing_thread(self):
@@ -1422,11 +1426,18 @@ class ModernApp(ctk.CTk):
             run_meta["stage"] = stage
             run_meta["stage_at"] = timestamp_str()
             self.write_run_log(run_dir, run_meta)
-            self.report_progress(value, status_text, overlay_text)
+            ui_status = status_text
+            if batch_mode and status_text:
+                ui_status = (
+                    f"Batch {self.batch_index + 1}/{self.batch_total}: {os.path.basename(self.input_path)}"
+                    f" | {status_text}"
+                )
+            self.report_progress(value, ui_status, overlay_text)
         def check_cancel():
             if self.cancel_requested:
                 raise UserCancelledError("Cancelled")
-        self.after(0, lambda: self.status_label.configure(text=f"Run {run_id} started..."))
+        if not batch_mode:
+            self.after(0, lambda: self.status_label.configure(text=f"Run {run_id} started..."))
         try:
             check_cancel()
             output = None
@@ -1460,6 +1471,7 @@ class ModernApp(ctk.CTk):
                         text="Face enhancement unavailable, switching to standard mode..."))
                 run_meta["timing"]["face"] = round(time.perf_counter() - stage_start, 3)
 
+            check_cancel()
             set_stage("blend", 0.7, "Blending fine details...", "Blending")
             stage_start = time.perf_counter()
             output = blend_with_lr(output, self.img_input, self.natural_blend.get())
@@ -1473,11 +1485,13 @@ class ModernApp(ctk.CTk):
                 run_meta["timing"]["texture"] = round(time.perf_counter() - stage_start, 3)
             except Exception as e:
                 self.after(0, lambda: self.status_label.configure(text=f"Texture generation skipped: {e}"))
+            check_cancel()
             set_stage("finalize", 0.92, "Finalizing output...", "Finalizing")
             stage_start = time.perf_counter()
             output = apply_film_grain(output, self.film_grain.get())
             run_meta["timing"]["finalize"] = round(time.perf_counter() - stage_start, 3)
 
+            check_cancel()
             self.img_output = output
             success = True
             save_image(run_output_path, self.img_output)

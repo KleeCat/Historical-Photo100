@@ -6,6 +6,7 @@ venv/
 
 # outputs / results
 output/
+outputs/batch/
 result/
 results/
 evaluation_results/

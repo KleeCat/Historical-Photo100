@@ -1,5 +1,8 @@
 # Changelog
 
+- 2026-02-03: Keep `Batch i/N` prefix in batch status updates.
+- 2026-02-03: Ignore `outputs/batch/` run artifacts in `.gitignore`.
+- 2026-02-02: Added extra cancel checks to shorten batch cancel latency.
 - 2026-02-02: Compacted GUI sidebar spacing and improved disabled button label contrast.
 - 2026-02-02: Added batch queue count pop-up and `batch_queue.json` output for batch runs.
 - 2026-01-30: Added per-run output snapshots/logs and stability guards in `(gui)super-resolution processing.py`.

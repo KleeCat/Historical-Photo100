@@ -1,6 +1,6 @@
 # Current Task
 
-Last update: 2026-02-02
+Last update: 2026-02-03
 
 ## In Progress
 - Improve GUI stability (guard processing when model/input missing, unified status messaging).
@@ -68,6 +68,9 @@ Last update: 2026-02-02
 - Local commit `c570464` pushed to `main` (texture refinement stability under VRAM limits).
 
 ## Done
+- Show `Batch i/N` prefix in status updates during batch runs.
+- Ignore `outputs/batch/` run artifacts in `.gitignore`.
+- Added additional cancel checks to shorten batch cancel latency in `(gui)super-resolution processing.py`.
 - Compacted sidebar spacing and improved disabled button label contrast in `(gui)super-resolution processing.py`.
 - Added batch queue count pop-up and `batch_queue.json` output for batch runs.
 - Switched Codespaces devcontainer image to `mcr.microsoft.com/devcontainers/python:3.10` and removed python feature (yarn repo error fix).
