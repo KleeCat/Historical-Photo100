@@ -68,6 +68,7 @@ Last update: 2026-02-03
 - Local commit `c570464` pushed to `main` (texture refinement stability under VRAM limits).
 
 ## Done
+- Added gitignore entries for datasets, outputs, and new log folders.
 - Show `Batch i/N` prefix in status updates during batch runs.
 - Ignore `outputs/batch/` run artifacts in `.gitignore`.
 - Added additional cancel checks to shorten batch cancel latency in `(gui)super-resolution processing.py`.

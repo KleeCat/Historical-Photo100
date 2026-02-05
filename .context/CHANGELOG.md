@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-02-03: Ignore datasets, outputs, and new log folders in .gitignore.
 - 2026-02-03: Keep `Batch i/N` prefix in batch status updates.
 - 2026-02-03: Ignore `outputs/batch/` run artifacts in `.gitignore`.
 - 2026-02-02: Added extra cancel checks to shorten batch cancel latency.
