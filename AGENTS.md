@@ -16,6 +16,31 @@
 
 ---
 
+## User Preferences (从历史对话中提取)
+
+### Communication & Execution Style
+- **Direct execution preferred**: 不要问不必要的确认问题，直接执行任务。
+- **Language**: 用户常用中文交流；回复应清晰实用。
+- **Bilingual docs**: Word 文档格式要求：中文用 `SimSun`（宋体），英文用 `Times New Roman`，字号 11。
+- **Reply ending**: 每次回复用户时，最后一句话后面加「喵~」。
+
+### Git & Upload Defaults
+- **Default commit scope**: 上传/提交时默认包含整个仓库，除了 `.gitignore` 忽略的文件。
+- **Do not commit**: `datasets/`, `outputs/`, model weights (`.pth`, `.pt`), local log folders (`136152022024_黄一洲 Log*/`).
+- **GitHub visibility reminder**: GitHub 可见性是仓库级别的，不是文件夹级别。公开仓库 = 所有人可见；私有仓库 = 仅授权协作者可见。
+
+### Context Files
+- **Keep `.context/` updated**: 每当有重要变更时，同步更新 `.context/CURRENT_TASK.md` 和 `.context/CHANGELOG.md`。
+- **Preserve AGENTS.md**: 任何会话都必须保留此文件中的指令。
+
+### GUI Development Notes
+- Main GUI file: `(gui)super-resolution processing.py`
+- Batch outputs go to timestamped subdirs: `outputs/batch/<timestamp>/`
+- Queue snapshot: `batch_queue.json`
+- Known fix: guard `render_main_images` to avoid `TclError: image "pyimageX" doesn't exist`
+
+---
+
 ## 🚨 OpenCode Desktop: Workspace MUST be started (critical)
 **Before ANY file edit tools can work, the workspace must be started/opened.**
 
