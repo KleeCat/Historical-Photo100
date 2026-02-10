@@ -123,6 +123,16 @@ If you send (B) to `apply_patch`, it will error:
 
   * Workspace not started OR wrong path OR file not in current workspace.
   * Fix: start workspace + use relative path.
+* **Failed to find expected lines**:
+
+  * Root cause: patch context no longer matches the latest file content (function signature/indentation/whitespace changed, or the file was edited earlier in-session).
+  * Typical trigger: reusing an old hunk like `def render_zoomed_image(...)` after code has moved or been modified.
+  * Fix workflow:
+    1. Re-`read` the exact target region immediately before patching (do not reuse stale snippets).
+    2. Keep hunks minimal and anchor on unique nearby lines.
+    3. Prefer `edit` with exact `oldString` for single-block replacements.
+    4. If one patch partially applied, re-read and regenerate remaining hunks from current content.
+    5. Watch for CRLF/LF and spacing differences; treat context as exact text.
 * **empty patch / patch rejected**:
 
   * Patch contains no changes OR hunks do not match current file.

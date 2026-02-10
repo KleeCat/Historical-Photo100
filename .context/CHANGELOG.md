@@ -1,6 +1,93 @@
 # Changelog
 
-- 2026-02-03: Ignore datasets, outputs, and new log folders in .gitignore.
+- 2026-02-09: Hardened single-image output rendering across consecutive runs in `(gui)super-resolution processing.py`.
+  - Added run-scoped UI callback guard: `_current_run_id` + `_after_for_run(...)` to skip stale delayed callbacks from prior runs.
+  - Updated success render flow to be run-aware: `refresh_output_after_success(run_id)` and `render_output_from_file(path, run_id)`.
+  - Made progress/status/overlay and post-success callbacks run-aware via `report_progress(..., run_id=...)`.
+  - Added persistent CTk image references (`_output_ctk_image`, `_input_ctk_image`) to reduce intermittent image GC/lifecycle blanking.
+  - Added structured render diagnostics logs (`_log_output_render`) including run id, phase, image shape/dtype, panel size, overlay mapped state, compare flags.
+  - Added overlay show/hide logs and moved completion dialog scheduling behind run guard.
+  - Syntax-validated with `python -m py_compile "(gui)super-resolution processing.py"`.
+  - Follow-up fix after user logs showed `pyimageX doesn't exist` on 2nd single run:
+    - Snapshot Tk variables on UI thread in `start_processing()` and pass plain `run_options` to worker thread.
+    - Removed worker-thread reads of `BooleanVar/DoubleVar` (`.get()`) inside `process_image()`.
+    - Hardened label image assignment with retry-clear recovery in `_set_label_image(...)`.
+    - Added explicit warning logs for `set_label_image` / `render_zoomed_image` failures.
+  - Follow-up fix after logs still showed persistent `pyimageX` failures:
+    - Reworked `_after_for_run(...)` to be thread-safe via a UI queue drained on main thread (`_ui_queue`, `_drain_ui_queue`).
+    - Removed worker-thread direct Tk scheduling by routing worker callbacks through queue dispatch.
+    - Updated worker paths to avoid direct `self.after(...)` usage (`load_model`, `process_image` batch callback, `start_run_record`).
+  - Root cause fix for `pyimageX doesn't exist` on Run 2+:
+    - CTkLabel internally caches old Tk PhotoImage names; `configure(image=None)` causes GC of CTkImage but CTkLabel retains the stale Tk name. Next `configure(image=new)` triggers Tk to delete the already-gone old image → TclError.
+    - Added `_recreate_output_label()` / `_recreate_input_label()`: destroy and recreate the CTkLabel widget entirely, purging all stale internal Tk image references. All event bindings (zoom, pan, compare press/release/leave, configure) are re-applied on the new widget.
+    - `render_main_images()` clear-output and clear-input paths now use `_recreate_output_label()` / `_recreate_input_label()` instead of `configure(image=None)`.
+    - `_set_label_image()` recovery (attempt 2) now recreates the label widget instead of just clearing `image=None`.
+    - All `.lift()` calls after `_set_label_image` in `render_zoomed_image`, `show_image_ctk`, `show_image_file_ctk` now use `self.lbl_img_out` / `self.lbl_img_in` (the current ref) instead of the local `label_widget` variable which may point to the destroyed old widget.
+    - Eliminated all `configure(image=None)` calls on image labels.
+
+- 2026-02-08: Updated `AGENTS.md` patch troubleshooting with a dedicated
+  `Failed to find expected lines` section (stale hunk/context mismatch),
+  including read-before-patch and minimal-hunk workflow.
+- 2026-02-08: Major optimization pass on `(gui)super-resolution processing.py` (15 items):
+  - Thread safety: added `_state_lock` and `_model_lock` to protect shared state.
+  - Model loading mutex: disable scale ComboBox during load, re-enable in finally.
+  - Fixed batch retry bug: added 500ms delay and status text before retry.
+  - Cached GFPGANer instance (`face_enhancer`) to avoid reloading every run.
+  - GPU VRAM management: `torch.cuda.empty_cache()` after each processing run.
+  - Auto tile sizing: `auto_tile_size()` selects tile based on image size and VRAM.
+  - Scratch Repair UI switch and pre-upscale pipeline integration.
+  - Output format expansion: save dialog supports PNG/JPG/WebP/TIFF with quality params.
+  - Adaptive progress bar: creep animation during long stages, 80ms tick, stage targets rebalanced.
+  - Replaced `print` with `logging` module; added type hints to public utility functions.
+  - Centralized UI constants (window size, sidebar width, colors).
+  - Documented `suppress_stderr` usage scope.
+- 2026-02-08: Fixed GIL crash in `load_model` — moved all Tkinter calls to `self.after(0, ...)`.
+- 2026-02-08: Removed windnd/Win32 drag-and-drop (incompatible with customtkinter GIL).
+  - `on_drop_files` / `_load_dropped_file` methods retained for future use.
+- 2026-02-08: Fixed image display not filling panel — use parent frame size instead of label size.
+  - `render_zoomed_image`: fit mode (zoom<=1) uses `min(scale_w, scale_h)` with no crop.
+  - `show_image_ctk`: also reads parent frame dimensions.
+  - Reduced label pack padding from 10px to 4px.
+- 2026-02-08: Fixed progress bar appearing frozen during long upscale:
+  - `auto_increment_progress` creeps asymptotically toward 0.98 (0.5% of remaining gap per tick).
+  - `report_progress` jumps bar to `target - 0.05` when lagging.
+  - Rebalanced stage targets: upscale 10%→65%, blend 80%, texture 88%, finalize 95%.
+  - `progress_target` set to 1.0 in finally block alongside `progress_bar.set(1.0)`.
+- 2026-02-08: Removed `ratio = min(ratio, 1.0)` cap in `show_image_ctk` so small images scale up.
+- 2026-02-08: Added filename labels (`lbl_filename_in`, `lbl_filename_out`) below image panels.
+  - Updated on `load_input_image`, `_load_dropped_file`, and `process_image` completion.
+- 2026-02-08: Fixed filename/resolution overlap in GUI layout.
+  - Moved filename labels to row 1 (below section titles), image panels to row 2, resolution labels to row 3.
+  - Added explicit prefixes: `Input: <name>` and `Output: <name>`.
+- 2026-02-08: Refined image fit sizing to use panel frame dimensions directly.
+  - Added `_get_image_display_size(label_widget)` to avoid label-size feedback loops and clipping.
+- 2026-02-08: Increased progress creep visibility during long stages.
+  - Creep now uses `max(0.0015, remaining * 0.012)` toward 0.98 so the bar keeps moving.
+- 2026-02-08: Fixed output panel blank-after-complete regression.
+  - Added `prepare_display_image()` to normalize any render input to contiguous `uint8` BGR.
+  - `render_zoomed_image` now guards conversion/rendering with broad exception handling.
+  - `show_image_ctk` now normalizes image before RGB conversion.
+  - Added a forced output repaint (`after(20, show_image_ctk)`) immediately after processing completes.
+- 2026-02-08: Final output blank robustness update.
+  - Added `refresh_output_after_success()` to run all final output rendering steps on UI thread in one place.
+  - `render_main_images()` now defensively hides overlay whenever `img_output` exists and processing has ended.
+- 2026-02-08: Additional output visibility hardening for intermittent blank right panel.
+  - `hide_output_overlay()` now also calls `lower()` to avoid stale stacking above image label.
+  - Output/image labels now call `lift()` after render (`render_zoomed_image` and `show_image_ctk`).
+  - After saving output snapshot, GUI reloads the saved file (`read_image`) to enforce a stable render buffer.
+- 2026-02-08: Batch-view UX fix for blank right panel while running folders.
+  - Batch mode no longer overlays the output panel with "Processing" / "Batch processing".
+  - Batch item transition keeps previous output image visible instead of clearing `img_output` to `None`.
+  - Batch input filename label now updates per item in `start_next_batch_item()`.
+  - Added a small 120ms handoff delay between items so completed output can paint before next item starts.
+- 2026-02-08: Single-image output visibility and view-reset fixes.
+  - Added `_render_output_frame_once()` and reworked `refresh_output_after_success()` with multi-pass repaint retries.
+  - Added `render_output_from_file(path)` fallback repaint from saved output snapshot after success.
+  - `run_processing_thread()` now resets zoom/pan (`reset_view_state()`) before single-image processing.
+- 2026-02-08: Added direct file-based output rendering fallback.
+  - New `show_image_file_ctk(path, label)` renders output via PIL directly from disk file.
+  - `render_output_from_file()` now attempts file render first, then updates `img_output` for metrics.
+  - This bypasses intermittent ndarray-to-CTk conversion failures in the right output panel.
 - 2026-02-03: Keep `Batch i/N` prefix in batch status updates.
 - 2026-02-03: Ignore `outputs/batch/` run artifacts in `.gitignore`.
 - 2026-02-02: Added extra cancel checks to shorten batch cancel latency.

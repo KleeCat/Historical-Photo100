@@ -1,6 +1,8 @@
 import contextlib
 import json
+import logging
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -8,15 +10,25 @@ import time
 import uuid
 import warnings
 from datetime import datetime
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
 import torch
 import torch.nn as nn
 
+logger = logging.getLogger("super_resolution_gui")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
 
 @contextlib.contextmanager
 def suppress_stderr():
+    """Temporarily redirect stderr to devnull.
+
+    Used sparingly to silence noisy C-level warnings from libraries like
+    customtkinter and OpenCV that cannot be filtered via Python's warnings
+    module.  Should NOT be used around code where errors need to be visible.
+    """
     if sys.stderr is None:
         yield
         return
@@ -55,7 +67,92 @@ try:
 except ImportError:
     psnr = None
     ssim = None
-    print("Warning: skimage not installed.")
+    logger.warning("skimage not installed, metrics unavailable.")
+
+# Drag-and-drop support
+# NOTE: Both windnd and Win32 SetWindowLongPtr approaches cause GIL crashes
+# with customtkinter because they interfere with Tcl/Tk's message loop.
+# Drag-and-drop is disabled until a safe cross-platform solution is found.
+# Users can load images via the "Open Image" button or batch folder dialog.
+windnd = None
+_setup_win32_drop = None
+
+if sys.platform == "win32":
+    import ctypes
+    import ctypes.wintypes
+
+    _shell32 = ctypes.windll.shell32  # type: ignore[attr-defined]
+    _user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+    _ole32 = ctypes.windll.ole32  # type: ignore[attr-defined]
+
+    # Declare argtypes for shell32 drag-and-drop functions
+    _shell32.DragAcceptFiles.argtypes = [ctypes.wintypes.HWND, ctypes.wintypes.BOOL]
+    _shell32.DragAcceptFiles.restype = None
+    _shell32.DragQueryFileW.argtypes = [ctypes.c_void_p, ctypes.c_uint,
+                                        ctypes.c_wchar_p, ctypes.c_uint]
+    _shell32.DragQueryFileW.restype = ctypes.c_uint
+    _shell32.DragFinish.argtypes = [ctypes.c_void_p]
+    _shell32.DragFinish.restype = None
+
+    _GWL_WNDPROC = -4
+    _WM_DROPFILES = 0x0233
+
+    # Use SetWindowLongPtrW for 64-bit compatibility
+    if ctypes.sizeof(ctypes.c_void_p) == 8:
+        _SetWindowLongPtr = _user32.SetWindowLongPtrW
+        _SetWindowLongPtr.argtypes = [ctypes.wintypes.HWND, ctypes.c_int, ctypes.c_int64]
+        _SetWindowLongPtr.restype = ctypes.c_int64
+        _CallWindowProc = _user32.CallWindowProcW
+        _CallWindowProc.argtypes = [ctypes.c_int64, ctypes.wintypes.HWND,
+                                    ctypes.c_uint, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM]
+        _CallWindowProc.restype = ctypes.c_long
+    else:
+        _SetWindowLongPtr = _user32.SetWindowLongW
+        _SetWindowLongPtr.argtypes = [ctypes.wintypes.HWND, ctypes.c_int, ctypes.c_long]
+        _SetWindowLongPtr.restype = ctypes.c_long
+        _CallWindowProc = _user32.CallWindowProcW
+        _CallWindowProc.argtypes = [ctypes.c_long, ctypes.wintypes.HWND,
+                                    ctypes.c_uint, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM]
+        _CallWindowProc.restype = ctypes.c_long
+
+    _WNDPROC_TYPE = ctypes.WINFUNCTYPE(
+        ctypes.c_long, ctypes.wintypes.HWND, ctypes.c_uint,
+        ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM)
+
+    def _setup_win32_drop(tk_window, callback):
+        """Register a Tk window for native Win32 file drop.
+
+        callback(file_list: list[str]) is called on the Tk main thread
+        via tk_window.after().
+        """
+        hwnd = ctypes.wintypes.HWND(tk_window.winfo_id())
+        _shell32.DragAcceptFiles(hwnd, True)
+        try:
+            _ole32.OleInitialize(None)
+        except Exception:
+            pass
+
+        old_wndproc = _SetWindowLongPtr(hwnd, _GWL_WNDPROC, 0)
+
+        def wndproc(hwnd_inner, msg, wparam, lparam):
+            if msg == _WM_DROPFILES:
+                hdrop = ctypes.c_void_p(wparam)
+                count = _shell32.DragQueryFileW(hdrop, 0xFFFFFFFF, None, 0)
+                files = []
+                buf = ctypes.create_unicode_buffer(260)
+                for i in range(count):
+                    _shell32.DragQueryFileW(hdrop, i, buf, 260)
+                    files.append(buf.value)
+                _shell32.DragFinish(hdrop)
+                tk_window.after(0, lambda: callback(files))
+                return 0
+            return _CallWindowProc(old_wndproc, hwnd_inner, msg, wparam, lparam)
+
+        # prevent garbage collection of the callback
+        tk_window._win32_wndproc = _WNDPROC_TYPE(wndproc)
+        _SetWindowLongPtr(
+            hwnd, _GWL_WNDPROC,
+            ctypes.cast(tk_window._win32_wndproc, ctypes.c_void_p).value)
 
 # --- Global Theme Settings ---
 with suppress_stderr():
@@ -78,39 +175,64 @@ SCRATCH_INPAINT_RADIUS = int(os.environ.get("SCRATCH_INPAINT_RADIUS", "3"))
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp")
 DEFAULT_BATCH_RETRIES = 1
 
+# --- UI Constants ---
+UI_WINDOW_SIZE = "1300x900"
+UI_SIDEBAR_WIDTH = 240
+UI_FONT_TITLE = ("", 24, "bold")
+UI_FONT_SECTION = ("", 14, "bold")
+UI_FONT_LABEL = ("", 12)
+UI_FONT_BUTTON_LARGE = ("", 16, "bold")
+UI_FONT_BUTTON_MEDIUM = ("", 14, "bold")
+UI_COLOR_SUCCESS = "#2CC985"
+UI_COLOR_SUCCESS_HOVER = "#229A66"
+UI_COLOR_DANGER = "#D9534F"
+UI_COLOR_DANGER_HOVER = "#C9302C"
+UI_COLOR_INFO = "#3A7CA5"
+UI_COLOR_INFO_HOVER = "#2D5F7C"
+UI_COLOR_WARNING = "#E0A800"
+UI_COLOR_WARNING_HOVER = "#B38600"
+
 
 class UserCancelledError(Exception):
     pass
 
 
-def ensure_dir(path):
+def ensure_dir(path: str) -> str:
     os.makedirs(path, exist_ok=True)
     return path
 
 
-def write_json_file(path, payload):
+def write_json_file(path: str, payload: Dict[str, Any]) -> None:
     ensure_dir(os.path.dirname(path))
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2)
 
 
-def timestamp_str():
+def timestamp_str() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
-def safe_basename(path, fallback="image"):
+def safe_basename(path: Optional[str], fallback: str = "image") -> str:
     if not path:
         return fallback
     return os.path.splitext(os.path.basename(path))[0]
 
 
-def save_image(path, bgr_img):
+def save_image(path: str, bgr_img: np.ndarray) -> str:
     ext = os.path.splitext(path)[1].lower()
-    if ext not in [".png", ".jpg", ".jpeg", ".bmp"]:
+    if ext not in [".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".webp"]:
         ext = ".png"
         path = path + ext
     with suppress_stderr():
-        success, buf = cv2.imencode(ext, bgr_img)
+        if ext in (".tiff", ".tif"):
+            params = []
+        elif ext == ".webp":
+            params = [cv2.IMWRITE_WEBP_QUALITY, 95]
+        elif ext in (".jpg", ".jpeg"):
+            params = [cv2.IMWRITE_JPEG_QUALITY, 95]
+        else:
+            params = []
+        success, buf = cv2.imencode(ext, bgr_img, params)
     if not success:
         raise RuntimeError("Failed to encode image")
     buf.tofile(path)
@@ -217,7 +339,7 @@ def apply_scratch_repair(bgr_img, model, device, threshold, inpaint_radius):
     return cv2.inpaint(bgr_img, mask, inpaint_radius, cv2.INPAINT_TELEA)
 
 
-def blend_images(img_a, img_b, alpha):
+def blend_images(img_a: Optional[np.ndarray], img_b: Optional[np.ndarray], alpha: float) -> Optional[np.ndarray]:
     if img_a is None:
         return img_b
     if img_b is None:
@@ -230,7 +352,7 @@ def blend_images(img_a, img_b, alpha):
     return cv2.addWeighted(img_a, weight, img_b, 1.0 - weight, 0)
 
 
-def apply_unsharp_mask(bgr_img, strength, radius=1.5):
+def apply_unsharp_mask(bgr_img: np.ndarray, strength: float, radius: float = 1.5) -> np.ndarray:
     weight = float(np.clip(strength, 0.0, 1.0))
     if weight <= 0.0:
         return bgr_img
@@ -239,7 +361,7 @@ def apply_unsharp_mask(bgr_img, strength, radius=1.5):
     return np.clip(sharpened, 0, 255).astype(np.uint8)
 
 
-def apply_film_grain(bgr_img, strength):
+def apply_film_grain(bgr_img: np.ndarray, strength: float) -> np.ndarray:
     weight = float(np.clip(strength, 0.0, 1.0))
     if weight <= 0.0:
         return bgr_img
@@ -250,7 +372,7 @@ def apply_film_grain(bgr_img, strength):
     return np.clip(grain, 0, 255).astype(np.uint8)
 
 
-def blend_with_lr(sr_bgr, lr_bgr, strength):
+def blend_with_lr(sr_bgr: np.ndarray, lr_bgr: np.ndarray, strength: float) -> np.ndarray:
     weight = float(np.clip(strength, 0.0, 1.0))
     if weight <= 0.0:
         return sr_bgr
@@ -263,7 +385,34 @@ def clamp_value(value, min_value, max_value):
     return max(min_value, min(float(value), max_value))
 
 
-def estimate_image_metrics(bgr_img):
+def auto_tile_size(img_h: int, img_w: int, scale: int) -> int:
+    """Return a tile size for RealESRGAN based on image size and available VRAM.
+
+    Returns 0 (no tiling) when the image is small enough, otherwise picks
+    a tile size that keeps peak VRAM usage reasonable.
+    """
+    pixels = img_h * img_w * scale * scale
+    if not torch.cuda.is_available():
+        # CPU: always tile for large images to limit RAM
+        if pixels > 1024 * 1024:
+            return 256
+        return 0
+    try:
+        free_vram_mb = torch.cuda.mem_get_info()[0] / (1024 * 1024)
+    except Exception:
+        free_vram_mb = 2048  # conservative fallback
+    # Rough heuristic: ~12 bytes per output pixel during inference
+    estimated_mb = pixels * 12 / (1024 * 1024)
+    if estimated_mb < free_vram_mb * 0.6:
+        return 0  # fits comfortably
+    if free_vram_mb >= 6000:
+        return 400
+    if free_vram_mb >= 3000:
+        return 256
+    return 192
+
+
+def estimate_image_metrics(bgr_img: np.ndarray) -> Dict[str, float]:
     gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
     lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
     blur = cv2.GaussianBlur(gray, (0, 0), 1.0)
@@ -365,7 +514,21 @@ class ModernApp(ctk.CTk):
 
         # Window setup
         self.title("Image Super-Resolution System (ESRGAN)")
-        self.geometry("1300x900")  # Increased height for new controls
+        self.geometry(UI_WINDOW_SIZE)  # Increased height for new controls
+
+        # Thread safety locks
+        self._state_lock = threading.Lock()   # protects img_input/img_output/feature_maps
+        self._model_lock = threading.Lock()   # protects model loading (upsampler/model)
+
+        # Run-scoped callback guard: incremented at each run start so that
+        # delayed after() callbacks from a previous run are silently ignored.
+        self._current_run_id: int = 0
+        # Persistent CTkImage reference for the output panel.  Prevents the
+        # Tk image from being garbage-collected before the label finishes
+        # rendering it.
+        self._output_ctk_image: Optional[ctk.CTkImage] = None
+        self._input_ctk_image: Optional[ctk.CTkImage] = None
+        self._ui_queue: "queue.Queue[Tuple[Optional[int], int, Callable[[], None]]]" = queue.Queue()
 
         # Core variables
         self.model_folder = os.environ.get(
@@ -380,6 +543,8 @@ class ModernApp(ctk.CTk):
         self.img_output = None
         self.texture_pipe = None
         self.scratch_model = None
+        self.face_enhancer = None  # cached GFPGANer instance
+        self.face_enhancer_scale = None  # scale used when face_enhancer was created
         self.img_gt = None
         self.gt_path = None
         self.input_path = None
@@ -416,6 +581,7 @@ class ModernApp(ctk.CTk):
         self.processing_start_time = None
         self.overlay_base_text = "Waiting for processing..."
         self.resize_job = None
+        self.last_processing_durations = []  # history of elapsed times for adaptive progress
         self.project_dir = os.path.dirname(os.path.abspath(__file__))
         self.config_path = os.path.join(self.project_dir, "output_config.json")
         self.default_output_dir = None
@@ -426,6 +592,7 @@ class ModernApp(ctk.CTk):
         self.grid_rowconfigure(0, weight=1)
 
         self.setup_ui()
+        self._start_ui_dispatch_loop()
 
         # Start background model loading (Default load x4)
         self.status_label.configure(text=f"Initializing core components ({self.device})...")
@@ -435,7 +602,7 @@ class ModernApp(ctk.CTk):
 
     def setup_ui(self):
         # === 1. Sidebar (Left) ===
-        self.sidebar = ctk.CTkFrame(self, width=240, corner_radius=0)
+        self.sidebar = ctk.CTkFrame(self, width=UI_SIDEBAR_WIDTH, corner_radius=0)
         self.sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew")
         self.sidebar.grid_rowconfigure(31, weight=1)
 
@@ -478,40 +645,45 @@ class ModernApp(ctk.CTk):
         self.switch_face = ctk.CTkSwitch(self.sidebar, text="Face Enhancement", variable=self.use_face_enhance)
         self.switch_face.grid(row=8, column=0, padx=20, pady=4, sticky="w")
 
+        # Scratch Repair Switch
+        self.use_scratch_repair = ctk.BooleanVar(value=False)
+        self.switch_scratch = ctk.CTkSwitch(self.sidebar, text="Scratch Repair", variable=self.use_scratch_repair)
+        self.switch_scratch.grid(row=9, column=0, padx=20, pady=4, sticky="w")
+
         self.lbl_face_blend = ctk.CTkLabel(self.sidebar, text=f"Face Blend: {self.face_blend.get():.2f}")
-        self.lbl_face_blend.grid(row=9, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_face_blend.grid(row=10, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_face_blend.grid_remove()
         self.slider_face_blend = ctk.CTkSlider(self.sidebar, from_=0.0, to=1.0, number_of_steps=20,
                                                variable=self.face_blend, command=self.on_face_blend_change)
-        self.slider_face_blend.grid(row=10, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_face_blend.grid(row=11, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.slider_face_blend.grid_remove()
 
         self.lbl_natural_blend = ctk.CTkLabel(self.sidebar, text=f"Natural Blend: {self.natural_blend.get():.2f}")
-        self.lbl_natural_blend.grid(row=11, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_natural_blend.grid(row=12, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_natural_blend.grid_remove()
         self.slider_natural_blend = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.6, number_of_steps=12,
                                                   variable=self.natural_blend, command=self.on_natural_blend_change)
-        self.slider_natural_blend.grid(row=12, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_natural_blend.grid(row=13, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.slider_natural_blend.grid_remove()
 
         self.lbl_texture_boost = ctk.CTkLabel(self.sidebar, text=f"Texture Boost: {self.texture_boost.get():.2f}")
-        self.lbl_texture_boost.grid(row=13, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_texture_boost.grid(row=14, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_texture_boost.grid_remove()
         self.slider_texture_boost = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.6, number_of_steps=12,
                                                   variable=self.texture_boost, command=self.on_texture_boost_change)
-        self.slider_texture_boost.grid(row=14, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_texture_boost.grid(row=15, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.slider_texture_boost.grid_remove()
 
         self.lbl_film_grain = ctk.CTkLabel(self.sidebar, text=f"Film Grain: {self.film_grain.get():.2f}")
-        self.lbl_film_grain.grid(row=15, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_film_grain.grid(row=16, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_film_grain.grid_remove()
         self.slider_film_grain = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.5, number_of_steps=10,
                                                variable=self.film_grain, command=self.on_film_grain_change)
-        self.slider_film_grain.grid(row=16, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_film_grain.grid(row=17, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.slider_film_grain.grid_remove()
 
         self.batch_retry_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        self.batch_retry_frame.grid(row=17, column=0, padx=20, pady=(0, 2), sticky="ew")
+        self.batch_retry_frame.grid(row=18, column=0, padx=20, pady=(0, 2), sticky="ew")
         self.batch_retry_frame.grid_columnconfigure(1, weight=1)
         self.lbl_batch_retry = ctk.CTkLabel(self.batch_retry_frame, text="Batch Retries")
         self.lbl_batch_retry.grid(row=0, column=0, sticky="w")
@@ -521,7 +693,7 @@ class ModernApp(ctk.CTk):
         self.btn_run = ctk.CTkButton(self.sidebar, text="Start Restoration", command=self.run_processing_thread,
                                      fg_color="#2CC985", hover_color="#229A66", height=46,
                                      font=ctk.CTkFont(size=16, weight="bold"))
-        self.btn_run.grid(row=19, column=0, padx=20, pady=4)
+        self.btn_run.grid(row=20, column=0, padx=20, pady=4)
         self.btn_run_default_fg = self.btn_run.cget("fg_color")
         self.btn_run_default_hover = self.btn_run.cget("hover_color")
 
@@ -531,7 +703,7 @@ class ModernApp(ctk.CTk):
             command=self.run_batch_folder,
             height=36,
         )
-        self.btn_batch.grid(row=20, column=0, padx=20, pady=4)
+        self.btn_batch.grid(row=21, column=0, padx=20, pady=4)
 
         self.btn_cancel = ctk.CTkButton(
             self.sidebar,
@@ -541,7 +713,7 @@ class ModernApp(ctk.CTk):
             hover_color="#C9302C",
             height=32,
         )
-        self.btn_cancel.grid(row=21, column=0, padx=20, pady=4)
+        self.btn_cancel.grid(row=22, column=0, padx=20, pady=4)
         self.btn_cancel.configure(state="disabled", text_color_disabled=("gray30", "gray70"))
 
         self.btn_open_run_dir = ctk.CTkButton(
@@ -550,41 +722,41 @@ class ModernApp(ctk.CTk):
             command=self.open_last_run_folder,
             height=32,
         )
-        self.btn_open_run_dir.grid(row=22, column=0, padx=20, pady=4)
+        self.btn_open_run_dir.grid(row=23, column=0, padx=20, pady=4)
         self.btn_open_run_dir.configure(state="disabled", text_color_disabled=("gray30", "gray70"))
 
         self.btn_compare = ctk.CTkButton(self.sidebar, text="Save Comparison", command=self.save_comparison,
                                          fg_color="#3A7CA5", hover_color="#2D5F7C", height=36,
                                          font=ctk.CTkFont(size=14, weight="bold"))
-        self.btn_compare.grid(row=23, column=0, padx=20, pady=4)
+        self.btn_compare.grid(row=24, column=0, padx=20, pady=4)
         self.btn_compare.configure(state="disabled", text_color_disabled=("gray30", "gray70"))
 
         self.btn_features = ctk.CTkButton(self.sidebar, text="Export Features", command=self.export_feature_maps,
                                           fg_color="#E0A800", hover_color="#B38600", height=36,
                                           font=ctk.CTkFont(size=14, weight="bold"))
-        self.btn_features.grid(row=24, column=0, padx=20, pady=4)
+        self.btn_features.grid(row=25, column=0, padx=20, pady=4)
         self.btn_features.configure(state="disabled", text_color_disabled=("gray30", "gray70"))
 
         self.btn_save = ctk.CTkButton(self.sidebar, text="Save Result", command=self.save_result, state="disabled",
                                       height=36)
-        self.btn_save.grid(row=25, column=0, padx=20, pady=4)
+        self.btn_save.grid(row=26, column=0, padx=20, pady=4)
         self.btn_save.configure(text_color_disabled=("gray30", "gray70"))
 
         self.switch_compare = ctk.CTkSwitch(self.sidebar, text="Compare Slider", variable=self.compare_mode,
                                             command=self.on_compare_mode_toggle)
-        self.switch_compare.grid(row=26, column=0, padx=20, pady=(4, 2), sticky="w")
+        self.switch_compare.grid(row=27, column=0, padx=20, pady=(4, 2), sticky="w")
         self.lbl_compare_split = ctk.CTkLabel(self.sidebar, text="Split: 50%")
-        self.lbl_compare_split.grid(row=27, column=0, padx=20, pady=(0, 2), sticky="w")
+        self.lbl_compare_split.grid(row=28, column=0, padx=20, pady=(0, 2), sticky="w")
         self.slider_compare = ctk.CTkSlider(self.sidebar, from_=0.0, to=1.0, number_of_steps=20,
                                             variable=self.compare_split, command=self.on_compare_split_change)
-        self.slider_compare.grid(row=28, column=0, padx=20, pady=(0, 4), sticky="ew")
+        self.slider_compare.grid(row=29, column=0, padx=20, pady=(0, 4), sticky="ew")
         self.slider_compare.configure(state="disabled")
         self.lbl_compare_split.grid_remove()
         self.slider_compare.grid_remove()
 
         # Metrics Display
         self.metrics_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        self.metrics_frame.grid(row=18, column=0, padx=20, pady=(2, 4), sticky="nw")
+        self.metrics_frame.grid(row=19, column=0, padx=20, pady=(2, 4), sticky="nw")
 
         self.lbl_resolution_title = ctk.CTkLabel(
             self.metrics_frame,
@@ -623,8 +795,9 @@ class ModernApp(ctk.CTk):
         self.display_frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
         self.display_frame.grid_columnconfigure(0, weight=1, uniform="images", minsize=320)
         self.display_frame.grid_columnconfigure(1, weight=1, uniform="images", minsize=320)
-        self.display_frame.grid_rowconfigure(1, weight=1)
-        self.display_frame.grid_rowconfigure(2, weight=0)
+        self.display_frame.grid_rowconfigure(1, weight=0)
+        self.display_frame.grid_rowconfigure(2, weight=1)
+        self.display_frame.grid_rowconfigure(3, weight=0)
 
         # Headers
         ctk.CTkLabel(self.display_frame, text="Original Input", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0,
@@ -635,17 +808,34 @@ class ModernApp(ctk.CTk):
 
         # Image Containers
         self.frame_input = ctk.CTkFrame(self.display_frame, fg_color=("gray85", "#1C1C1C"))
-        self.frame_input.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        self.frame_input.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
 
         self.frame_output = ctk.CTkFrame(self.display_frame, fg_color=("gray85", "#1C1C1C"))
-        self.frame_output.grid(row=1, column=1, sticky="nsew", padx=5, pady=5)
+        self.frame_output.grid(row=2, column=1, sticky="nsew", padx=5, pady=5)
 
         # Image Labels
         self.lbl_img_in = ctk.CTkLabel(self.frame_input, text="Waiting for input...", corner_radius=6)
-        self.lbl_img_in.pack(expand=True, fill="both", padx=10, pady=10)
+        self.lbl_img_in.pack(expand=True, fill="both", padx=4, pady=4)
 
         self.lbl_img_out = ctk.CTkLabel(self.frame_output, text="Waiting for processing...", corner_radius=6)
-        self.lbl_img_out.pack(expand=True, fill="both", padx=10, pady=10)
+        self.lbl_img_out.pack(expand=True, fill="both", padx=4, pady=4)
+
+        # Filename Labels (below images)
+        self.lbl_filename_in = ctk.CTkLabel(
+            self.display_frame, text="No file loaded",
+            font=ctk.CTkFont(size=12),
+            text_color=("gray30", "gray70"),
+            height=20,
+        )
+        self.lbl_filename_in.grid(row=1, column=0, pady=(0, 2), sticky="n")
+
+        self.lbl_filename_out = ctk.CTkLabel(
+            self.display_frame, text="",
+            font=ctk.CTkFont(size=12),
+            text_color=("gray30", "gray70"),
+            height=20,
+        )
+        self.lbl_filename_out.grid(row=1, column=1, pady=(0, 2), sticky="n")
 
         self.output_overlay = ctk.CTkFrame(self.frame_output, corner_radius=6, fg_color=("gray85", "#222222"))
         self.output_overlay_label = ctk.CTkLabel(
@@ -659,12 +849,15 @@ class ModernApp(ctk.CTk):
 
         self.lbl_resolution_in_display = ctk.CTkLabel(self.display_frame, text="Input: -- x --",
                                                      font=ctk.CTkFont(size=12))
-        self.lbl_resolution_in_display.grid(row=2, column=0, pady=(0, 5))
+        self.lbl_resolution_in_display.grid(row=3, column=0, pady=(0, 5))
         self.lbl_resolution_out_display = ctk.CTkLabel(self.display_frame, text="Output: -- x --",
                                                        font=ctk.CTkFont(size=12))
-        self.lbl_resolution_out_display.grid(row=2, column=1, pady=(0, 5))
+        self.lbl_resolution_out_display.grid(row=3, column=1, pady=(0, 5))
 
         self.bind_image_interactions()
+
+        # Drag-and-drop is currently disabled (see note at top of file).
+        # The on_drop_files / _load_dropped_file methods remain for future use.
 
         # === 3. Status Bar (Bottom) ===
         self.status_frame = ctk.CTkFrame(self, height=30, corner_radius=0)
@@ -763,24 +956,41 @@ class ModernApp(ctk.CTk):
         current_val = self.progress_bar.get()
         target_val = self.progress_target
         if current_val < target_val:
-            increment = min(0.03, target_val - current_val)
-            self.progress_bar.set(current_val + increment)
-        self.after(120, self.auto_increment_progress)
+            gap = target_val - current_val
+            # Smooth animation: close 20% of the remaining gap each tick
+            increment = max(0.005, gap * 0.2)
+            new_val = min(current_val + increment, target_val)
+            self.progress_bar.set(new_val)
+        elif current_val >= target_val and target_val < 0.95:
+            # Progress has caught up to target but processing still running.
+            # Creep asymptotically toward 0.98 so the bar never freezes.
+            # Each tick closes ~1.2% of remaining gap (with min step), so
+            # movement stays visible even during long upscale stages.
+            remaining = 0.98 - current_val
+            if remaining > 0.002:
+                step = max(0.0015, remaining * 0.012)
+                self.progress_bar.set(min(0.98, current_val + step))
+        self.after(80, self.auto_increment_progress)
 
     # --- Logic: Model Loading & Switching ---
     def change_model_scale(self, choice):
         """Handle scale change event from combobox"""
         self.scale_factor = 2 if choice == "x2" else 4
         self.status_label.configure(text=f"Switching to {choice} model...")
+        self.scale_combo.configure(state="disabled")
         # Reload model in background to avoid freezing UI
         self.progress_bar.set(0.5)
         threading.Thread(target=self.load_model, daemon=True).start()
 
     def load_model(self):
+        if not self._model_lock.acquire(blocking=False):
+            return  # another load is already in progress
         try:
             self.clear_feature_hooks()
             self.model = None
             self.upsampler = None
+            self.face_enhancer = None  # invalidate cached face enhancer
+            self.face_enhancer_scale = None
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             # Determine which model file to use
@@ -802,11 +1012,19 @@ class ModernApp(ctk.CTk):
             self.upsampler = RealESRGANer(scale=self.scale_factor, model_path=full_path, model=self.model, tile=0,
                                           tile_pad=10, pre_pad=0, half=False, device=self.device)
 
-            self.status_label.configure(text=f"Model x{self.scale_factor} loaded | Device: {self.device}")
-            self.progress_bar.set(0)
+            self._after_for_run(
+                None,
+                0,
+                lambda: self.status_label.configure(text=f"Model x{self.scale_factor} loaded | Device: {self.device}"),
+            )
+            self._after_for_run(None, 0, lambda: self.progress_bar.set(0))
         except Exception as e:
-            self.status_label.configure(text="Load failed")
-            messagebox.showerror("Model Error", str(e))
+            err_text = str(e)
+            self._after_for_run(None, 0, lambda: self.status_label.configure(text="Load failed"))
+            self._after_for_run(None, 0, lambda msg=err_text: messagebox.showerror("Model Error", msg))
+        finally:
+            self._after_for_run(None, 0, lambda: self.scale_combo.configure(state="normal"))
+            self._model_lock.release()
 
     def load_input_image(self):
         path = filedialog.askopenfilename(filetypes=[("Image", "*.jpg *.png *.jpeg *.bmp")])
@@ -818,10 +1036,13 @@ class ModernApp(ctk.CTk):
                 messagebox.showerror("Error", f"Failed to load image: {exc}")
                 return
             self.input_path = path
-            self.img_input = img
+            with self._state_lock:
+                self.img_input = img
             self.reset_view_state()
             status_text = f"Loaded: {os.path.basename(path)} | {self.get_texture_status_text()}"
             self.status_label.configure(text=status_text)
+            self.lbl_filename_in.configure(text=f"Input: {os.path.basename(path)}")
+            self.lbl_filename_out.configure(text="")
             self.img_gt = None
             self.gt_path = None
             self.img_output = None
@@ -871,6 +1092,35 @@ class ModernApp(ctk.CTk):
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
         return img
 
+    def prepare_display_image(self, img):
+        """Normalize image to contiguous uint8 BGR for safe GUI rendering."""
+        if img is None:
+            raise ValueError("Empty image")
+        arr = np.asarray(img)
+        if arr.ndim == 2:
+            arr = cv2.cvtColor(arr, cv2.COLOR_GRAY2BGR)
+        elif arr.ndim == 3:
+            ch = arr.shape[2]
+            if ch == 4:
+                arr = cv2.cvtColor(arr, cv2.COLOR_BGRA2BGR)
+            elif ch == 1:
+                arr = cv2.cvtColor(arr, cv2.COLOR_GRAY2BGR)
+            elif ch != 3:
+                arr = arr[:, :, :3]
+        else:
+            raise ValueError(f"Unsupported image shape: {arr.shape}")
+
+        if arr.dtype != np.uint8:
+            arr = np.nan_to_num(arr)
+            max_val = float(np.max(arr)) if arr.size else 0.0
+            if max_val <= 1.0:
+                arr = arr * 255.0
+            arr = np.clip(arr, 0, 255).astype(np.uint8)
+
+        if not arr.flags["C_CONTIGUOUS"]:
+            arr = np.ascontiguousarray(arr)
+        return arr
+
     def bind_image_interactions(self):
         widgets = (self.lbl_img_in, self.lbl_img_out)
         for widget in widgets:
@@ -883,6 +1133,53 @@ class ModernApp(ctk.CTk):
         self.lbl_img_out.bind("<ButtonRelease-1>", self.on_compare_release)
         self.lbl_img_out.bind("<Leave>", self.on_compare_leave)
         self.bind("<ButtonRelease-1>", self.on_compare_release)
+
+    def on_drop_files(self, file_list):
+        """Handle files dropped onto the window.
+
+        Called on the main thread (scheduled via self.after by the Win32
+        wndproc or windnd wrapper).  file_list contains str paths.
+        """
+        if not file_list:
+            return
+        path = file_list[0]
+        if isinstance(path, bytes):
+            path = path.decode("utf-8", errors="replace")
+        if not path.lower().endswith(IMAGE_EXTS):
+            self.status_label.configure(text="Unsupported file format.")
+            return
+        self._load_dropped_file(path)
+
+    def _load_dropped_file(self, path: str) -> None:
+        """Load a dropped image file (runs on the main thread)."""
+        try:
+            img = self.read_image(path)
+        except Exception as exc:
+            self.status_label.configure(text=f"Drop load failed: {exc}")
+            return
+        self.input_path = path
+        with self._state_lock:
+            self.img_input = img
+        self.reset_view_state()
+        self.lbl_filename_in.configure(text=f"Input: {os.path.basename(path)}")
+        self.lbl_filename_out.configure(text="")
+        self.img_gt = None
+        self.gt_path = None
+        self.img_output = None
+        self.feature_maps = []
+        self.render_main_images()
+        self.update_compare_controls()
+        self.show_output_overlay("Waiting for processing...", animate=False)
+        self.btn_save.configure(state="disabled")
+        self.btn_compare.configure(state="disabled")
+        self.btn_features.configure(state="disabled")
+        self.progress_bar.set(0)
+        self.progress_target = 0.0
+        self.elapsed_label.configure(text="Elapsed: --")
+        self.update_resolution_labels()
+        self.calculate_metrics()
+        self.auto_tune_parameters()
+        self.status_label.configure(text=f"Loaded (drop): {os.path.basename(path)}")
 
     def reset_view_state(self):
         self.zoom_factor = 1.0
@@ -970,80 +1267,379 @@ class ModernApp(ctk.CTk):
         view_h = max(1, min(view_h, h_img))
         return view_w, view_h
 
+    def _get_image_display_size(self, label_widget=None):
+        """Return (width, height) available for an image panel."""
+        if label_widget is not None and label_widget.winfo_exists():
+            parent = label_widget.master
+            pw = parent.winfo_width()
+            ph = parent.winfo_height()
+            if pw >= 20 and ph >= 20:
+                return max(1, pw - 8), max(1, ph - 8)
+
+        # Fallback before initial layout is complete.
+        dw = self.display_frame.winfo_width()
+        dh = self.display_frame.winfo_height()
+        if dw < 40 or dh < 40:
+            dw, dh = 800, 700
+        panel_w = max(1, dw // 2 - 24)
+        panel_h = max(1, dh - 90)
+        return panel_w, panel_h
+
+    def _is_run_active(self, run_id: Optional[int]) -> bool:
+        return run_id is None or run_id == self._current_run_id
+
+    def _run_guarded_ui_callback(self, run_id: Optional[int], callback: Callable[[], None]) -> None:
+        if not self._is_run_active(run_id):
+            logger.debug("Skip stale UI callback run=%s current=%s", run_id, self._current_run_id)
+            return
+        try:
+            callback()
+        except TclError:
+            logger.debug("UI callback skipped due TclError (run=%s)", run_id)
+        except Exception as exc:
+            logger.warning("UI callback failed run=%s: %s", run_id, exc)
+
+    def _start_ui_dispatch_loop(self) -> None:
+        self.after(15, self._drain_ui_queue)
+
+    def _drain_ui_queue(self) -> None:
+        processed = 0
+        while processed < 256:
+            try:
+                run_id, delay_ms, callback = self._ui_queue.get_nowait()
+            except queue.Empty:
+                break
+            if delay_ms <= 0:
+                self._run_guarded_ui_callback(run_id, callback)
+            else:
+                self.after(
+                    delay_ms,
+                    lambda rid=run_id, cb=callback: self._run_guarded_ui_callback(rid, cb),
+                )
+            processed += 1
+        try:
+            self.after(15, self._drain_ui_queue)
+        except TclError:
+            return
+
+    def _after_for_run(self, run_id: Optional[int], delay_ms: int, callback: Callable[[], None]) -> None:
+        if threading.current_thread() is threading.main_thread():
+            self.after(
+                delay_ms,
+                lambda rid=run_id, cb=callback: self._run_guarded_ui_callback(rid, cb),
+            )
+            return
+        self._ui_queue.put((run_id, delay_ms, callback))
+
+    def _image_debug_desc(self, img: Optional[np.ndarray]) -> str:
+        if img is None:
+            return "None"
+        arr = np.asarray(img)
+        return f"shape={arr.shape} dtype={arr.dtype}"
+
+    def _overlay_mapped_state(self) -> int:
+        try:
+            return int(self.output_overlay.winfo_ismapped())
+        except Exception:
+            return -1
+
+    def _log_output_render(
+        self,
+        run_id: Optional[int],
+        phase: str,
+        fn_name: str,
+        ok: bool,
+        img: Optional[np.ndarray],
+    ) -> None:
+        try:
+            panel_w, panel_h = self._get_image_display_size(self.lbl_img_out)
+        except Exception:
+            panel_w, panel_h = -1, -1
+        logger.info(
+            "output_render run=%s phase=%s fn=%s ok=%s img=%s panel=%sx%s overlay=%s processing=%s compare=%s hold=%s",
+            run_id,
+            phase,
+            fn_name,
+            int(ok),
+            self._image_debug_desc(img),
+            panel_w,
+            panel_h,
+            self._overlay_mapped_state(),
+            int(self.is_processing),
+            int(self.compare_mode.get()),
+            int(self.compare_hold_active),
+        )
+
+    def _recreate_output_label(self) -> "ctk.CTkLabel":
+        """Destroy and recreate lbl_img_out to purge stale Tk image handles."""
+        try:
+            self.lbl_img_out.destroy()
+        except Exception:
+            pass
+        self._output_ctk_image = None
+        new_label = ctk.CTkLabel(self.frame_output, text="", corner_radius=6)
+        new_label.pack(expand=True, fill="both", padx=4, pady=4)
+        self.lbl_img_out = new_label
+        # Re-bind event handlers lost during widget recreation
+        new_label.bind("<MouseWheel>", self.on_zoom)
+        new_label.bind("<ButtonPress-3>", self.on_pan_start)
+        new_label.bind("<B3-Motion>", self.on_pan_move)
+        new_label.bind("<ButtonRelease-3>", self.on_pan_end)
+        new_label.bind("<Configure>", self.on_display_resize)
+        new_label.bind("<ButtonPress-1>", self.on_compare_press)
+        new_label.bind("<ButtonRelease-1>", self.on_compare_release)
+        new_label.bind("<Leave>", self.on_compare_leave)
+        logger.info("recreated lbl_img_out (purged stale Tk image handles)")
+        return new_label
+
+    def _recreate_input_label(self) -> "ctk.CTkLabel":
+        """Destroy and recreate lbl_img_in to purge stale Tk image handles."""
+        try:
+            self.lbl_img_in.destroy()
+        except Exception:
+            pass
+        self._input_ctk_image = None
+        new_label = ctk.CTkLabel(self.frame_input, text="", corner_radius=6)
+        new_label.pack(expand=True, fill="both", padx=4, pady=4)
+        self.lbl_img_in = new_label
+        # Re-bind event handlers lost during widget recreation
+        new_label.bind("<MouseWheel>", self.on_zoom)
+        new_label.bind("<ButtonPress-3>", self.on_pan_start)
+        new_label.bind("<B3-Motion>", self.on_pan_move)
+        new_label.bind("<ButtonRelease-3>", self.on_pan_end)
+        new_label.bind("<Configure>", self.on_display_resize)
+        logger.info("recreated lbl_img_in (purged stale Tk image handles)")
+        return new_label
+
+    def _set_label_image(self, label_widget, ctk_img) -> bool:
+        target = "output" if label_widget is self.lbl_img_out else "input"
+        for attempt in (1, 2):
+            try:
+                if attempt == 2:
+                    # Recovery: destroy and recreate the label to purge stale
+                    # internal Tk PhotoImage references (pyimageX doesn't exist).
+                    if label_widget is self.lbl_img_out:
+                        label_widget = self._recreate_output_label()
+                    elif label_widget is self.lbl_img_in:
+                        label_widget = self._recreate_input_label()
+                label_widget.configure(image=ctk_img, text="")
+                label_widget.image = ctk_img
+                if label_widget is self.lbl_img_out:
+                    self._output_ctk_image = ctk_img
+                elif label_widget is self.lbl_img_in:
+                    self._input_ctk_image = ctk_img
+                return True
+            except TclError as exc:
+                logger.warning(
+                    "set_label_image failed target=%s attempt=%s err=%s",
+                    target,
+                    attempt,
+                    exc,
+                )
+                if attempt == 2:
+                    return False
+            except Exception as exc:
+                logger.warning(
+                    "set_label_image unexpected target=%s attempt=%s err=%s",
+                    target,
+                    attempt,
+                    exc,
+                )
+                return False
+        return False
+
     def render_zoomed_image(self, bgr_img, label_widget):
         if not label_widget.winfo_exists():
             return False
-        widget_w = label_widget.winfo_width()
-        widget_h = label_widget.winfo_height()
-        if widget_w < 10 or widget_h < 10:
-            widget_w, widget_h = 500, 500
-
-        margin = int(min(widget_w, widget_h) * 0.08)
-        render_w = max(1, widget_w - margin * 2)
-        render_h = max(1, widget_h - margin * 2)
-
-        view_w, view_h = self.calculate_view_window(bgr_img, render_w, render_h)
-        h_img, w_img = bgr_img.shape[:2]
-        cx = int(self.view_center[0] * w_img)
-        cy = int(self.view_center[1] * h_img)
-        x1 = max(0, min(cx - view_w // 2, w_img - view_w))
-        y1 = max(0, min(cy - view_h // 2, h_img - view_h))
-        crop = bgr_img[y1:y1 + view_h, x1:x1 + view_w]
-        resized = cv2.resize(crop, (render_w, render_h), interpolation=cv2.INTER_CUBIC)
-        img_rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-        im_pil = Image.fromarray(img_rgb)
-        ctk_img = ctk.CTkImage(light_image=im_pil, dark_image=im_pil, size=(render_w, render_h))
         try:
-            label_widget.configure(image=ctk_img, text="")
-            label_widget.image = ctk_img
-        except TclError:
+            bgr_img = self.prepare_display_image(bgr_img)
+        except Exception:
+            return False
+        render_w, render_h = self._get_image_display_size(label_widget)
+
+        h_img, w_img = bgr_img.shape[:2]
+
+        if self.zoom_factor <= 1.0:
+            # Fit entire image into the display area (no cropping)
+            scale = min(render_w / w_img, render_h / h_img)
+            disp_w = max(1, int(w_img * scale))
+            disp_h = max(1, int(h_img * scale))
+            resized = cv2.resize(bgr_img, (disp_w, disp_h), interpolation=cv2.INTER_AREA)
+        else:
+            # Zoomed in: crop a portion of the image
+            view_w, view_h = self.calculate_view_window(bgr_img, render_w, render_h)
+            cx = int(self.view_center[0] * w_img)
+            cy = int(self.view_center[1] * h_img)
+            x1 = max(0, min(cx - view_w // 2, w_img - view_w))
+            y1 = max(0, min(cy - view_h // 2, h_img - view_h))
+            crop = bgr_img[y1:y1 + view_h, x1:x1 + view_w]
+            disp_w = render_w
+            disp_h = render_h
+            resized = cv2.resize(crop, (disp_w, disp_h), interpolation=cv2.INTER_CUBIC)
+
+        try:
+            img_rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+            im_pil = Image.fromarray(img_rgb)
+            ctk_img = ctk.CTkImage(light_image=im_pil, dark_image=im_pil, size=(disp_w, disp_h))
+            is_output_panel = (label_widget is self.lbl_img_out)
+            if not self._set_label_image(label_widget, ctk_img):
+                return False
+            # Use current label ref (may have been recreated by _set_label_image)
+            actual_widget = self.lbl_img_out if is_output_panel else self.lbl_img_in
+            actual_widget.lift()
+        except Exception as exc:
+            logger.warning("render_zoomed_image failed: %s", exc)
             return False
         return True
 
     def render_main_images(self):
         if self.img_input is None:
             try:
-                self.lbl_img_in.configure(image=None, text="Waiting for input...")
-                self.lbl_img_in.image = None
-            except TclError:
+                self.lbl_img_in.configure(image="", text="Waiting for input...")
+                self._input_ctk_image = None
+            except Exception:
                 return
         else:
             self.render_zoomed_image(self.img_input, self.lbl_img_in)
 
         if self.compare_mode.get() and self.img_input is not None and self.img_output is not None:
             compare_img = self.build_compare_image(self.img_input, self.img_output, self.compare_split.get())
-            self.render_zoomed_image(compare_img, self.lbl_img_out)
+            rendered = self.render_zoomed_image(compare_img, self.lbl_img_out)
+            self._log_output_render(self._current_run_id, "render-main-compare", "render_zoomed_image", rendered, compare_img)
             return
         if self.compare_hold_active and self.img_input is not None:
-            self.render_zoomed_image(self.img_input, self.lbl_img_out)
+            rendered = self.render_zoomed_image(self.img_input, self.lbl_img_out)
+            self._log_output_render(self._current_run_id, "render-main-hold", "render_zoomed_image", rendered, self.img_input)
             return
         if self.img_output is None:
             try:
-                self.lbl_img_out.configure(image=None, text="")
-                self.lbl_img_out.image = None
-            except TclError:
-                return
+                self.lbl_img_out.configure(image="", text="")
+                self._output_ctk_image = None
+            except Exception:
+                pass
+            self._log_output_render(self._current_run_id, "render-main", "clear-output", True, None)
             return
-        if not self.render_zoomed_image(self.img_output, self.lbl_img_out):
+        if not self.is_processing:
+            # Defensive: ensure output overlay never obscures a completed frame.
+            self.hide_output_overlay()
+        rendered = self.render_zoomed_image(self.img_output, self.lbl_img_out)
+        self._log_output_render(self._current_run_id, "render-main", "render_zoomed_image", rendered, self.img_output)
+        if not rendered:
             try:
                 self.show_image_ctk(self.img_output, self.lbl_img_out)
+                self._log_output_render(self._current_run_id, "render-main", "show_image_ctk", True, self.img_output)
             except TclError:
+                self._log_output_render(self._current_run_id, "render-main", "show_image_ctk", False, self.img_output)
                 return
 
-    def force_output_refresh(self):
+    def _render_output_frame_once(self, run_id: Optional[int] = None, phase: str = "single-pass") -> bool:
+        """Best-effort render for output panel (UI thread)."""
+        if not self._is_run_active(run_id):
+            self._log_output_render(run_id, phase, "run-guard", False, self.img_output)
+            return False
         if self.img_output is None:
-            return
+            self._log_output_render(run_id, phase, "missing-output", False, None)
+            return False
         if not self.lbl_img_out.winfo_exists():
+            self._log_output_render(run_id, phase, "missing-widget", False, self.img_output)
+            return False
+
+        self.hide_output_overlay()
+        rendered = self.render_zoomed_image(self.img_output, self.lbl_img_out)
+        self._log_output_render(run_id, phase, "render_zoomed_image", rendered, self.img_output)
+        if not rendered:
+            try:
+                self.show_image_ctk(self.img_output, self.lbl_img_out)
+                rendered = True
+            except Exception:
+                rendered = False
+            self._log_output_render(run_id, phase, "show_image_ctk", rendered, self.img_output)
+
+        if rendered:
+            try:
+                self.lbl_img_out.lift()
+                self.lbl_img_out.update_idletasks()
+            except TclError:
+                self._log_output_render(run_id, phase, "lift", False, self.img_output)
+                return False
+        return rendered
+
+    def refresh_output_after_success(self, run_id: Optional[int] = None):
+        """Render final output frame on UI thread after processing success."""
+        if not self._is_run_active(run_id):
             return
+        if self.img_output is None:
+            self._log_output_render(run_id, "success", "missing-output", False, None)
+            return
+
+        for delay_ms, phase in ((0, "success-0"), (60, "success-60"), (150, "success-150"), (280, "success-280")):
+            self._after_for_run(
+                run_id,
+                delay_ms,
+                lambda rid=run_id, p=phase: self._render_output_frame_once(rid, p),
+            )
+        self._after_for_run(run_id, 0, self.update_compare_controls)
+        self._after_for_run(run_id, 0, self.update_resolution_labels)
+        self._after_for_run(run_id, 0, self.calculate_metrics)
+
+    def force_output_refresh(self):
+        self._render_output_frame_once(self._current_run_id, "force-refresh")
+
+    def show_image_file_ctk(self, path, label_widget):
+        """Render an image file directly via PIL into a CTkLabel."""
+        if not path or not os.path.exists(path):
+            return False
         try:
-            self.render_zoomed_image(self.img_output, self.lbl_img_out)
-            self.show_image_ctk(self.img_output, self.lbl_img_out)
-        except TclError:
-            return
+            with Image.open(path) as pil_img:
+                pil_img = pil_img.convert("RGB")
+                w_widget, h_widget = self._get_image_display_size(label_widget)
+                ratio = min(w_widget / pil_img.width, h_widget / pil_img.height)
+                new_w = max(1, int(pil_img.width * ratio))
+                new_h = max(1, int(pil_img.height * ratio))
+                resample = getattr(Image, "Resampling", Image).LANCZOS
+                resized = pil_img.resize((new_w, new_h), resample)
+        except Exception as exc:
+            logger.warning("show_image_file_ctk failed (%s): %s", os.path.basename(path), exc)
+            return False
         try:
-            self.lbl_img_out.update_idletasks()
-        except TclError:
+            ctk_img = ctk.CTkImage(light_image=resized, dark_image=resized, size=(new_w, new_h))
+            is_output_panel = (label_widget is self.lbl_img_out)
+            if not self._set_label_image(label_widget, ctk_img):
+                logger.warning("show_image_file_ctk assign failed (%s): set_label_image returned false",
+                               os.path.basename(path))
+                return False
+            # Use current label ref (may have been recreated by _set_label_image)
+            actual_widget = self.lbl_img_out if is_output_panel else self.lbl_img_in
+            actual_widget.lift()
+            return True
+        except Exception as exc:
+            logger.warning("show_image_file_ctk assign failed (%s): %s", os.path.basename(path), exc)
+            return False
+
+    def render_output_from_file(self, path, run_id: Optional[int] = None):
+        """Reload output from disk and repaint output panel."""
+        if not self._is_run_active(run_id):
             return
+        if not path:
+            return
+        file_rendered = self.show_image_file_ctk(path, self.lbl_img_out)
+        self._log_output_render(run_id, "from-file", "show_image_file_ctk", file_rendered, self.img_output)
+        try:
+            stable = self.read_image(path)
+        except Exception as exc:
+            logger.warning("Render output from file failed (%s): %s", os.path.basename(path), exc)
+            if file_rendered:
+                self.hide_output_overlay()
+            return
+        with self._state_lock:
+            self.img_output = stable
+        if file_rendered:
+            self.hide_output_overlay()
+            self.update_resolution_labels()
+            self.calculate_metrics()
+            self._log_output_render(run_id, "from-file", "commit", True, self.img_output)
+        else:
+            self.refresh_output_after_success(run_id)
 
     def build_compare_image(self, lr_bgr, sr_bgr, split_ratio):
         if lr_bgr is None:
@@ -1087,11 +1683,26 @@ class ModernApp(ctk.CTk):
         self.output_overlay_label.configure(text=text)
         self.output_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
         self.output_overlay.lift()
+        logger.info(
+            "output_overlay show run=%s text=%s mapped=%s",
+            self._current_run_id,
+            text,
+            self._overlay_mapped_state(),
+        )
         if animate:
             self.animate_output_overlay()
 
     def hide_output_overlay(self):
-        self.output_overlay.place_forget()
+        try:
+            self.output_overlay.place_forget()
+            self.output_overlay.lower()
+            logger.info(
+                "output_overlay hide run=%s mapped=%s",
+                self._current_run_id,
+                self._overlay_mapped_state(),
+            )
+        except TclError:
+            return
 
     def animate_output_overlay(self):
         if not self.is_processing:
@@ -1103,16 +1714,21 @@ class ModernApp(ctk.CTk):
         self.output_overlay_label.configure(text=text)
         self.after(500, self.animate_output_overlay)
 
-    def report_progress(self, value, status_text=None, overlay_text=None):
+    def report_progress(self, value, status_text=None, overlay_text=None, run_id: Optional[int] = None):
         def update():
             self.progress_target = max(self.progress_target, value)
+            # Immediately jump the bar to at least the previous target
+            # so it never appears stuck behind the actual stage.
+            current = self.progress_bar.get()
+            if current < value - 0.05:
+                self.progress_bar.set(value - 0.05)
             if status_text:
                 self.status_label.configure(text=status_text)
             if overlay_text:
                 self.overlay_base_text = overlay_text
                 self.overlay_dot_count = 0
                 self.output_overlay_label.configure(text=overlay_text)
-        self.after(0, update)
+        self._after_for_run(run_id, 0, update)
 
     def start_elapsed_timer(self):
         self.processing_start_time = time.perf_counter()
@@ -1177,25 +1793,29 @@ class ModernApp(ctk.CTk):
         self.show_output_overlay("Cancelling", animate=True)
 
     def show_image_ctk(self, cv_img, label_widget):
-        img_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
-        im_pil = Image.fromarray(img_rgb)
+        try:
+            cv_img = self.prepare_display_image(cv_img)
+            img_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+            im_pil = Image.fromarray(img_rgb)
+        except Exception:
+            return
 
-        w_widget = label_widget.winfo_width()
-        h_widget = label_widget.winfo_height()
-        if w_widget < 10: w_widget = 500
-        if h_widget < 10: h_widget = 500
+        w_widget, h_widget = self._get_image_display_size(label_widget)
 
         w_img, h_img = im_pil.size
         ratio = min(w_widget / w_img, h_widget / h_img)
-        ratio = min(ratio, 1.0) if ratio > 1 else ratio
 
-        new_w = int(w_img * ratio)
-        new_h = int(h_img * ratio)
+        new_w = max(1, int(w_img * ratio))
+        new_h = max(1, int(h_img * ratio))
 
         ctk_img = ctk.CTkImage(light_image=im_pil, dark_image=im_pil, size=(new_w, new_h))
 
-        label_widget.configure(image=ctk_img, text="")
-        label_widget.image = ctk_img
+        is_output_panel = (label_widget is self.lbl_img_out)
+        if not self._set_label_image(label_widget, ctk_img):
+            raise TclError("set_label_image failed")
+        # Use current label ref (may have been recreated by _set_label_image)
+        actual_widget = self.lbl_img_out if is_output_panel else self.lbl_img_in
+        actual_widget.lift()
 
     def show_image_preview(self, title, bgr_img, info_text, save_text, on_save):
         preview = ctk.CTkToplevel(self)
@@ -1339,10 +1959,22 @@ class ModernApp(ctk.CTk):
             threading.Thread(target=self.load_model, daemon=True).start()
             messagebox.showwarning("Model Loading", "Model is still loading. Please try again shortly.")
             return
+        # Start each single-image run from full view to avoid stale zoom crops.
+        self.reset_view_state()
         self.cancel_requested = False
         self.start_processing(batch_mode=False, on_complete=None)
 
     def start_processing(self, batch_mode=False, on_complete=None):
+        self._current_run_id += 1
+        ui_run_id = self._current_run_id
+        run_options = {
+            "face_enhance": bool(self.use_face_enhance.get()),
+            "face_blend": float(self.face_blend.get()),
+            "natural_blend": float(self.natural_blend.get()),
+            "texture_boost": float(self.texture_boost.get()),
+            "film_grain": float(self.film_grain.get()),
+            "scratch_repair": bool(self.use_scratch_repair.get()),
+        }
         self.is_processing = True
         self.progress_bar.set(0)
         self.progress_target = 0.05
@@ -1362,35 +1994,56 @@ class ModernApp(ctk.CTk):
             status_text = f"Restoring image (x{self.scale_factor})..."
         self.status_label.configure(text=status_text)
         self.auto_increment_progress()
+        logger.info(
+            "processing_start ui_run=%s batch=%s input=%s",
+            ui_run_id,
+            int(batch_mode),
+            os.path.basename(self.input_path or ""),
+        )
 
         threading.Thread(
             target=self.process_image,
-            args=(batch_mode, on_complete),
+            args=(batch_mode, on_complete, ui_run_id, run_options),
             daemon=True,
         ).start()
         return True
 
-    def process_image(self, batch_mode=False, on_complete=None):
+    def process_image(
+        self,
+        batch_mode=False,
+        on_complete=None,
+        ui_run_id: Optional[int] = None,
+        run_options: Optional[Dict[str, Any]] = None,
+    ):
         success = False
         cancelled = False
         error_message = None
+        if ui_run_id is None:
+            ui_run_id = self._current_run_id
+        opts = run_options or {}
+        face_enhance = bool(opts.get("face_enhance", False))
+        face_blend = float(opts.get("face_blend", 0.7))
+        natural_blend = float(opts.get("natural_blend", 0.15))
+        texture_boost = float(opts.get("texture_boost", 0.2))
+        film_grain = float(opts.get("film_grain", 0.0))
+        scratch_repair = bool(opts.get("scratch_repair", False))
         run_root = self.batch_output_dir if batch_mode else None
-        run_id, run_dir = self.start_run_record(run_root=run_root)
+        run_record_id, run_dir = self.start_run_record(run_root=run_root, ui_run_id=ui_run_id)
         base_name = safe_basename(self.input_path)
         run_output_path = os.path.join(run_dir, f"{base_name}_x{self.scale_factor}.png")
         run_meta = {
-            "run_id": run_id,
+            "run_id": run_record_id,
             "timestamp": timestamp_str(),
             "input_path": self.input_path,
             "run_dir": run_dir,
             "output_path": run_output_path,
             "scale_factor": self.scale_factor,
             "device": str(self.device),
-            "face_enhance": bool(self.use_face_enhance.get()),
-            "face_blend": float(self.face_blend.get()),
-            "natural_blend": float(self.natural_blend.get()),
-            "texture_boost": float(self.texture_boost.get()),
-            "film_grain": float(self.film_grain.get()),
+            "face_enhance": face_enhance,
+            "face_blend": face_blend,
+            "natural_blend": natural_blend,
+            "texture_boost": texture_boost,
+            "film_grain": film_grain,
             "texture_enabled": bool(TEXTURE_ENABLED),
             "texture_model": TEXTURE_MODEL_ID,
             "texture_prompt": TEXTURE_PROMPT,
@@ -1432,69 +2085,122 @@ class ModernApp(ctk.CTk):
                     f"Batch {self.batch_index + 1}/{self.batch_total}: {os.path.basename(self.input_path)}"
                     f" | {status_text}"
                 )
-            self.report_progress(value, ui_status, overlay_text)
+            self.report_progress(value, ui_status, overlay_text, run_id=ui_run_id)
         def check_cancel():
             if self.cancel_requested:
                 raise UserCancelledError("Cancelled")
         if not batch_mode:
-            self.after(0, lambda: self.status_label.configure(text=f"Run {run_id} started..."))
+            self._after_for_run(
+                ui_run_id,
+                0,
+                lambda: self.status_label.configure(text=f"Run {run_record_id} started..."),
+            )
         try:
             check_cancel()
             output = None
             used_face_enhance = False
 
-            set_stage("upscale", 0.15, f"Upscaling image (x{self.scale_factor})...", "Upscaling")
+            # Scratch repair pre-processing (before upscale)
+            if scratch_repair:
+                check_cancel()
+                set_stage("scratch", 0.05, "Repairing scratches...", "Scratch repair")
+                stage_start = time.perf_counter()
+                if self.scratch_model is None:
+                    self.scratch_model = load_scratch_model(SCRATCH_MODEL_PATH, self.device)
+                if self.scratch_model is not None:
+                    self.img_input = apply_scratch_repair(
+                        self.img_input, self.scratch_model, self.device,
+                        SCRATCH_MASK_THRESHOLD, SCRATCH_INPAINT_RADIUS)
+                run_meta["timing"]["scratch"] = round(time.perf_counter() - stage_start, 3)
+                run_meta["scratch_repair"] = True
+
+            set_stage("upscale", 0.10, f"Upscaling image (x{self.scale_factor})...", "Upscaling")
             stage_start = time.perf_counter()
+            # Auto-select tile size based on image dimensions and available VRAM
+            h_in, w_in = self.img_input.shape[:2]
+            tile = auto_tile_size(h_in, w_in, self.scale_factor)
+            self.upsampler.tile = tile
+            run_meta["tile_size"] = tile
             sr_base, _ = self.upsampler.enhance(self.img_input, outscale=self.scale_factor)
             run_meta["timing"]["upscale"] = round(time.perf_counter() - stage_start, 3)
             output = sr_base
             check_cancel()
-            set_stage("refine", 0.45, "Upscale complete. Refining details...", "Refining")
+            set_stage("refine", 0.65, "Upscale complete. Refining details...", "Refining")
 
-            if self.use_face_enhance.get():
+            if face_enhance:
                 check_cancel()
-                set_stage("face", 0.55, "Applying face enhancement...", "Face enhancement")
+                set_stage("face", 0.70, "Applying face enhancement...", "Face enhancement")
                 stage_start = time.perf_counter()
                 try:
                     from gfpgan import GFPGANer
-                    face_enhancer = GFPGANer(
-                        model_path='https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth',
-                        upscale=self.scale_factor, arch='clean', channel_multiplier=2, bg_upsampler=self.upsampler)
-                    _, _, face_output = face_enhancer.enhance(self.img_input, has_aligned=False, only_center_face=False,
-                                                              paste_back=True)
+                    gfpgan_path = os.environ.get(
+                        "GFPGAN_MODEL_PATH",
+                        "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth",
+                    )
+                    if self.face_enhancer is None or self.face_enhancer_scale != self.scale_factor:
+                        self.face_enhancer = GFPGANer(
+                            model_path=gfpgan_path,
+                            upscale=self.scale_factor, arch='clean',
+                            channel_multiplier=2, bg_upsampler=self.upsampler)
+                        self.face_enhancer_scale = self.scale_factor
+                    _, _, face_output = self.face_enhancer.enhance(
+                        self.img_input, has_aligned=False,
+                        only_center_face=False, paste_back=True)
                     if face_output is not None:
-                        output = blend_images(face_output, sr_base, self.face_blend.get())
+                        output = blend_images(face_output, sr_base, face_blend)
                         used_face_enhance = True
                 except Exception as e:
-                    print(f"Warning: Face enhance failed ({e}), switching to standard mode.")
-                    self.after(0, lambda: self.status_label.configure(
+                    logger.warning("Face enhance failed (%s), switching to standard mode.", e)
+                    self._after_for_run(ui_run_id, 0, lambda: self.status_label.configure(
                         text="Face enhancement unavailable, switching to standard mode..."))
                 run_meta["timing"]["face"] = round(time.perf_counter() - stage_start, 3)
 
             check_cancel()
-            set_stage("blend", 0.7, "Blending fine details...", "Blending")
+            set_stage("blend", 0.80, "Blending fine details...", "Blending")
             stage_start = time.perf_counter()
-            output = blend_with_lr(output, self.img_input, self.natural_blend.get())
-            output = apply_unsharp_mask(output, self.texture_boost.get())
+            output = blend_with_lr(output, self.img_input, natural_blend)
+            output = apply_unsharp_mask(output, texture_boost)
             run_meta["timing"]["blend"] = round(time.perf_counter() - stage_start, 3)
             try:
                 check_cancel()
-                set_stage("texture", 0.82, "Generating texture details...", "Texture refinement")
+                set_stage("texture", 0.88, "Generating texture details...", "Texture refinement")
                 stage_start = time.perf_counter()
                 output = self.apply_texture_generation(output)
                 run_meta["timing"]["texture"] = round(time.perf_counter() - stage_start, 3)
             except Exception as e:
-                self.after(0, lambda: self.status_label.configure(text=f"Texture generation skipped: {e}"))
+                texture_msg = f"Texture generation skipped: {e}"
+                self._after_for_run(
+                    ui_run_id,
+                    0,
+                    lambda msg=texture_msg: self.status_label.configure(text=msg),
+                )
             check_cancel()
-            set_stage("finalize", 0.92, "Finalizing output...", "Finalizing")
+            set_stage("finalize", 0.95, "Finalizing output...", "Finalizing")
             stage_start = time.perf_counter()
-            output = apply_film_grain(output, self.film_grain.get())
+            output = apply_film_grain(output, film_grain)
             run_meta["timing"]["finalize"] = round(time.perf_counter() - stage_start, 3)
 
             check_cancel()
-            self.img_output = output
+            with self._state_lock:
+                self.img_output = output
             success = True
             save_image(run_output_path, self.img_output)
+            try:
+                # Reload from disk to ensure a stable uint8 BGR buffer for GUI.
+                stable_output = self.read_image(run_output_path)
+                with self._state_lock:
+                    self.img_output = stable_output
+            except Exception as exc:
+                logger.warning("Reload output snapshot for GUI failed: %s", exc)
+            
+            # Update output filename label
+            output_filename = f"{base_name}_x{self.scale_factor}.png"
+            self._after_for_run(
+                ui_run_id,
+                0,
+                lambda: self.lbl_filename_out.configure(text=f"Output: {output_filename}"),
+            )
+            
             run_input_path = os.path.join(run_dir, f"{base_name}_input.png")
             save_image(run_input_path, self.img_input)
             run_meta["input_snapshot"] = run_input_path
@@ -1506,38 +2212,44 @@ class ModernApp(ctk.CTk):
 
             self.compare_hold_active = False
 
-            self.after(0, self.hide_output_overlay)
-            self.after(0, self.render_main_images)
-            self.after(0, self.update_idletasks)
-            self.after(80, self.render_main_images)
-            self.after(140, self.force_output_refresh)
-            self.after(0, self.update_compare_controls)
-            self.after(0, self.update_resolution_labels)
-            self.after(0, self.calculate_metrics)
+            self._after_for_run(ui_run_id, 0, lambda: self.refresh_output_after_success(ui_run_id))
 
-            if self.use_face_enhance.get() and not used_face_enhance:
-                self.after(0, lambda: self.status_label.configure(text=f"Done (x{self.scale_factor} Standard Mode)"))
+            if face_enhance and not used_face_enhance:
+                self._after_for_run(
+                    ui_run_id,
+                    0,
+                    lambda: self.status_label.configure(text=f"Done (x{self.scale_factor} Standard Mode)"),
+                )
             else:
-                self.after(0, lambda: self.status_label.configure(text=f"Done (x{self.scale_factor})"))
+                self._after_for_run(
+                    ui_run_id,
+                    0,
+                    lambda: self.status_label.configure(text=f"Done (x{self.scale_factor})"),
+                )
 
-            self.after(0, lambda: self.btn_save.configure(state="normal"))
-            self.after(0, lambda: self.btn_compare.configure(state="normal"))
+            self._after_for_run(ui_run_id, 0, lambda: self.btn_save.configure(state="normal"))
+            self._after_for_run(ui_run_id, 0, lambda: self.btn_compare.configure(state="normal"))
             if self.feature_maps:
-                self.after(0, lambda: self.btn_features.configure(state="normal"))
+                self._after_for_run(ui_run_id, 0, lambda: self.btn_features.configure(state="normal"))
 
         except Exception as e:
             if isinstance(e, UserCancelledError):
                 cancelled = True
                 error_message = "Cancelled"
-                self.after(0, lambda: self.status_label.configure(text="Cancelled"))
-                self.after(0, lambda: self.show_output_overlay("Cancelled", animate=False))
+                self._after_for_run(ui_run_id, 0, lambda: self.status_label.configure(text="Cancelled"))
+                self._after_for_run(ui_run_id, 0, lambda: self.show_output_overlay("Cancelled", animate=False))
                 run_meta["error"] = "Cancelled"
                 run_meta["stage"] = "cancelled"
             else:
                 error_message = str(e)
+                error_dialog_text = f"Processing failed: {error_message}"
                 if not batch_mode:
-                    self.after(0, lambda: messagebox.showerror("Error", f"Processing failed: {str(e)}"))
-                self.after(0, lambda: self.show_output_overlay("Processing failed", animate=False))
+                    self._after_for_run(
+                        ui_run_id,
+                        0,
+                        lambda msg=error_dialog_text: messagebox.showerror("Error", msg),
+                    )
+                self._after_for_run(ui_run_id, 0, lambda: self.show_output_overlay("Processing failed", animate=False))
                 run_meta["error"] = str(e)
                 run_meta["stage"] = "error"
             run_meta["stage_at"] = timestamp_str()
@@ -1550,6 +2262,10 @@ class ModernApp(ctk.CTk):
             if elapsed is not None:
                 run_meta["elapsed_sec"] = round(elapsed, 3)
                 run_meta["timing"]["total"] = round(elapsed, 3)
+                # Record for adaptive progress estimation (keep last 10)
+                self.last_processing_durations.append(elapsed)
+                if len(self.last_processing_durations) > 10:
+                    self.last_processing_durations.pop(0)
             if self.img_input is not None:
                 h, w = self.img_input.shape[:2]
                 run_meta["input_size"] = [int(w), int(h)]
@@ -1562,21 +2278,43 @@ class ModernApp(ctk.CTk):
                 run_meta["metrics"]["psnr"] = float(psnr(img_gt_out, self.img_output, data_range=255))
                 run_meta["metrics"]["ssim"] = float(ssim(img_gt_out, self.img_output, data_range=255, channel_axis=2))
             self.write_run_log(run_dir, run_meta)
-            self.after(0, lambda: self.progress_bar.set(1.0))
+            self.progress_target = 1.0
+            self._after_for_run(ui_run_id, 0, lambda: self.progress_bar.set(1.0))
             if batch_mode and self.is_batch_processing:
-                self.after(0, lambda: self.set_run_button_batch(True))
+                self._after_for_run(ui_run_id, 0, lambda: self.set_run_button_batch(True))
             else:
-                self.after(0, lambda: self.set_run_button_processing(False))
-            self.after(0, self.update_action_buttons)
+                self._after_for_run(ui_run_id, 0, lambda: self.set_run_button_processing(False))
+            self._after_for_run(ui_run_id, 0, self.update_action_buttons)
             if elapsed is not None:
-                self.after(0, lambda: self.elapsed_label.configure(text=f"Elapsed: {elapsed:.1f}s"))
+                self._after_for_run(
+                    ui_run_id,
+                    0,
+                    lambda: self.elapsed_label.configure(text=f"Elapsed: {elapsed:.1f}s"),
+                )
+            if success:
+                # Final fallback repaint from disk snapshot.
+                self._after_for_run(
+                    ui_run_id,
+                    120,
+                    lambda p=run_output_path, rid=ui_run_id: self.render_output_from_file(p, rid),
+                )
             if success and elapsed is not None and not batch_mode:
-                self.after(0, lambda: messagebox.showinfo(
-                    "Completed",
-                    f"Restoration finished in {elapsed:.1f}s."
-                ))
+                # Show completion message after render retries.
+                self._after_for_run(
+                    ui_run_id,
+                    700,
+                    lambda: messagebox.showinfo("Completed", f"Restoration finished in {elapsed:.1f}s."),
+                )
             if batch_mode and on_complete is not None:
-                self.after(0, lambda: on_complete(success, cancelled, error_message))
+                self._after_for_run(
+                    ui_run_id,
+                    0,
+                    lambda: on_complete(success, cancelled, error_message),
+                )
+
+            # Release intermediate GPU tensors to prevent VRAM buildup
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     def update_resolution_labels(self):
         if self.img_input is None:
@@ -1626,7 +2364,7 @@ class ModernApp(ctk.CTk):
 
         self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, s_psnr_out, s_ssim_out)
 
-    def start_run_record(self, run_root=None):
+    def start_run_record(self, run_root=None, ui_run_id: Optional[int] = None):
         run_id = uuid.uuid4().hex[:8]
         base_name = safe_basename(self.input_path)
         run_root = run_root or self.get_output_dir("")
@@ -1634,7 +2372,7 @@ class ModernApp(ctk.CTk):
         ensure_dir(run_dir)
         self.last_run_dir = run_dir
         self.last_run_id = run_id
-        self.after(0, lambda: self.btn_open_run_dir.configure(state="normal"))
+        self._after_for_run(ui_run_id, 0, lambda: self.btn_open_run_dir.configure(state="normal"))
         return run_id, run_dir
 
     def run_batch_folder(self):
@@ -1683,7 +2421,8 @@ class ModernApp(ctk.CTk):
         )
         self.set_run_button_batch(True)
         self.update_action_buttons()
-        self.show_output_overlay("Batch processing", animate=True)
+        # Keep output area visible during batch processing.
+        self.hide_output_overlay()
         self.start_next_batch_item()
 
     def start_next_batch_item(self):
@@ -1697,7 +2436,11 @@ class ModernApp(ctk.CTk):
             retry_count = self.batch_retry_counts.get(path, 0)
             if retry_count < self.batch_retry_limit:
                 self.batch_retry_counts[path] = retry_count + 1
-                self.after(0, self.start_next_batch_item)
+                self.status_label.configure(
+                    text=f"Batch {self.batch_index + 1}/{self.batch_total}: "
+                         f"retry {retry_count + 1} for {os.path.basename(path)}"
+                )
+                self.after(500, self.start_next_batch_item)  # delay before retry
                 return
             self.batch_errors.append({
                 "path": os.path.basename(path),
@@ -1708,8 +2451,10 @@ class ModernApp(ctk.CTk):
             self.after(0, self.start_next_batch_item)
             return
         self.input_path = path
+        self.lbl_filename_in.configure(text=f"Input: {os.path.basename(path)}")
         self.img_input = img
         self.img_output = None
+        self.lbl_filename_out.configure(text="")
         self.feature_maps = []
         self.compare_hold_active = False
         self.reset_view_state()
@@ -1731,7 +2476,9 @@ class ModernApp(ctk.CTk):
         if cancelled or self.cancel_requested:
             self.finish_batch()
         else:
-            self.after(0, self.start_next_batch_item)
+            # Small delay so the just-finished output has time to paint
+            # before advancing to the next input item.
+            self.after(120, self.start_next_batch_item)
 
     def finish_batch(self):
         total = self.batch_total
@@ -1861,7 +2608,13 @@ class ModernApp(ctk.CTk):
             return
 
         def on_save(preview_window):
-            path = filedialog.asksaveasfilename(defaultextension=".png", filetypes=[("PNG", "*.png"), ("JPG", "*.jpg")])
+            path = filedialog.asksaveasfilename(
+                defaultextension=".png",
+                filetypes=[
+                    ("PNG", "*.png"), ("JPG", "*.jpg"),
+                    ("WebP", "*.webp"), ("TIFF", "*.tiff"),
+                    ("BMP", "*.bmp"),
+                ])
             if path:
                 save_image(path, self.img_output)
                 messagebox.showinfo("Saved", "Image saved successfully")
@@ -1875,6 +2628,6 @@ if __name__ == "__main__":
     try:
         app.mainloop()
     except KeyboardInterrupt:
-        print("Application closed by user.")
+        logger.info("Application closed by user.")
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        logger.exception("Unexpected error: %s", e)

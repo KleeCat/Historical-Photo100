@@ -1,55 +1,66 @@
 # Current Task
 
-Last update: 2026-02-03
+Last update: 2026-02-09
 
 ## In Progress
-- Improve GUI stability (guard processing when model/input missing, unified status messaging).
-- Improve reproducibility (auto run logs + output snapshots under outputs/runs).
-- Validate Codespaces web UI flow (GT upload, PSNR/SSIM, compare slider, feature export).
-- Confirm web UI runs reliably on port 7860 without 504 timeouts on small inputs.
-- Validate GT reset behavior on both GUI variants.
-- Validate output render stability after processing completes.
-- Switch server interaction to RDP (xrdp).
-- xrdp is listening on 3389 (IPv6).
-- Direct RDP connection failed; plan to use SSH tunnel (3389 -> localhost).
-- RDP login shows blank desktop; adjust xrdp session startup to Xfce.
-- Applied startxfce4 in ~/.xsession and /etc/xrdp/startwm.sh; xrdp-sesman init script missing.
-- Provider notice: system disk small; /root/rivermind-data not persisted on release; need to locate data disk mount for large files.
-- df shows /root/rivermind-data is 49G; no other mounts listed yet.
-- User confirmed data already stored in /root/rivermind-data; no migration needed now.
-- Next fix: install xorgxrdp/dbus-x11 and restart xrdp to resolve RDP blank screen.
-- xorgxrdp/dbus-x11 already installed; xrdp restarted, xrdp-sesman reported already running.
-- SSH tunnel attempt failed due to password rejection; need current root password or reset via provider console.
-- User reset root password via provider console; still failing SSH auth. Recommend setting password via `passwd` in active session.
-- SSH port changed to 30011; need to update tunnel/known_hosts and re-auth.
-- SSH login succeeded on port 30011.
-- RDP connection still failing; need to verify SSH tunnel and local port availability.
-- Windows localhost:3389 already occupied; use alternate local port (e.g., 3390) for tunnel.
-- SSH tunnel reports connection refused; server port 3389 likely not listening (xrdp stopped).
-- RDP session cannot launch terminal emulator; need to install/configure xfce4-terminal or xterm.
-- Restarted xrdp/xrdp-sesman; xrdp listening on 3389. Installed xterm; set xfce4-terminal as default.
-- RDP terminal shows garbled output; set LANG/LC_ALL in session and relogin.
-- RDP clipboard paste not working; verify RDP clipboard setting and xrdp-chansrv.
-- Update xfce4 terminalrc to set UTF-8 encoding and disable unsafe paste dialog.
-- Fix texture generation error handler to avoid NameError in backup GUI.
-- Server backup GUI patched; rerun GUI to confirm no NameError.
-- Backup GUI relaunched; NameError resolved (only torchvision deprecation warning remains).
-- Add filename labels above input/output images in backup GUI.
-- Add explicit texture generation console logs in backup GUI.
-- Adjust filename labels to show raw name without prefix.
-- Texture log shows start without done; reset TEXTURE_STEPS to default and verify completion.
-- Add pipeline load/failed logs to identify texture generation stall.
-- Diffusers missing on server; install pinned diffusers/transformers/accelerate without reinstalling torch.
-- Texture generation still reports diffusers missing; verify install inside venv-hp.
-- diffusers import fails due to huggingface_hub cached_download removal; pin huggingface_hub to compatible version.
-- diffusers now fails on OfflineModeIsEnabled; pin huggingface_hub to 0.20.x to satisfy both APIs.
-- Texture generation fails: missing diffusion_pytorch_model.bin in model dir; need to download diffusers weights into stable-diffusion-v1-5.
-- Use fp16 weights when available (diffusion_pytorch_model.fp16.bin) to avoid needing fp32 bin.
-- Guard run_processing_thread to reload model if upsampler is None.
-- Enable CPU offload/vae slicing/tiling for texture pipeline to avoid CUDA OOM.
-- Add TEXTURE_MAX_DIM downscale to reduce texture generation VRAM use.
-- TEXTURE_MAX_DIM patch failed on server; use targeted replacements for apply_texture_generation.
-- Texture generation succeeds with downscale + fp16; verify TEXTURE_MAX_DIM=1024 run for quality/VRAM balance.
+- Validate 2026-02-09 single-image render lifecycle fix on repeated consecutive runs (first run, second run, rapid re-run).
+- Validate all 15 optimizations in `(gui)super-resolution processing.py` on GPU machine.
+- Drag-and-drop disabled (windnd/Win32 incompatible with customtkinter); revisit if CTk adds native DnD.
+
+## Recently Completed (2026-02-09)
+- Added run-scoped callback guard for UI updates: `_current_run_id` + `_after_for_run(...)`.
+- Made success output repaint path run-aware: `refresh_output_after_success(run_id)` and `render_output_from_file(path, run_id)`.
+- Updated `process_image(...)` / `start_processing(...)` to assign per-run UI token and guard delayed render/status callbacks.
+- Fixed worker-thread Tk access risk: moved all per-run UI variable reads (`*.get()`) to main thread snapshot (`run_options`) before spawning processing thread.
+- Fixed worker-thread Tk scheduling risk: `_after_for_run(...)` now uses a thread-safe UI queue drained on the main thread.
+- Removed remaining worker direct `self.after(...)` calls in key paths (`load_model`, `process_image` batch complete callback, `start_run_record`).
+- Added persistent image refs (`_output_ctk_image`, `_input_ctk_image`) for CTk label image lifetime stability.
+- Added structured output render logs (`_log_output_render`) with run/phase/image/widget/overlay state for debugging blank panel regressions.
+- Added image-assign recovery in `_set_label_image(...)` with clear-and-retry path for `pyimageX doesn't exist` failures.
+- Added overlay show/hide logs and guarded completion dialog scheduling to avoid stale popup/render interference across runs.
+- Root cause fix for `pyimageX doesn't exist` on Run 2+:
+  - Added `_recreate_output_label()` / `_recreate_input_label()` to destroy and recreate CTkLabel widgets, purging stale internal Tk image references. All event bindings (zoom, pan, compare press/release/leave, configure) are re-applied on the new widget.
+  - `render_main_images()` clear paths now use `_recreate_output_label()` / `_recreate_input_label()` instead of `configure(image=None)`.
+  - `_set_label_image()` recovery (attempt 2) recreates the label widget instead of just clearing.
+  - All `.lift()` calls after `_set_label_image` now use `self.lbl_img_out` / `self.lbl_img_in` (current ref) instead of local `label_widget` which may point to the destroyed old widget.
+  - Eliminated all `configure(image=None)` calls on image labels.
+- Syntax check passed: `python -m py_compile "(gui)super-resolution processing.py"`.
+
+## Recently Completed (2026-02-08)
+- **Thread safety**: `_state_lock` (img_input/img_output), `_model_lock` (model loading).
+- **Model load mutex**: ComboBox disabled during load; `_model_lock.acquire(blocking=False)`.
+- **Batch retry fix**: 500ms delay + status text before retry; prevents tight recursion.
+- **GFPGANer cache**: `face_enhancer` / `face_enhancer_scale` instance vars; only rebuilt on scale change.
+- **GPU VRAM cleanup**: `torch.cuda.empty_cache()` in process_image finally block.
+- **Auto tile**: `auto_tile_size(h, w, scale)` picks tile based on VRAM; set on `upsampler.tile`.
+- **Scratch Repair UI**: switch in sidebar row 9; calls `apply_scratch_repair` before upscale.
+- **Output formats**: save_image supports TIFF/WebP with quality params; save dialog updated.
+- **Progress bar fix**: creep animation (+0.001/tick) when bar catches target; stage targets rebalanced (upscale 10%→65%).
+- **Logging**: `logging` module replaces `print`; `logger = logging.getLogger("super_resolution_gui")`.
+- **Type hints**: added to `ensure_dir`, `write_json_file`, `save_image`, `blend_images`, `apply_unsharp_mask`, `apply_film_grain`, `blend_with_lr`, `estimate_image_metrics`, `auto_tile_size`.
+- **UI constants**: `UI_WINDOW_SIZE`, `UI_SIDEBAR_WIDTH`, `UI_COLOR_*` centralized.
+- **Image display fix**: `render_zoomed_image` / `show_image_ctk` use parent frame size (not label); fit mode at zoom<=1.0.
+- **Image panel layout fix**: filenames moved below headers (row 1), image panels row 2, resolution labels row 3 (no overlap).
+- **Filename UX**: show `Input: <basename>` on load and `Output: <basename>` after processing.
+- **Image sizing refinement**: `_get_image_display_size(label_widget)` now reads panel frame dimensions directly to avoid clipping.
+- **Progress creep refinement**: long-stage creep increased to `max(0.0015, remaining * 0.012)` toward 0.98.
+- **Output render regression fix**: added `prepare_display_image()` normalization to contiguous `uint8` BGR before GUI render.
+- **Output repaint hardening**: added `after(20, show_image_ctk)` after completion to force final output frame refresh.
+- **Output render pipeline hardening**: added `refresh_output_after_success()` and consolidated final success repaint on UI thread.
+- **Overlay safety**: `render_main_images()` now auto-hides output overlay when processing is finished and output exists.
+- **Output stacking fix**: `hide_output_overlay()` now calls `lower()`, and output labels call `lift()` after each render.
+- **Stable output buffer**: after saving `run_output_path`, GUI reloads that snapshot for display to avoid transient memory-layout render failures.
+- **Agent workflow hardening**: updated `AGENTS.md` with `apply_patch` stale-context guidance for
+  `Failed to find expected lines` (re-read region, use minimal hunks, regenerate after partial apply).
+- **Batch output visibility fix**: keep previous output visible during batch item transitions; do not force overlay on output panel in batch mode.
+- **Batch labeling fix**: update `Input:` filename for each batch item in `start_next_batch_item()`.
+- **Batch repaint pacing**: add 120ms delay before launching next batch item to let just-finished output render.
+- **Single repaint hardening**: added `_render_output_frame_once()` + multi-pass retries in `refresh_output_after_success()`.
+- **Single final fallback**: added delayed `render_output_from_file(run_output_path)` after success for guaranteed output panel refresh.
+- **View reset on single runs**: `run_processing_thread()` now calls `reset_view_state()` before processing to avoid stale zoom crop display.
+- **Direct file render fallback**: added `show_image_file_ctk(path, label_widget)` and updated `render_output_from_file()` to render from disk first, then sync `img_output` for metrics.
+- **GIL crash fixes**: `load_model` Tkinter calls wrapped in `self.after(0, ...)`; windnd removed.
+- **Drag-and-drop disabled**: windnd and Win32 SetWindowLongPtr both crash CTk; methods retained for future.
 
 ## Handoff Notes (2026-01-24)
 - Server uses `/root/rivermind-data/venv-hp` with system-site-packages; do not reinstall torch.
