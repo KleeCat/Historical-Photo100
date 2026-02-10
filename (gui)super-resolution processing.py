@@ -69,6 +69,13 @@ except ImportError:
     ssim = None
     logger.warning("skimage not installed, metrics unavailable.")
 
+# Try importing GFPGAN
+try:
+    from gfpgan import GFPGANer
+except ImportError:
+    GFPGANer = None
+    logger.warning("gfpgan not installed, face enhancement unavailable.")
+
 # Drag-and-drop support
 # NOTE: Both windnd and Win32 SetWindowLongPtr approaches cause GIL crashes
 # with customtkinter because they interfere with Tcl/Tk's message loop.
@@ -1493,27 +1500,31 @@ class ModernApp(ctk.CTk):
         return True
 
     def render_main_images(self):
-        if self.img_input is None:
+        with self._state_lock:
+            img_in = self.img_input
+            img_out = self.img_output
+
+        if img_in is None:
             try:
-                self.lbl_img_in.configure(image="", text="Waiting for input...")
+                self.lbl_img_in.configure(image=None, text="Waiting for input...")
                 self._input_ctk_image = None
             except Exception:
                 return
         else:
-            self.render_zoomed_image(self.img_input, self.lbl_img_in)
+            self.render_zoomed_image(img_in, self.lbl_img_in)
 
-        if self.compare_mode.get() and self.img_input is not None and self.img_output is not None:
-            compare_img = self.build_compare_image(self.img_input, self.img_output, self.compare_split.get())
+        if self.compare_mode.get() and img_in is not None and img_out is not None:
+            compare_img = self.build_compare_image(img_in, img_out, self.compare_split.get())
             rendered = self.render_zoomed_image(compare_img, self.lbl_img_out)
             self._log_output_render(self._current_run_id, "render-main-compare", "render_zoomed_image", rendered, compare_img)
             return
-        if self.compare_hold_active and self.img_input is not None:
-            rendered = self.render_zoomed_image(self.img_input, self.lbl_img_out)
-            self._log_output_render(self._current_run_id, "render-main-hold", "render_zoomed_image", rendered, self.img_input)
+        if self.compare_hold_active and img_in is not None:
+            rendered = self.render_zoomed_image(img_in, self.lbl_img_out)
+            self._log_output_render(self._current_run_id, "render-main-hold", "render_zoomed_image", rendered, img_in)
             return
-        if self.img_output is None:
+        if img_out is None:
             try:
-                self.lbl_img_out.configure(image="", text="")
+                self.lbl_img_out.configure(image=None, text="")
                 self._output_ctk_image = None
             except Exception:
                 pass
@@ -1522,14 +1533,14 @@ class ModernApp(ctk.CTk):
         if not self.is_processing:
             # Defensive: ensure output overlay never obscures a completed frame.
             self.hide_output_overlay()
-        rendered = self.render_zoomed_image(self.img_output, self.lbl_img_out)
-        self._log_output_render(self._current_run_id, "render-main", "render_zoomed_image", rendered, self.img_output)
+        rendered = self.render_zoomed_image(img_out, self.lbl_img_out)
+        self._log_output_render(self._current_run_id, "render-main", "render_zoomed_image", rendered, img_out)
         if not rendered:
             try:
-                self.show_image_ctk(self.img_output, self.lbl_img_out)
-                self._log_output_render(self._current_run_id, "render-main", "show_image_ctk", True, self.img_output)
+                self.show_image_ctk(img_out, self.lbl_img_out)
+                self._log_output_render(self._current_run_id, "render-main", "show_image_ctk", True, img_out)
             except TclError:
-                self._log_output_render(self._current_run_id, "render-main", "show_image_ctk", False, self.img_output)
+                self._log_output_render(self._current_run_id, "render-main", "show_image_ctk", False, img_out)
                 return
 
     def _render_output_frame_once(self, run_id: Optional[int] = None, phase: str = "single-pass") -> bool:
@@ -1537,30 +1548,32 @@ class ModernApp(ctk.CTk):
         if not self._is_run_active(run_id):
             self._log_output_render(run_id, phase, "run-guard", False, self.img_output)
             return False
-        if self.img_output is None:
+        with self._state_lock:
+            img_out = self.img_output
+        if img_out is None:
             self._log_output_render(run_id, phase, "missing-output", False, None)
             return False
         if not self.lbl_img_out.winfo_exists():
-            self._log_output_render(run_id, phase, "missing-widget", False, self.img_output)
+            self._log_output_render(run_id, phase, "missing-widget", False, img_out)
             return False
 
         self.hide_output_overlay()
-        rendered = self.render_zoomed_image(self.img_output, self.lbl_img_out)
-        self._log_output_render(run_id, phase, "render_zoomed_image", rendered, self.img_output)
+        rendered = self.render_zoomed_image(img_out, self.lbl_img_out)
+        self._log_output_render(run_id, phase, "render_zoomed_image", rendered, img_out)
         if not rendered:
             try:
-                self.show_image_ctk(self.img_output, self.lbl_img_out)
+                self.show_image_ctk(img_out, self.lbl_img_out)
                 rendered = True
             except Exception:
                 rendered = False
-            self._log_output_render(run_id, phase, "show_image_ctk", rendered, self.img_output)
+            self._log_output_render(run_id, phase, "show_image_ctk", rendered, img_out)
 
         if rendered:
             try:
                 self.lbl_img_out.lift()
                 self.lbl_img_out.update_idletasks()
             except TclError:
-                self._log_output_render(run_id, phase, "lift", False, self.img_output)
+                self._log_output_render(run_id, phase, "lift", False, img_out)
                 return False
         return rendered
 
@@ -2100,6 +2113,10 @@ class ModernApp(ctk.CTk):
             output = None
             used_face_enhance = False
 
+            # Take a snapshot of the input so the worker never mutates self.img_input.
+            with self._state_lock:
+                input_img = self.img_input.copy()
+
             # Scratch repair pre-processing (before upscale)
             if scratch_repair:
                 check_cancel()
@@ -2108,8 +2125,8 @@ class ModernApp(ctk.CTk):
                 if self.scratch_model is None:
                     self.scratch_model = load_scratch_model(SCRATCH_MODEL_PATH, self.device)
                 if self.scratch_model is not None:
-                    self.img_input = apply_scratch_repair(
-                        self.img_input, self.scratch_model, self.device,
+                    input_img = apply_scratch_repair(
+                        input_img, self.scratch_model, self.device,
                         SCRATCH_MASK_THRESHOLD, SCRATCH_INPAINT_RADIUS)
                 run_meta["timing"]["scratch"] = round(time.perf_counter() - stage_start, 3)
                 run_meta["scratch_repair"] = True
@@ -2117,11 +2134,11 @@ class ModernApp(ctk.CTk):
             set_stage("upscale", 0.10, f"Upscaling image (x{self.scale_factor})...", "Upscaling")
             stage_start = time.perf_counter()
             # Auto-select tile size based on image dimensions and available VRAM
-            h_in, w_in = self.img_input.shape[:2]
+            h_in, w_in = input_img.shape[:2]
             tile = auto_tile_size(h_in, w_in, self.scale_factor)
             self.upsampler.tile = tile
             run_meta["tile_size"] = tile
-            sr_base, _ = self.upsampler.enhance(self.img_input, outscale=self.scale_factor)
+            sr_base, _ = self.upsampler.enhance(input_img, outscale=self.scale_factor)
             run_meta["timing"]["upscale"] = round(time.perf_counter() - stage_start, 3)
             output = sr_base
             check_cancel()
@@ -2132,7 +2149,8 @@ class ModernApp(ctk.CTk):
                 set_stage("face", 0.70, "Applying face enhancement...", "Face enhancement")
                 stage_start = time.perf_counter()
                 try:
-                    from gfpgan import GFPGANer
+                    if GFPGANer is None:
+                        raise ImportError("gfpgan not installed")
                     gfpgan_path = os.environ.get(
                         "GFPGAN_MODEL_PATH",
                         "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth",
@@ -2144,7 +2162,7 @@ class ModernApp(ctk.CTk):
                             channel_multiplier=2, bg_upsampler=self.upsampler)
                         self.face_enhancer_scale = self.scale_factor
                     _, _, face_output = self.face_enhancer.enhance(
-                        self.img_input, has_aligned=False,
+                        input_img, has_aligned=False,
                         only_center_face=False, paste_back=True)
                     if face_output is not None:
                         output = blend_images(face_output, sr_base, face_blend)
@@ -2158,7 +2176,7 @@ class ModernApp(ctk.CTk):
             check_cancel()
             set_stage("blend", 0.80, "Blending fine details...", "Blending")
             stage_start = time.perf_counter()
-            output = blend_with_lr(output, self.img_input, natural_blend)
+            output = blend_with_lr(output, input_img, natural_blend)
             output = apply_unsharp_mask(output, texture_boost)
             run_meta["timing"]["blend"] = round(time.perf_counter() - stage_start, 3)
             try:
@@ -2202,7 +2220,7 @@ class ModernApp(ctk.CTk):
             )
             
             run_input_path = os.path.join(run_dir, f"{base_name}_input.png")
-            save_image(run_input_path, self.img_input)
+            save_image(run_input_path, input_img)
             run_meta["input_snapshot"] = run_input_path
             run_meta["output_files"]["input_snapshot"] = run_input_path
             run_meta["output_files"]["output_snapshot"] = run_output_path
@@ -2266,8 +2284,8 @@ class ModernApp(ctk.CTk):
                 self.last_processing_durations.append(elapsed)
                 if len(self.last_processing_durations) > 10:
                     self.last_processing_durations.pop(0)
-            if self.img_input is not None:
-                h, w = self.img_input.shape[:2]
+            if input_img is not None:
+                h, w = input_img.shape[:2]
                 run_meta["input_size"] = [int(w), int(h)]
             if self.img_output is not None:
                 h, w = self.img_output.shape[:2]
@@ -2350,17 +2368,19 @@ class ModernApp(ctk.CTk):
             self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, None, None)
             self.lbl_gt_hint.pack(anchor="w", pady=(2, 0))
             return
-        if self.img_output is None:
+        with self._state_lock:
+            img_out = self.img_output
+        if img_out is None:
             self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, None, None)
             self.lbl_gt_hint.pack(anchor="w", pady=(2, 0))
             return
 
         self.lbl_gt_hint.pack_forget()
 
-        h, w = self.img_output.shape[:2]
+        h, w = img_out.shape[:2]
         img_gt_out = cv2.resize(self.img_gt, (w, h))
-        s_psnr_out = psnr(img_gt_out, self.img_output, data_range=255)
-        s_ssim_out = ssim(img_gt_out, self.img_output, data_range=255, channel_axis=2)
+        s_psnr_out = psnr(img_gt_out, img_out, data_range=255)
+        s_ssim_out = ssim(img_gt_out, img_out, data_range=255, channel_axis=2)
 
         self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, s_psnr_out, s_ssim_out)
 
@@ -2452,8 +2472,9 @@ class ModernApp(ctk.CTk):
             return
         self.input_path = path
         self.lbl_filename_in.configure(text=f"Input: {os.path.basename(path)}")
-        self.img_input = img
-        self.img_output = None
+        with self._state_lock:
+            self.img_input = img
+            self.img_output = None
         self.lbl_filename_out.configure(text="")
         self.feature_maps = []
         self.compare_hold_active = False
@@ -2549,14 +2570,17 @@ class ModernApp(ctk.CTk):
         return out_dir
 
     def save_comparison(self):
-        if self.img_input is None or self.img_output is None:
+        with self._state_lock:
+            img_in = self.img_input
+            img_out = self.img_output
+        if img_in is None or img_out is None:
             return
         base_name = safe_basename(self.input_path)
         try:
-            lr_h, lr_w = self.img_input.shape[:2]
-            sr_h, sr_w = self.img_output.shape[:2]
-            lr_up = cv2.resize(self.img_input, (sr_w, sr_h), interpolation=cv2.INTER_CUBIC)
-            preview = np.hstack([lr_up, self.img_output])
+            lr_h, lr_w = img_in.shape[:2]
+            sr_h, sr_w = img_out.shape[:2]
+            lr_up = cv2.resize(img_in, (sr_w, sr_h), interpolation=cv2.INTER_CUBIC)
+            preview = np.hstack([lr_up, img_out])
         except Exception as e:
             messagebox.showerror("Error", f"Preview failed: {e}")
             return
@@ -2564,7 +2588,7 @@ class ModernApp(ctk.CTk):
         def on_save(preview_window):
             out_dir = self.get_output_dir("compare", prompt=True)
             try:
-                pair_path, grid_path = make_comparison_images(self.img_input, self.img_output, self.scale_factor,
+                pair_path, grid_path = make_comparison_images(img_in, img_out, self.scale_factor,
                                                               base_name, out_dir)
                 messagebox.showinfo("Saved", f"Comparison images saved:\n{pair_path}\n{grid_path}")
                 preview_window.destroy()

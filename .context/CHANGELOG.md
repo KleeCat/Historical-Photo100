@@ -1,5 +1,16 @@
 # Changelog
 
+- 2026-02-10: Fixed `actual_widget` identity check bug in `render_zoomed_image`, `show_image_file_ctk`, `show_image_ctk`.
+  - After `_set_label_image` may recreate a label widget, the old `label_widget` reference becomes stale. The condition `label_widget is not self.lbl_img_in` would incorrectly evaluate to True when the input label was recreated, causing the wrong panel to be lifted.
+  - Fix: capture `is_output_panel = (label_widget is self.lbl_img_out)` before calling `_set_label_image`, then use `self.lbl_img_out if is_output_panel else self.lbl_img_in` to get the current reference.
+- 2026-02-10: Fixed batch output panel showing stale previous result when advancing to next image.
+  - `start_next_batch_item` now sets `self.img_output = None` and clears `lbl_filename_out` unconditionally when loading the next input.
+  - `start_processing` now shows "Processing" overlay for both single and batch modes (removed batch-specific `hide_output_overlay` branch).
+- 2026-02-10: Optimization pass (4 items):
+  - **Scratch repair thread safety**: `process_image` now copies `self.img_input` into local `input_img` under `_state_lock`; all pipeline stages use the local copy, never mutating the shared reference.
+  - **gfpgan import**: moved `from gfpgan import GFPGANer` to file-level `try/except`; `process_image` checks `GFPGANer is None` instead of re-importing each run.
+  - **render_main_images clear paths**: replaced `configure(image="")` with `_recreate_input_label()` / `_recreate_output_label()` to avoid pyimageX stale reference errors.
+  - **Unified `_state_lock`**: added lock-guarded snapshots in `render_main_images`, `_render_output_frame_once`, `calculate_metrics`, `save_comparison`, and `start_next_batch_item` to prevent reading partially-written `img_input`/`img_output` from the worker thread.
 - 2026-02-09: Hardened single-image output rendering across consecutive runs in `(gui)super-resolution processing.py`.
   - Added run-scoped UI callback guard: `_current_run_id` + `_after_for_run(...)` to skip stale delayed callbacks from prior runs.
   - Updated success render flow to be run-aware: `refresh_output_after_success(run_id)` and `render_output_from_file(path, run_id)`.

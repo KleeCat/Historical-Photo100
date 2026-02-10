@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c:*)",
+      "Bash(timeout 15 python:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nFix GUI bugs: label reference after recreation, batch output panel stale display\n\n- Fix actual_widget identity check in render_zoomed_image, show_image_file_ctk,\n  show_image_ctk to capture panel identity before _set_label_image may recreate\n  the widget, preventing wrong panel from being lifted\n- Clear previous output and show Processing overlay when batch advances to next\n  image, so the right panel no longer shows stale results from the previous item\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push)"
+    ]
+  }
+}

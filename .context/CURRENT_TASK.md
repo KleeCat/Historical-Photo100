@@ -1,30 +1,27 @@
 # Current Task
 
-Last update: 2026-02-09
+Last update: 2026-02-10
 
 ## In Progress
-- Validate 2026-02-09 single-image render lifecycle fix on repeated consecutive runs (first run, second run, rapid re-run).
-- Validate all 15 optimizations in `(gui)super-resolution processing.py` on GPU machine.
 - Drag-and-drop disabled (windnd/Win32 incompatible with customtkinter); revisit if CTk adds native DnD.
 
+## Known Optimization Opportunities
+- **单图完成弹窗**: 每次单图处理完弹 `messagebox.showinfo`，可改为状态栏提示以减少打断。
+
+## Recently Completed (2026-02-10)
+- Fixed `actual_widget` identity check bug in `render_zoomed_image`, `show_image_file_ctk`, `show_image_ctk`:
+  - Captured `is_output_panel` flag before `_set_label_image` call to prevent wrong panel being lifted after label recreation.
+- Fixed batch output panel stale display:
+  - `start_next_batch_item` now clears `self.img_output = None` and resets output filename label when advancing to next image.
+  - `start_processing` now shows "Processing" overlay uniformly for both single and batch modes.
+- Scratch repair thread safety: `process_image` now copies `self.img_input` into local `input_img` under `_state_lock` before processing, never mutates the shared reference.
+- Moved `from gfpgan import GFPGANer` to file-level `try/except`; `process_image` checks `GFPGANer is None` instead of re-importing.
+- `render_main_images` clear paths now use `_recreate_input_label()` / `_recreate_output_label()` instead of `configure(image="")` to avoid pyimageX errors.
+- Unified `_state_lock` usage: added lock snapshots in `render_main_images`, `_render_output_frame_once`, `calculate_metrics`, `save_comparison`, `start_next_batch_item`.
+
 ## Recently Completed (2026-02-09)
-- Added run-scoped callback guard for UI updates: `_current_run_id` + `_after_for_run(...)`.
-- Made success output repaint path run-aware: `refresh_output_after_success(run_id)` and `render_output_from_file(path, run_id)`.
-- Updated `process_image(...)` / `start_processing(...)` to assign per-run UI token and guard delayed render/status callbacks.
-- Fixed worker-thread Tk access risk: moved all per-run UI variable reads (`*.get()`) to main thread snapshot (`run_options`) before spawning processing thread.
-- Fixed worker-thread Tk scheduling risk: `_after_for_run(...)` now uses a thread-safe UI queue drained on the main thread.
-- Removed remaining worker direct `self.after(...)` calls in key paths (`load_model`, `process_image` batch complete callback, `start_run_record`).
-- Added persistent image refs (`_output_ctk_image`, `_input_ctk_image`) for CTk label image lifetime stability.
-- Added structured output render logs (`_log_output_render`) with run/phase/image/widget/overlay state for debugging blank panel regressions.
-- Added image-assign recovery in `_set_label_image(...)` with clear-and-retry path for `pyimageX doesn't exist` failures.
-- Added overlay show/hide logs and guarded completion dialog scheduling to avoid stale popup/render interference across runs.
-- Root cause fix for `pyimageX doesn't exist` on Run 2+:
-  - Added `_recreate_output_label()` / `_recreate_input_label()` to destroy and recreate CTkLabel widgets, purging stale internal Tk image references. All event bindings (zoom, pan, compare press/release/leave, configure) are re-applied on the new widget.
-  - `render_main_images()` clear paths now use `_recreate_output_label()` / `_recreate_input_label()` instead of `configure(image=None)`.
-  - `_set_label_image()` recovery (attempt 2) recreates the label widget instead of just clearing.
-  - All `.lift()` calls after `_set_label_image` now use `self.lbl_img_out` / `self.lbl_img_in` (current ref) instead of local `label_widget` which may point to the destroyed old widget.
-  - Eliminated all `configure(image=None)` calls on image labels.
-- Syntax check passed: `python -m py_compile "(gui)super-resolution processing.py"`.
+- Run-scoped callback guard, thread-safe UI queue, persistent CTkImage refs, label recreation for pyimageX fix.
+- See CHANGELOG.md for full details.
 
 ## Recently Completed (2026-02-08)
 - **Thread safety**: `_state_lock` (img_input/img_output), `_model_lock` (model loading).
