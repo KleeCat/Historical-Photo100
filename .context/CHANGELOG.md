@@ -1,5 +1,9 @@
 # Changelog
 
+- 2026-02-12: Added comparative paper-style Chinese analysis document for GUI variants.
+  - Compared `(gui)super-resolution processing.py` vs `(gui)super-resolution processing_server.py` across architecture, concurrency, rendering robustness, batch workflow, logging, and traceability.
+  - Generated deliverable: `generated_documents/gui_super_resolution_comparative_study_cn_1770886461751.docx`.
+
 - 2026-02-10: Fixed `actual_widget` identity check bug in `render_zoomed_image`, `show_image_file_ctk`, `show_image_ctk`.
   - After `_set_label_image` may recreate a label widget, the old `label_widget` reference becomes stale. The condition `label_widget is not self.lbl_img_in` would incorrectly evaluate to True when the input label was recreated, causing the wrong panel to be lifted.
   - Fix: capture `is_output_panel = (label_widget is self.lbl_img_out)` before calling `_set_label_image`, then use `self.lbl_img_out if is_output_panel else self.lbl_img_in` to get the current reference.

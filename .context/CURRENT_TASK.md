@@ -1,6 +1,11 @@
 # Current Task
 
-Last update: 2026-02-10
+Last update: 2026-02-12
+
+## Recently Completed (2026-02-12)
+- 完成两版 GUI 脚本差异分析并输出论文式中文文档：
+  - `generated_documents/gui_super_resolution_comparative_study_cn_1770886461751.docx`
+  - 对比对象：`(gui)super-resolution processing.py` 与 `(gui)super-resolution processing_server.py`
 
 ## In Progress
 - Drag-and-drop disabled (windnd/Win32 incompatible with customtkinter); revisit if CTk adds native DnD.
