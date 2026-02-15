@@ -3,6 +3,9 @@
 Last update: 2026-02-15
 
 ## Recently Completed (2026-02-15)
+- 已执行历史脱敏清理：使用 `git_filter_repo --replace-text` 重写本地历史，清除已泄露 key 片段；`git log -S <leak-fragment>` 与关键字扫描均无命中。
+- 已将重写后的历史推送到远端新分支 `sanitized-main`（`origin/sanitized-main`），用于替换现有 `main`。
+- 注意：远端旧 `main` 仍保留历史提交 `a7e38dc`，需仓库管理员完成默认分支切换与旧分支处置，才能完成远端“彻底”清理。
 - 安全收敛：生成 `opencode subagent configuration.txt` 的彻底脱敏版本（不再保留原始会话明文日志），并将 `setup_fucheers_env.bat` 中回显 API Key 改为 `[REDACTED]`。
 - 已执行工作区敏感扫描（关键字与泄露片段）确认当前版本无明文 key 命中；下一步为历史重写清理并验证。
 - 针对“仍有一闪而过重影”继续做完成态分离优化（同文件）：

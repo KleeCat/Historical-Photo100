@@ -1,5 +1,11 @@
 # Changelog
 
+- 2026-02-15: Executed repository history sanitization workflow for leaked key cleanup.
+  - Ran local history rewrite with `python -m git_filter_repo --replace-text` to redact leaked key fragments from all commits.
+  - Verified cleanup with history scans (`git log -S <fragment>`) and working-tree scans (no plaintext key matches).
+  - Restored remote and pushed rewritten lineage to `origin/sanitized-main`.
+  - Follow-up required: switch default branch to `sanitized-main` and retire old `main` to remove public reference to pre-sanitized history.
+
 - 2026-02-15: Security sanitization pass for credential exposure cleanup.
   - Replaced `opencode subagent configuration.txt` raw transcript with a fully sanitized document (placeholders only; no plaintext secrets or local identifiers).
   - Updated `setup_fucheers_env.bat` to avoid echoing entered API key (`[REDACTED]` shown instead).
