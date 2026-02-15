@@ -4,7 +4,8 @@
   - Ran local history rewrite with `python -m git_filter_repo --replace-text` to redact leaked key fragments from all commits.
   - Verified cleanup with history scans (`git log -S <fragment>`) and working-tree scans (no plaintext key matches).
   - Restored remote and pushed rewritten lineage to `origin/sanitized-main`.
-  - Follow-up required: switch default branch to `sanitized-main` and retire old `main` to remove public reference to pre-sanitized history.
+  - Completed remote branch migration without force-pushing `main`: switched default branch to `sanitized-main`, deleted old `main`, recreated new `main` from sanitized lineage, then switched default back to `main`.
+  - Remote verification: both `refs/heads/main` and `refs/heads/sanitized-main` point to `e9d3531`; old leaked commit `a7e38dc` is no longer referenced by remote heads.
 
 - 2026-02-15: Security sanitization pass for credential exposure cleanup.
   - Replaced `opencode subagent configuration.txt` raw transcript with a fully sanitized document (placeholders only; no plaintext secrets or local identifiers).
