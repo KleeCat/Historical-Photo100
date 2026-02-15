@@ -1,5 +1,25 @@
 # Changelog
 
+- 2026-02-15: Final convergence pass for residual one-frame sidebar ghost flash on single-image completion in `(gui)super-resolution processing.py`.
+  - `_render_output_frame_once` now sets `_rendering_in_progress` for the entire render transaction, reducing configure-driven re-entrant repaint noise during completion.
+  - Completion scheduling adjusted for single runs:
+    - final output repaint kept as `render_output_after_completion` (memory-first), now at `60ms`;
+    - sidebar/status/button updates moved to a delayed callback (`190ms`) so controls do not redraw in the same window as image repaint.
+  - `apply_finalize_ui_state` now keeps immediate run-button/action updates for batch/error paths, while single-image success path is post-render consolidated.
+  - Validation: `python -m py_compile "(gui)super-resolution processing.py"` passed.
+
+- 2026-02-15: Additional convergence pass to further eliminate completion-time sidebar ghosting in `(gui)super-resolution processing.py`.
+  - `update_action_buttons` now caches `(cancel_state, batch_state)` and skips redundant `configure` calls when state is unchanged.
+  - Added `render_output_after_completion(path, run_id)`:
+    - tries `_render_output_frame_once` (memory path) first,
+    - falls back to `render_output_from_file` only when needed.
+  - `render_output_from_file` no longer performs main-thread `read_image` and no longer chains into multi-pass success refresh; it now commits UI updates directly (or single-pass fallback).
+  - `process_image` completion flow simplified:
+    - removed separate success-time button callback,
+    - unified success UI state updates inside finalize callback,
+    - explicitly cancels pending success-render jobs before scheduling final completion render.
+  - Validation: `python -m py_compile "(gui)super-resolution processing.py"` passed.
+
 - 2026-02-15: Follow-up fix for transient sidebar button ghosting after processing completion in `(gui)super-resolution processing.py`.
   - Consolidated multiple completion-time `0ms` `_after_for_run` callbacks into fewer grouped UI updates in `process_image` success/finalize paths.
   - Removed immediate success multi-pass repaint trigger from the success path; completion now relies on a single delayed disk-back repaint (`80ms`).

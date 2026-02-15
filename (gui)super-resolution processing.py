@@ -728,6 +728,7 @@ class ModernApp(ctk.CTk):
         self.overlay_animation_job = None
         self.success_render_jobs = []
         self._resize_seq = 0
+        self._action_button_state_cache = None
         self._last_resize_sizes = {}  # Track last resize per widget to avoid loops
         self._rendering_in_progress = False  # Suppress resize events during render
         self.last_processing_durations = []  # history of elapsed times for adaptive progress
@@ -1781,24 +1782,28 @@ class ModernApp(ctk.CTk):
             self._log_output_render(run_id, phase, "missing-widget", False, img_out)
             return False
 
-        self.hide_output_overlay()
-        rendered = self.render_zoomed_image(img_out, self.lbl_img_out)
-        self._log_output_render(run_id, phase, "render_zoomed_image", rendered, img_out)
-        if not rendered:
-            try:
-                self.show_image_ctk(img_out, self.lbl_img_out)
-                rendered = True
-            except Exception:
-                rendered = False
-            self._log_output_render(run_id, phase, "show_image_ctk", rendered, img_out)
+        self._rendering_in_progress = True
+        try:
+            self.hide_output_overlay()
+            rendered = self.render_zoomed_image(img_out, self.lbl_img_out)
+            self._log_output_render(run_id, phase, "render_zoomed_image", rendered, img_out)
+            if not rendered:
+                try:
+                    self.show_image_ctk(img_out, self.lbl_img_out)
+                    rendered = True
+                except Exception:
+                    rendered = False
+                self._log_output_render(run_id, phase, "show_image_ctk", rendered, img_out)
 
-        if rendered:
-            try:
-                self.lbl_img_out.lift()
-            except TclError:
-                self._log_output_render(run_id, phase, "lift", False, img_out)
-                return False
-        return rendered
+            if rendered:
+                try:
+                    self.lbl_img_out.lift()
+                except TclError:
+                    self._log_output_render(run_id, phase, "lift", False, img_out)
+                    return False
+            return rendered
+        finally:
+            self._rendering_in_progress = False
 
     def refresh_output_after_success(self, run_id: Optional[int] = None):
         """Render final output frame on UI thread after processing success."""
@@ -1878,15 +1883,6 @@ class ModernApp(ctk.CTk):
             return
         file_rendered = self.show_image_file_ctk(path, self.lbl_img_out)
         self._log_output_render(run_id, "from-file", "show_image_file_ctk", file_rendered, self.img_output)
-        try:
-            stable = self.read_image(path)
-        except Exception as exc:
-            logger.warning("Render output from file failed (%s): %s", os.path.basename(path), exc)
-            if file_rendered:
-                self.hide_output_overlay()
-            return
-        with self._state_lock:
-            self.img_output = stable
         if file_rendered:
             self._cancel_success_render_jobs()
             self.hide_output_overlay()
@@ -1894,7 +1890,24 @@ class ModernApp(ctk.CTk):
             self.calculate_metrics()
             self._log_output_render(run_id, "from-file", "commit", True, self.img_output)
         else:
-            self.refresh_output_after_success(run_id)
+            fallback = self._render_output_frame_once(run_id, "from-file-fallback")
+            if fallback:
+                self.hide_output_overlay()
+                self.update_resolution_labels()
+                self.calculate_metrics()
+
+    def render_output_after_completion(self, path: str, run_id: Optional[int] = None):
+        """Render final output with a light path first, then file fallback."""
+        if not self._is_run_active(run_id):
+            return
+        self._cancel_success_render_jobs()
+        rendered = self._render_output_frame_once(run_id, "complete-memory")
+        if rendered:
+            self.hide_output_overlay()
+            self.update_resolution_labels()
+            self.calculate_metrics()
+            return
+        self.render_output_from_file(path, run_id)
 
     def build_compare_image(self, lr_bgr, sr_bgr, split_ratio):
         if lr_bgr is None:
@@ -2050,11 +2063,21 @@ class ModernApp(ctk.CTk):
 
     def update_action_buttons(self):
         if self.is_processing or self.is_batch_processing:
-            self.btn_cancel.configure(state="normal")
-            self.btn_batch.configure(state="disabled")
+            cancel_state = "normal"
+            batch_state = "disabled"
         else:
-            self.btn_cancel.configure(state="disabled")
-            self.btn_batch.configure(state="normal")
+            cancel_state = "disabled"
+            batch_state = "normal"
+
+        target_state = (cancel_state, batch_state)
+        if self._action_button_state_cache == target_state:
+            return
+
+        if self.btn_cancel.cget("state") != cancel_state:
+            self.btn_cancel.configure(state=cancel_state)
+        if self.btn_batch.cget("state") != batch_state:
+            self.btn_batch.configure(state=batch_state)
+        self._action_button_state_cache = target_state
 
     def get_batch_retry_limit(self):
         try:
@@ -2316,6 +2339,7 @@ class ModernApp(ctk.CTk):
         success = False
         cancelled = False
         error_message = None
+        success_status_text: Optional[str] = None
         if ui_run_id is None:
             ui_run_id = self._current_run_id
         opts = run_options or {}
@@ -2530,19 +2554,10 @@ class ModernApp(ctk.CTk):
             run_meta["stage_at"] = timestamp_str()
 
             self.compare_hold_active = False
-
-            def apply_success_ui_state() -> None:
-                self.reset_view_state()
-                if face_enhance and not used_face_enhance:
-                    self.status_label.configure(text=f"Done (x{self.scale_factor} Standard Mode)")
-                else:
-                    self.status_label.configure(text=f"Done (x{self.scale_factor})")
-                self.btn_save.configure(state="normal")
-                self.btn_compare.configure(state="normal")
-                if self.feature_maps:
-                    self.btn_features.configure(state="normal")
-
-            self._after_for_run(ui_run_id, 0, apply_success_ui_state)
+            if face_enhance and not used_face_enhance:
+                success_status_text = f"Done (x{self.scale_factor} Standard Mode)"
+            else:
+                success_status_text = f"Done (x{self.scale_factor})"
 
         except Exception as e:
             if isinstance(e, UserCancelledError):
@@ -2592,25 +2607,44 @@ class ModernApp(ctk.CTk):
             self.write_run_log(run_dir, run_meta)
             self.progress_target = 1.0
 
-            def apply_finalize_ui_state() -> None:
-                self.progress_bar.set(1.0)
-                if batch_mode and self.is_batch_processing:
-                    self.set_run_button_batch(True)
-                else:
-                    self.set_run_button_processing(False)
+            def apply_success_controls_state() -> None:
+                self.reset_view_state()
+                if success_status_text:
+                    self.status_label.configure(text=success_status_text)
+                self.btn_save.configure(state="normal")
+                self.btn_compare.configure(state="normal")
+                if self.feature_maps:
+                    self.btn_features.configure(state="normal")
+                self.set_run_button_processing(False)
                 self.update_action_buttons()
                 self.update_compare_controls()
+
+            def apply_finalize_ui_state() -> None:
+                self.progress_bar.set(1.0)
+                if batch_mode:
+                    if self.is_batch_processing:
+                        self.set_run_button_batch(True)
+                    else:
+                        self.set_run_button_processing(False)
+                    self.update_action_buttons()
+                    self.update_compare_controls()
+                elif not success:
+                    self.set_run_button_processing(False)
+                    self.update_action_buttons()
+                    self.update_compare_controls()
                 if elapsed is not None:
                     self.elapsed_label.configure(text=f"Elapsed: {elapsed:.1f}s")
 
             self._after_for_run(ui_run_id, 0, apply_finalize_ui_state)
             if success:
-                # Final output repaint from disk snapshot.
+                self._cancel_success_render_jobs()
                 self._after_for_run(
                     ui_run_id,
-                    80,
-                    lambda p=run_output_path, rid=ui_run_id: self.render_output_from_file(p, rid),
+                    60,
+                    lambda p=run_output_path, rid=ui_run_id: self.render_output_after_completion(p, rid),
                 )
+                if not batch_mode:
+                    self._after_for_run(ui_run_id, 190, apply_success_controls_state)
             if batch_mode and on_complete is not None:
                 self._after_for_run(
                     ui_run_id,

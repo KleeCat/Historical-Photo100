@@ -3,6 +3,16 @@
 Last update: 2026-02-15
 
 ## Recently Completed (2026-02-15)
+- 针对“仍有一闪而过重影”继续做完成态分离优化（同文件）：
+  - **完成渲染期防重入**：`_render_output_frame_once` 在渲染期间显式置位 `_rendering_in_progress`，抑制由 `<Configure>` 触发的二次渲染回流。
+  - **侧栏更新后置**：单图成功时将侧栏按钮与状态更新延后到完成渲染后（约 190ms），避免与输出渲染同帧抢绘制。
+  - **完成链路再轻量化**：最终渲染调度从 70ms 调整为 60ms，且保持 memory-first + file-fallback，减少完成窗口内重绘冲突。
+- 验证：`python -m py_compile "(gui)super-resolution processing.py"` 通过。
+- 在“重影已明显缩短”基础上继续做无感收敛（同文件）：
+  - **按钮更新去重**：`update_action_buttons` 增加状态缓存，目标状态不变时不再重复 `configure`，减少完成瞬间侧栏重绘。
+  - **完成渲染轻路径优先**：新增 `render_output_after_completion(...)`，先走内存渲染，失败再文件回退；`render_output_from_file(...)` 不再主线程二次 `read_image`。
+  - **完成态单点收敛**：`process_image` 成功分支不再单独提交一组按钮回调，改为在 finalize 回调统一更新（状态文本/按钮/进度），并在调度最终渲染前取消旧成功重绘任务。
+- 验证：`python -m py_compile "(gui)super-resolution processing.py"` 通过。
 - 用户反馈“处理完成后左侧按钮短暂重影”后的收敛修复（同文件）：
   - **回调合并降频**：`process_image` 成功态与 finally 收尾态的多条 `0ms` `_after_for_run` 改为少量合并回调，避免一帧内对侧栏按钮连续 `configure`。
   - **收尾重绘减载**：成功路径移除 `refresh_output_after_success(...)` 的立即多次重绘，统一改为一次延迟磁盘回读渲染（80ms）。
