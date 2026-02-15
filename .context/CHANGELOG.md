@@ -1,5 +1,11 @@
 # Changelog
 
+- 2026-02-15: Security sanitization pass for credential exposure cleanup.
+  - Replaced `opencode subagent configuration.txt` raw transcript with a fully sanitized document (placeholders only; no plaintext secrets or local identifiers).
+  - Updated `setup_fucheers_env.bat` to avoid echoing entered API key (`[REDACTED]` shown instead).
+  - Ran working-tree secret checks (`git grep` / targeted pattern scan) and confirmed no plaintext leaked key remains in current files.
+  - Detected leaked key fragment still present in pushed history (`a7e38dc`), requiring history rewrite + remote coordination.
+
 - 2026-02-15: Final convergence pass for residual one-frame sidebar ghost flash on single-image completion in `(gui)super-resolution processing.py`.
   - `_render_output_frame_once` now sets `_rendering_in_progress` for the entire render transaction, reducing configure-driven re-entrant repaint noise during completion.
   - Completion scheduling adjusted for single runs:

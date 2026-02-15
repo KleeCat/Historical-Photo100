@@ -3,6 +3,8 @@
 Last update: 2026-02-15
 
 ## Recently Completed (2026-02-15)
+- 安全收敛：生成 `opencode subagent configuration.txt` 的彻底脱敏版本（不再保留原始会话明文日志），并将 `setup_fucheers_env.bat` 中回显 API Key 改为 `[REDACTED]`。
+- 已执行工作区敏感扫描（关键字与泄露片段）确认当前版本无明文 key 命中；下一步为历史重写清理并验证。
 - 针对“仍有一闪而过重影”继续做完成态分离优化（同文件）：
   - **完成渲染期防重入**：`_render_output_frame_once` 在渲染期间显式置位 `_rendering_in_progress`，抑制由 `<Configure>` 触发的二次渲染回流。
   - **侧栏更新后置**：单图成功时将侧栏按钮与状态更新延后到完成渲染后（约 190ms），避免与输出渲染同帧抢绘制。

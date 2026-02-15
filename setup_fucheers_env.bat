@@ -25,7 +25,7 @@ echo   Setup Complete!
 echo ========================================
 echo.
 echo Environment variables set:
-echo   ANTHROPIC_AUTH_TOKEN = %API_KEY%
+echo   ANTHROPIC_AUTH_TOKEN = [REDACTED]
 echo   ANTHROPIC_BASE_URL = https://www.fucheers.top
 echo   CLAUDE_CODE_MAX_OUTPUT_TOKENS = 12000
 echo.
