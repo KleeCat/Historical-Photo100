@@ -1,5 +1,72 @@
 # Changelog
 
+- 2026-02-15: Follow-up fix for transient sidebar button ghosting after processing completion in `(gui)super-resolution processing.py`.
+  - Consolidated multiple completion-time `0ms` `_after_for_run` callbacks into fewer grouped UI updates in `process_image` success/finalize paths.
+  - Removed immediate success multi-pass repaint trigger from the success path; completion now relies on a single delayed disk-back repaint (`80ms`).
+  - Removed `self.lbl_img_out.update_idletasks()` from `_render_output_frame_once` to reduce whole-window repaint pressure during completion.
+  - Throttled UI dispatch loop burst size in `_drain_ui_queue` (`256 -> 64`) to avoid one-tick callback floods on completion.
+  - Removed single-image completion modal (`messagebox.showinfo`) to avoid focus/modal-triggered global repaint spikes.
+  - Validation: `python -m py_compile "(gui)super-resolution processing.py"` passed.
+
+- 2026-02-15: Targeted ghosting/trailing fix pass for `(gui)super-resolution processing.py`.
+  - Reduced color-fringe ghosting in post-processing:
+    - `apply_unsharp_mask` now sharpens luminance only (Y channel), instead of sharpening all BGR channels equally.
+    - `blend_with_lr` now performs phase-correlation shift checks, applies LR alignment when reliable, and skips LR blending when shift/response indicates unstable registration.
+    - LR blend gate tightened (`gated_weight` cap reduced to `0.05`, fallback blend cap reduced to `0.04`).
+  - Reduced compare-preview false double edges:
+    - `build_compare_image` upscale for preview switched to `INTER_LINEAR`.
+    - Added `2~4px` feather band around split boundary to avoid hard seam artifacts.
+  - Reduced UI repaint trailing on resize/overlay:
+    - `render_main_images_stable` and `on_display_resize` now use a single debounced render job plus resize sequence guard.
+    - Added cancellable overlay animation job (`overlay_animation_job`) and cancellable success render retry jobs (`success_render_jobs`).
+    - `refresh_output_after_success` retries reduced from `0/60/150/280ms` to `0ms + 100ms` (and one extra `220ms` retry only if first render fails).
+  - Validation: `python -m py_compile "(gui)super-resolution processing.py"` passed.
+
+- 2026-02-14: Additional minimal-intrusion tuning pass for unresolved ghosting + perceived incomplete fit display in `(gui)super-resolution processing.py`.
+  - `suppress_edge_ringing` tuned further to reduce dehalo-induced double edges:
+    - `halo_mask` normalization: `overshoot / 22.0 -> overshoot / 35.0`.
+    - mask blur widened: `sigma 0.9 -> 2.0`.
+    - bilateral params: `d=5,sigmaColor=24,sigmaSpace=20 -> d=5,sigmaColor=12,sigmaSpace=20`.
+  - `process_image` no-blend/no-texture branch dehalo strength reduced again:
+    - `suppress_edge_ringing(..., strength=0.42) -> strength=0.25`.
+  - `render_zoomed_image` fit branch composition simplified without layout changes:
+    - removed in-image background compositing block (no baked letterbox bars),
+    - render now uses the true scaled image directly; panel background handles remaining space.
+  - Validation: `python -m py_compile "(gui)super-resolution processing.py"` passed; basedpyright still reports pre-existing repository-wide typing issues unrelated to this pass.
+
+- 2026-02-14: Continued targeted fix pass for persistent ghosting + incomplete GUI display in `(gui)super-resolution processing.py`.
+  - `apply_unsharp_mask`: switched from uniform unsharp to edge-aware detail gating to reduce halo amplification on strong edges.
+  - `blend_with_lr`: tightened blend aggressiveness (`gated_weight` cap reduced to 0.08), stricter edge-ratio early return, stronger flat-region gate falloff.
+  - `process_image`: texture stage now explicitly guarded by `TEXTURE_ENABLED and TEXTURE_MODEL_ID`; `UserCancelledError` is re-raised instead of swallowed inside texture try/except.
+  - `render_main_images_stable`: added late retry render (`after(350, ...)`) for first-load geometry stabilization.
+  - `_get_image_display_size`: improved geometry fallback with `update_idletasks` + req-size recovery when early widget sizes are unstable.
+  - `_recreate_output_label` / `_recreate_input_label`: added delayed re-render after label recreation to reduce partial/blank frames.
+  - Verified syntax with `python -m py_compile "(gui)super-resolution processing.py"`.
+  - Follow-up patch after user reported both issues still present:
+    - Added `suppress_edge_ringing(sr_bgr, lr_bgr, strength)` before blend stage to suppress SR edge overshoot halos with local bilateral smoothing.
+    - Guarded `on_zoom` / `on_pan_start` / `on_pan_move` during processing to prevent stale zoom/crop state from leaking into completion render.
+    - Success path now schedules `reset_view_state()` before `refresh_output_after_success(...)` for deterministic full-fit display.
+    - `render_main_images` now hides output overlay whenever `img_out` exists (instead of depending on `is_processing` timing).
+    - Re-validated with `python -m py_compile "(gui)super-resolution processing.py"`; LSP diagnostics clean at check time.
+  - Follow-up patch after user still reported both issues:
+    - Strengthened `suppress_edge_ringing` parameters (more sensitive halo mask + stronger bilateral smoothing).
+    - Added second de-halo pass before finalize stage to catch residual/reintroduced ringing.
+    - In blend stage, when `natural_blend<=0` and `texture_boost<=0`, route through stronger de-halo-only path.
+    - Updated display layout row weights (`display_frame` image row no longer over-expands vertically) and added `sync_panel_height_for_fit(...)` to align panel height with image aspect in fit mode.
+    - Re-validated with `python -m py_compile "(gui)super-resolution processing.py"`.
+  - Layout regression rollback after user reported broken UI:
+    - Restored `display_frame` image row layout (`grid_rowconfigure(2, weight=1)`), removed the extra expandable blank row.
+    - Removed `sync_panel_height_for_fit(...)` and its render-time call path that forced panel height adjustments.
+    - Verified with `python -m py_compile "(gui)super-resolution processing.py"`.
+  - Follow-up patch after user confirmed layout recovery but both core issues remained:
+    - `render_zoomed_image` fit mode now renders a centered full image over a softly blurred background fill (no panel layout change) to avoid gray-band "incomplete" perception.
+    - Added interpolation selection by scaling direction in display path (`INTER_AREA` for downscale, `INTER_CUBIC` for upscale).
+    - Refined `suppress_edge_ringing` to use edge-focused halo masking and less aggressive bilateral parameters (`d=7, sigmaColor=40, sigmaSpace=30`).
+    - Reduced dehalo strengths in blend stage (`0.78` for no-blend path; `0.62/0.50` for normal path).
+    - Second dehalo pass now runs only when texture stage actually ran, with reduced strength (`0.16`).
+    - When both `natural_blend` and `texture_boost` are zero, cap `film_grain` to `0.02`.
+    - Re-validated with `python -m py_compile "(gui)super-resolution processing.py"`; LSP diagnostics clean at check time.
+
 - 2026-02-12: Added comparative paper-style Chinese analysis document for GUI variants.
   - Compared `(gui)super-resolution processing.py` vs `(gui)super-resolution processing_server.py` across architecture, concurrency, rendering robustness, batch workflow, logging, and traceability.
   - Generated deliverable: `generated_documents/gui_super_resolution_comparative_study_cn_1770886461751.docx`.

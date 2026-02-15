@@ -1,6 +1,59 @@
 # Current Task
 
-Last update: 2026-02-12
+Last update: 2026-02-15
+
+## Recently Completed (2026-02-15)
+- 用户反馈“处理完成后左侧按钮短暂重影”后的收敛修复（同文件）：
+  - **回调合并降频**：`process_image` 成功态与 finally 收尾态的多条 `0ms` `_after_for_run` 改为少量合并回调，避免一帧内对侧栏按钮连续 `configure`。
+  - **收尾重绘减载**：成功路径移除 `refresh_output_after_success(...)` 的立即多次重绘，统一改为一次延迟磁盘回读渲染（80ms）。
+  - **全局 flush 降低**：`_render_output_frame_once` 去掉 `lbl_img_out.update_idletasks()`，减少收尾阶段对整窗重绘的冲击。
+  - **UI 队列节流**：`_drain_ui_queue` 单轮上限从 256 降到 64，避免同一帧执行过多控件 `configure` 造成侧栏拖影。
+  - **完成弹窗移除**：单图完成不再弹 `messagebox.showinfo`，改为状态栏完成文本，减少模态框触发的窗口重绘。
+- 验证：`python -m py_compile "(gui)super-resolution processing.py"` 通过。
+- 继续针对 `(gui)super-resolution processing.py` 的“重影/拖影”做一轮最小风险修复：
+  - **图像彩边重影收敛**：`apply_unsharp_mask` 改为仅锐化亮度通道（Y 通道），避免 RGB 同步锐化引入色边；`blend_with_lr` 现在先做相位相关位移检测，并在对齐不可靠时直接跳过融合，降低双影风险。
+  - **对比预览伪重影修复**：`build_compare_image` 改为 `INTER_LINEAR` 预览放大，并在分割线添加 2~4px 羽化带，减少硬切缝边误判。
+  - **UI 重绘拖影抑制**：`render_main_images_stable`/`on_display_resize` 改为单任务防抖（含 resize 序列号），避免窗口尺寸变化时的重绘风暴。
+  - **覆盖层与成功重绘任务收敛**：新增 overlay 动画与成功后重绘任务取消逻辑，`refresh_output_after_success` 从 4 次高频重绘收敛为 1~2 次重试，降低界面拖影概率。
+- 验证：`python -m py_compile "(gui)super-resolution processing.py"` 通过。
+
+## Recently Completed (2026-02-14)
+- 在“布局保持不变”的前提下做了新一轮最小侵入微调（待用户复测验收）：
+  - **重影抑制再收敛**（`suppress_edge_ringing`）：`overshoot` 归一化从 `/22.0` 继续上调到 `/35.0`，`halo_mask` 模糊从 `sigma=0.9` 提升到 `2.0`（更平滑过渡），双边参数从 `d=5,sigmaColor=24,sigmaSpace=20` 进一步收敛到 `d=5,sigmaColor=12,sigmaSpace=20`（降低跨边缘混色）。
+  - **无 blend/no-texture 路径去晕降强**（`process_image`）：`natural_blend<=0 && texture_boost<=0` 分支首段去晕强度从 `0.42` 降到 `0.25`，减少去晕本身引入双边的风险。
+  - **显示完整性观感修正**（`render_zoomed_image` fit 分支）：移除“把图像合成到整块背景图”的内嵌 letterbox 逻辑，改为仅渲染真实缩放图，由面板自身背景承载留白（不改布局），避免图内黑边导致的“显示不完整”观感。
+  - **验证**：`python -m py_compile "(gui)super-resolution processing.py"` 通过；LSP 仍有仓库既有 basedpyright 告警/错误，本轮未新增语法阻断。
+- 继续修复 `(gui)super-resolution processing.py` 的双边/重影与显示不完整问题（最小侵入方案）：
+  - **重影抑制**：`apply_unsharp_mask` 改为边缘感知细节门控（仅在非强边缘区域增强），避免对高对比边缘继续放大 halo。
+  - **融合收紧**：`blend_with_lr` 进一步收紧 `gated_weight` 上限（0.08）并加强边缘区跳过条件，减小低频回注导致的双边感。
+  - **纹理阶段显式门控**：`process_image` 仅在 `TEXTURE_ENABLED && TEXTURE_MODEL_ID` 时进入 texture stage，并避免吞掉 `UserCancelledError`。
+  - **显示完整性增强**：`render_main_images_stable` 增加更晚时机重绘（350ms）；`_get_image_display_size` 增强初始几何未稳定时的 `update_idletasks` + req-size 兜底；label 重建后增加延迟重绘。
+- 语法验证：`python -m py_compile "(gui)super-resolution processing.py"` 通过。
+- 新一轮针对“仍未验收通过”的补丁已落地：
+  - **新增反光晕阶段**：引入 `suppress_edge_ringing(sr_bgr, lr_bgr, strength)`，在 blend 前对疑似 edge overshoot 区域做局部双边平滑抑制。
+  - **交互状态收敛**：处理进行中禁止缩放/平移（`on_zoom`/`on_pan_*` 加 `is_processing` 保护），避免处理中途把视图状态带到完成态。
+  - **完成后强制 full-fit**：成功路径在最终刷新前执行 `reset_view_state()`，避免残留 zoom/crop 导致“显示不完整”观感。
+  - **输出遮罩策略修正**：`render_main_images` 在存在 `img_out` 时始终执行 `hide_output_overlay()`，降低遮罩残留导致的显示异常。
+- 验证结果：`python -m py_compile "(gui)super-resolution processing.py"` 通过；当前 LSP diagnostics 返回 clean。
+- 再次加码修复（用户反馈“还是这样”后）：
+  - **重影抑制加码**：`suppress_edge_ringing` 参数改强（更高 halo 掩码敏感度 + 更强 bilateral），并在流程中执行双次（blend 前 + finalize 前）。
+  - **无附加增强路径下强去晕**：当 `natural_blend<=0` 且 `texture_boost<=0` 时，直接采用更高强度去晕路径，避免“几乎 no-op”导致模型边缘振铃残留。
+  - **显示布局收敛**：`display_frame` 的图片行改为 `weight=0`（并保留底部弹性行），新增 `sync_panel_height_for_fit(...)` 依据图像比例同步两侧面板高度，降低大面积灰边造成的“不完整”观感。
+  - **渲染入口联动**：`render_main_images()` 在 zoom<=1 时会先执行 `sync_panel_height_for_fit(...)`，再渲染。
+- 验证结果（本轮）：`python -m py_compile "(gui)super-resolution processing.py"` 通过；LSP 仍显示大量历史 basedpyright 告警/错误（仓库既有）。
+- 布局回滚（用户反馈界面异常后）：
+  - 已回退 `display_frame` 的错误网格配置：恢复 `grid_rowconfigure(2, weight=1)`，移除新增空白拉伸行（row 4）。
+  - 已移除 `sync_panel_height_for_fit(...)` 及其在 `render_main_images()` 的调用，避免强行改写面板高度导致布局失衡。
+  - 验证：`python -m py_compile "(gui)super-resolution processing.py"` 通过。
+- 最新迭代（用户反馈“布局正常但两个问题仍在”）：
+  - **显示观感修复（不再改布局）**：`render_zoomed_image(...)` 的 fit 分支改为“主图 + 软化背景填充”渲染，避免大面积灰色留白被误判为“显示不完整”；同时根据缩放方向动态选择插值（downscale 用 `INTER_AREA`，upscale 用 `INTER_CUBIC`）。
+  - **重影链路收敛**：`suppress_edge_ringing(...)` 改为“overshoot 掩码 + 边缘聚焦 gate”局部抑制，减小全图过宽平滑带来的副作用；双边滤波参数收紧到 `d=7, sigmaColor=40, sigmaSpace=30`。
+  - **处理阶段策略调整**：
+    - `natural_blend<=0 && texture_boost<=0` 时，首段去晕强度从 `0.92` 降为 `0.78`，避免过度平滑。
+    - 常规分支 dehalo 强度从 `0.72/0.60` 降为 `0.62/0.50`。
+    - 二次去晕只在 texture 实际执行后才启用，且强度降到 `0.16`；texture 关闭时不再二次去晕。
+    - 无融合无锐化时进一步把 `film_grain` 上限压到 `0.02`，减少伪边缘感。
+- 验证：`python -m py_compile "(gui)super-resolution processing.py"` 通过，LSP diagnostics（当前检查）clean。
 
 ## Recently Completed (2026-02-12)
 - 完成两版 GUI 脚本差异分析并输出论文式中文文档：
@@ -9,6 +62,7 @@ Last update: 2026-02-12
 
 ## In Progress
 - Drag-and-drop disabled (windnd/Win32 incompatible with customtkinter); revisit if CTk adds native DnD.
+- 用户侧视觉验收仍待确认：需要基于同一批样例图复测“重影是否显著降低”和“输入/输出面板是否完整显示全图”。
 
 ## Known Optimization Opportunities
 - **单图完成弹窗**: 每次单图处理完弹 `messagebox.showinfo`，可改为状态栏提示以减少打断。

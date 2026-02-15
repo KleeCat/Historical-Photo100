@@ -82,7 +82,7 @@ except ImportError:
 # Drag-and-drop is disabled until a safe cross-platform solution is found.
 # Users can load images via the "Open Image" button or batch folder dialog.
 windnd = None
-_setup_win32_drop = None
+_setup_win32_drop: Callable[[Any, Any], None] | None = None
 
 if sys.platform == "win32":
     import ctypes
@@ -359,13 +359,43 @@ def blend_images(img_a: Optional[np.ndarray], img_b: Optional[np.ndarray], alpha
     return cv2.addWeighted(img_a, weight, img_b, 1.0 - weight, 0)
 
 
-def apply_unsharp_mask(bgr_img: np.ndarray, strength: float, radius: float = 1.5) -> np.ndarray:
+def apply_unsharp_mask(
+    bgr_img: np.ndarray,
+    strength: float,
+    radius: float = 1.5,
+    blend_weight: float = 0.0,
+) -> np.ndarray:
     weight = float(np.clip(strength, 0.0, 1.0))
     if weight <= 0.0:
         return bgr_img
-    blurred = cv2.GaussianBlur(bgr_img, (0, 0), radius)
-    sharpened = cv2.addWeighted(bgr_img, 1.0 + weight, blurred, -weight, 0)
-    return np.clip(sharpened, 0, 255).astype(np.uint8)
+    blend_amount = float(np.clip(blend_weight, 0.0, 1.0))
+    if blend_amount > 0.0:
+        if blend_amount >= 0.03:
+            return bgr_img
+        weight *= max(0.2, 1.0 - 3.0 * blend_amount)
+        radius = min(radius, 0.9)
+    if weight <= 0.0:
+        return bgr_img
+    gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
+    grad_x = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+    grad_y = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+    edge_mag = cv2.magnitude(grad_x, grad_y)
+    max_edge = float(np.max(edge_mag))
+    if max_edge > 1e-6:
+        edge_zone = np.clip(edge_mag / max_edge, 0.0, 1.0)
+        edge_zone = cv2.GaussianBlur(edge_zone, (0, 0), sigmaX=2.2, sigmaY=2.2)
+        detail_gate = 1.0 - np.clip(edge_zone * 3.4, 0.0, 1.0)
+        detail_gate = (detail_gate * detail_gate).astype(np.float32)
+    else:
+        detail_gate = np.ones((bgr_img.shape[0], bgr_img.shape[1]), dtype=np.float32)
+
+    ycrcb = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2YCrCb).astype(np.float32)
+    y_channel = ycrcb[:, :, 0]
+    blurred_y = cv2.GaussianBlur(y_channel, (0, 0), radius)
+    detail_y = y_channel - blurred_y
+    sharpened_y = y_channel + weight * detail_y * detail_gate
+    ycrcb[:, :, 0] = np.clip(sharpened_y, 0, 255)
+    return cv2.cvtColor(ycrcb.astype(np.uint8), cv2.COLOR_YCrCb2BGR)
 
 
 def apply_film_grain(bgr_img: np.ndarray, strength: float) -> np.ndarray:
@@ -385,7 +415,114 @@ def blend_with_lr(sr_bgr: np.ndarray, lr_bgr: np.ndarray, strength: float) -> np
         return sr_bgr
     h, w = sr_bgr.shape[:2]
     lr_up = cv2.resize(lr_bgr, (w, h), interpolation=cv2.INTER_CUBIC)
-    return blend_images(lr_up, sr_bgr, weight)
+
+    sr_f = sr_bgr.astype(np.float32)
+
+    sigma = 3.0 + 4.0 * weight
+    low_sr = cv2.GaussianBlur(sr_f, (0, 0), sigmaX=sigma, sigmaY=sigma)
+    lr_aligned = lr_up
+    low_lr = cv2.GaussianBlur(lr_up.astype(np.float32), (0, 0), sigmaX=sigma, sigmaY=sigma)
+    if low_sr is None or low_lr is None:
+        fallback = blend_images(lr_up, sr_bgr, min(weight, 0.08))
+        return sr_bgr if fallback is None else fallback
+
+    gated_weight = weight
+    try:
+        sr_shift_gray = cv2.cvtColor(low_sr, cv2.COLOR_BGR2GRAY)
+        lr_shift_gray = cv2.cvtColor(low_lr, cv2.COLOR_BGR2GRAY)
+        (shift_x, shift_y), response = cv2.phaseCorrelate(sr_shift_gray, lr_shift_gray)
+        shift_norm = float(np.hypot(shift_x, shift_y))
+
+        if response < 0.05 or shift_norm > 0.35:
+            return sr_bgr
+        if shift_norm > 0.20:
+            gated_weight *= 0.5
+
+        if shift_norm > 1e-3:
+            transform = np.float32([[1.0, 0.0, -shift_x], [0.0, 1.0, -shift_y]])
+            lr_aligned = cv2.warpAffine(
+                lr_up,
+                transform,
+                (w, h),
+                flags=cv2.INTER_CUBIC,
+                borderMode=cv2.BORDER_REFLECT101,
+            )
+            low_lr = cv2.GaussianBlur(lr_aligned.astype(np.float32), (0, 0), sigmaX=sigma, sigmaY=sigma)
+    except Exception:
+        return sr_bgr
+    gated_weight = float(np.clip(gated_weight, 0.0, 0.05))
+
+    sr_gray = cv2.cvtColor(sr_bgr, cv2.COLOR_BGR2GRAY)
+    grad_x = cv2.Scharr(sr_gray, cv2.CV_32F, 1, 0)
+    grad_y = cv2.Scharr(sr_gray, cv2.CV_32F, 0, 1)
+    edge_mag = cv2.magnitude(grad_x, grad_y)
+    max_edge = float(np.max(edge_mag))
+    if max_edge > 1e-6:
+        edge_norm = (edge_mag / max_edge).astype(np.float32)
+    else:
+        edge_norm = np.zeros((h, w), dtype=np.float32)
+
+    edge_ratio = float(np.mean(edge_norm > 0.18))
+    if edge_ratio > 0.02:
+        return sr_bgr
+
+    edge_soft = cv2.GaussianBlur(edge_norm, (0, 0), sigmaX=4.5, sigmaY=4.5)
+    if edge_soft is None or edge_soft.shape[:2] != (h, w):
+        fallback = blend_images(lr_aligned, sr_bgr, min(gated_weight, 0.04))
+        return sr_bgr if fallback is None else fallback
+
+    flat_gate = 1.0 - np.clip(edge_soft * 3.2, 0.0, 1.0)
+    flat_gate = flat_gate * flat_gate * flat_gate
+    blend_map = (gated_weight * flat_gate)[:, :, np.newaxis]
+    fused = sr_f + (low_lr - low_sr) * blend_map
+    return np.clip(fused, 0, 255).astype(np.uint8)
+
+
+def suppress_edge_ringing(
+    sr_bgr: np.ndarray,
+    lr_bgr: Optional[np.ndarray],
+    strength: float = 0.5,
+) -> np.ndarray:
+    amount = float(np.clip(strength, 0.0, 1.0))
+    if amount <= 0.0:
+        return sr_bgr
+
+    h, w = sr_bgr.shape[:2]
+    sr_gray = cv2.cvtColor(sr_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    sr_edge = np.abs(cv2.Laplacian(sr_gray, cv2.CV_32F, ksize=3))
+
+    lr_edge = None
+    if lr_bgr is not None:
+        try:
+            lr_up = cv2.resize(lr_bgr, (w, h), interpolation=cv2.INTER_CUBIC)
+            lr_gray = cv2.cvtColor(lr_up, cv2.COLOR_BGR2GRAY).astype(np.float32)
+            lr_edge = np.abs(cv2.Laplacian(lr_gray, cv2.CV_32F, ksize=3))
+        except Exception:
+            lr_edge = None
+
+    if lr_edge is None:
+        ref_gray = cv2.GaussianBlur(sr_gray, (0, 0), sigmaX=1.4, sigmaY=1.4)
+        ref_edge = np.abs(cv2.Laplacian(ref_gray, cv2.CV_32F, ksize=3))
+        edge_ref = ref_edge
+        overshoot = sr_edge - (1.20 * ref_edge + 2.5)
+    else:
+        edge_ref = lr_edge
+        overshoot = sr_edge - (1.14 * lr_edge + 2.5)
+
+    halo_mask = np.clip(overshoot / 35.0, 0.0, 1.0)
+    edge_ref_norm = edge_ref / (float(np.max(edge_ref)) + 1e-6)
+    edge_focus = np.clip((edge_ref_norm - 0.12) / 0.32, 0.0, 1.0)
+    halo_mask = halo_mask * edge_focus
+    if float(np.max(halo_mask)) <= 0.01:
+        return sr_bgr
+
+    halo_mask = cv2.GaussianBlur(halo_mask, (0, 0), sigmaX=2.0, sigmaY=2.0)
+    halo_mask = (halo_mask * amount)[:, :, np.newaxis].astype(np.float32)
+
+    smoothed = cv2.bilateralFilter(sr_bgr, d=5, sigmaColor=12, sigmaSpace=20).astype(np.float32)
+    src_f = sr_bgr.astype(np.float32)
+    corrected = src_f * (1.0 - halo_mask) + smoothed * halo_mask
+    return np.clip(corrected, 0, 255).astype(np.uint8)
 
 
 def clamp_value(value, min_value, max_value):
@@ -571,9 +708,9 @@ class ModernApp(ctk.CTk):
         self.cancel_requested = False
         self.last_run_dir = None
         self.last_run_id = None
-        self.face_blend = ctk.DoubleVar(value=0.7)
-        self.natural_blend = ctk.DoubleVar(value=0.15)
-        self.texture_boost = ctk.DoubleVar(value=0.2)
+        self.face_blend = ctk.DoubleVar(value=0.65)
+        self.natural_blend = ctk.DoubleVar(value=0.0)
+        self.texture_boost = ctk.DoubleVar(value=0.08)
         self.film_grain = ctk.DoubleVar(value=0.0)
         self.compare_mode = ctk.BooleanVar(value=False)
         self.compare_split = ctk.DoubleVar(value=0.5)
@@ -588,6 +725,11 @@ class ModernApp(ctk.CTk):
         self.processing_start_time = None
         self.overlay_base_text = "Waiting for processing..."
         self.resize_job = None
+        self.overlay_animation_job = None
+        self.success_render_jobs = []
+        self._resize_seq = 0
+        self._last_resize_sizes = {}  # Track last resize per widget to avoid loops
+        self._rendering_in_progress = False  # Suppress resize events during render
         self.last_processing_durations = []  # history of elapsed times for adaptive progress
         self.project_dir = os.path.dirname(os.path.abspath(__file__))
         self.config_path = os.path.join(self.project_dir, "output_config.json")
@@ -668,7 +810,7 @@ class ModernApp(ctk.CTk):
         self.lbl_natural_blend = ctk.CTkLabel(self.sidebar, text=f"Natural Blend: {self.natural_blend.get():.2f}")
         self.lbl_natural_blend.grid(row=12, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_natural_blend.grid_remove()
-        self.slider_natural_blend = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.6, number_of_steps=12,
+        self.slider_natural_blend = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.20, number_of_steps=10,
                                                   variable=self.natural_blend, command=self.on_natural_blend_change)
         self.slider_natural_blend.grid(row=13, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.slider_natural_blend.grid_remove()
@@ -676,7 +818,7 @@ class ModernApp(ctk.CTk):
         self.lbl_texture_boost = ctk.CTkLabel(self.sidebar, text=f"Texture Boost: {self.texture_boost.get():.2f}")
         self.lbl_texture_boost.grid(row=14, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_texture_boost.grid_remove()
-        self.slider_texture_boost = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.6, number_of_steps=12,
+        self.slider_texture_boost = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.35, number_of_steps=7,
                                                   variable=self.texture_boost, command=self.on_texture_boost_change)
         self.slider_texture_boost.grid(row=15, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.slider_texture_boost.grid_remove()
@@ -821,10 +963,10 @@ class ModernApp(ctk.CTk):
         self.frame_output.grid(row=2, column=1, sticky="nsew", padx=5, pady=5)
 
         # Image Labels
-        self.lbl_img_in = ctk.CTkLabel(self.frame_input, text="Waiting for input...", corner_radius=6)
+        self.lbl_img_in = ctk.CTkLabel(self.frame_input, text="Waiting for input...", corner_radius=6, anchor="center")
         self.lbl_img_in.pack(expand=True, fill="both", padx=4, pady=4)
 
-        self.lbl_img_out = ctk.CTkLabel(self.frame_output, text="Waiting for processing...", corner_radius=6)
+        self.lbl_img_out = ctk.CTkLabel(self.frame_output, text="Waiting for processing...", corner_radius=6, anchor="center")
         self.lbl_img_out.pack(expand=True, fill="both", padx=4, pady=4)
 
         # Filename Labels (below images)
@@ -951,6 +1093,14 @@ class ModernApp(ctk.CTk):
         return "..." + path[-(max_len - 3):]
 
     def on_close(self):
+        self._cancel_overlay_animation()
+        self._cancel_success_render_jobs()
+        if self.resize_job is not None:
+            try:
+                self.after_cancel(self.resize_job)
+            except Exception:
+                pass
+            self.resize_job = None
         self.clear_feature_hooks()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -1054,7 +1204,7 @@ class ModernApp(ctk.CTk):
             self.gt_path = None
             self.img_output = None
             self.feature_maps = []
-            self.render_main_images()
+            self.render_main_images_stable()
             self.update_compare_controls()
             self.show_output_overlay("Waiting for processing...", animate=False)
             self.btn_save.configure(state="disabled")
@@ -1174,7 +1324,7 @@ class ModernApp(ctk.CTk):
         self.gt_path = None
         self.img_output = None
         self.feature_maps = []
-        self.render_main_images()
+        self.render_main_images_stable()
         self.update_compare_controls()
         self.show_output_overlay("Waiting for processing...", animate=False)
         self.btn_save.configure(state="disabled")
@@ -1194,13 +1344,47 @@ class ModernApp(ctk.CTk):
         self.pan_start = None
         self.compare_hold_active = False
 
+    def _cancel_after_job(self, job_id):
+        if job_id is None:
+            return None
+        try:
+            self.after_cancel(job_id)
+        except Exception:
+            pass
+        return None
+
+    def _run_debounced_render(self):
+        self.resize_job = None
+        self.render_main_images()
+
+    def _run_resize_render(self, seq: int):
+        if seq != self._resize_seq:
+            return
+        self._run_debounced_render()
+
+    def render_main_images_stable(self):
+        self.resize_job = self._cancel_after_job(self.resize_job)
+        self.resize_job = self.after_idle(self._run_debounced_render)
+
     def on_display_resize(self, event):
-        if self.resize_job is not None:
-            self.after_cancel(self.resize_job)
-        self.resize_job = self.after(120, self.render_main_images)
+        # Ignore resize events triggered by image updates
+        if self._rendering_in_progress:
+            return
+        # Only trigger on actual size changes per widget
+        widget_id = id(event.widget)
+        new_size = (event.width, event.height)
+        if self._last_resize_sizes.get(widget_id) == new_size:
+            return
+        if event.width < 50 or event.height < 50:
+            return
+        self._last_resize_sizes[widget_id] = new_size
+        self._resize_seq += 1
+        seq = self._resize_seq
+        self.resize_job = self._cancel_after_job(self.resize_job)
+        self.resize_job = self.after(170, lambda s=seq: self._run_resize_render(s))
 
     def on_zoom(self, event):
-        if self.img_input is None:
+        if self.img_input is None or self.is_processing:
             return
         if event.delta > 0:
             zoom = self.zoom_factor * 1.1
@@ -1212,12 +1396,12 @@ class ModernApp(ctk.CTk):
         self.render_main_images()
 
     def on_pan_start(self, event):
-        if self.img_input is None:
+        if self.img_input is None or self.is_processing:
             return
         self.pan_start = (event.x, event.y)
 
     def on_pan_move(self, event):
-        if self.img_input is None or self.pan_start is None:
+        if self.img_input is None or self.pan_start is None or self.is_processing:
             return
         dx = event.x - self.pan_start[0]
         dy = event.y - self.pan_start[1]
@@ -1280,14 +1464,29 @@ class ModernApp(ctk.CTk):
             parent = label_widget.master
             pw = parent.winfo_width()
             ph = parent.winfo_height()
-            if pw >= 20 and ph >= 20:
+            if pw < 100 or ph < 100:
+                try:
+                    parent.update_idletasks()
+                except Exception:
+                    pass
+                pw = max(parent.winfo_width(), parent.winfo_reqwidth())
+                ph = max(parent.winfo_height(), parent.winfo_reqheight())
+            if pw >= 100 and ph >= 100:
                 return max(1, pw - 8), max(1, ph - 8)
 
         # Fallback before initial layout is complete.
         dw = self.display_frame.winfo_width()
         dh = self.display_frame.winfo_height()
-        if dw < 40 or dh < 40:
-            dw, dh = 800, 700
+        if dw < 200 or dh < 120:
+            try:
+                self.update_idletasks()
+            except Exception:
+                pass
+            dw = max(self.display_frame.winfo_width(), self.display_frame.winfo_reqwidth())
+            dh = max(self.display_frame.winfo_height(), self.display_frame.winfo_reqheight())
+        if dw < 200 or dh < 120:
+            dw = max(self.winfo_width() - UI_SIDEBAR_WIDTH - 40, 360)
+            dh = max(self.winfo_height() - 120, 260)
         panel_w = max(1, dw // 2 - 24)
         panel_h = max(1, dh - 90)
         return panel_w, panel_h
@@ -1311,7 +1510,7 @@ class ModernApp(ctk.CTk):
 
     def _drain_ui_queue(self) -> None:
         processed = 0
-        while processed < 256:
+        while processed < 64:
             try:
                 run_id, delay_ms, callback = self._ui_queue.get_nowait()
             except queue.Empty:
@@ -1384,7 +1583,7 @@ class ModernApp(ctk.CTk):
         except Exception:
             pass
         self._output_ctk_image = None
-        new_label = ctk.CTkLabel(self.frame_output, text="", corner_radius=6)
+        new_label = ctk.CTkLabel(self.frame_output, text="", corner_radius=6, anchor="center")
         new_label.pack(expand=True, fill="both", padx=4, pady=4)
         self.lbl_img_out = new_label
         # Re-bind event handlers lost during widget recreation
@@ -1396,7 +1595,6 @@ class ModernApp(ctk.CTk):
         new_label.bind("<ButtonPress-1>", self.on_compare_press)
         new_label.bind("<ButtonRelease-1>", self.on_compare_release)
         new_label.bind("<Leave>", self.on_compare_leave)
-        logger.info("recreated lbl_img_out (purged stale Tk image handles)")
         return new_label
 
     def _recreate_input_label(self) -> "ctk.CTkLabel":
@@ -1406,7 +1604,7 @@ class ModernApp(ctk.CTk):
         except Exception:
             pass
         self._input_ctk_image = None
-        new_label = ctk.CTkLabel(self.frame_input, text="", corner_radius=6)
+        new_label = ctk.CTkLabel(self.frame_input, text="", corner_radius=6, anchor="center")
         new_label.pack(expand=True, fill="both", padx=4, pady=4)
         self.lbl_img_in = new_label
         # Re-bind event handlers lost during widget recreation
@@ -1415,20 +1613,26 @@ class ModernApp(ctk.CTk):
         new_label.bind("<B3-Motion>", self.on_pan_move)
         new_label.bind("<ButtonRelease-3>", self.on_pan_end)
         new_label.bind("<Configure>", self.on_display_resize)
-        logger.info("recreated lbl_img_in (purged stale Tk image handles)")
         return new_label
+
+    def _clear_label_canvas(self, label_widget) -> None:
+        """Clear image references to prevent ghosting."""
+        try:
+            label_widget.configure(image=None, text="")
+            label_widget.image = None
+        except Exception:
+            pass
 
     def _set_label_image(self, label_widget, ctk_img) -> bool:
         target = "output" if label_widget is self.lbl_img_out else "input"
         for attempt in (1, 2):
             try:
                 if attempt == 2:
-                    # Recovery: destroy and recreate the label to purge stale
-                    # internal Tk PhotoImage references (pyimageX doesn't exist).
                     if label_widget is self.lbl_img_out:
                         label_widget = self._recreate_output_label()
                     elif label_widget is self.lbl_img_in:
                         label_widget = self._recreate_input_label()
+                # Set new image directly (single configure call to avoid flicker)
                 label_widget.configure(image=ctk_img, text="")
                 label_widget.image = ctk_img
                 if label_widget is self.lbl_img_out:
@@ -1437,21 +1641,11 @@ class ModernApp(ctk.CTk):
                     self._input_ctk_image = ctk_img
                 return True
             except TclError as exc:
-                logger.warning(
-                    "set_label_image failed target=%s attempt=%s err=%s",
-                    target,
-                    attempt,
-                    exc,
-                )
+                logger.warning("set_label_image failed target=%s attempt=%s err=%s", target, attempt, exc)
                 if attempt == 2:
                     return False
             except Exception as exc:
-                logger.warning(
-                    "set_label_image unexpected target=%s attempt=%s err=%s",
-                    target,
-                    attempt,
-                    exc,
-                )
+                logger.warning("set_label_image unexpected target=%s attempt=%s err=%s", target, attempt, exc)
                 return False
         return False
 
@@ -1462,31 +1656,52 @@ class ModernApp(ctk.CTk):
             bgr_img = self.prepare_display_image(bgr_img)
         except Exception:
             return False
+
+        # Get physical pixel size of panel
         render_w, render_h = self._get_image_display_size(label_widget)
+
+        # Get DPI scaling factor
+        try:
+            dpi_scale = label_widget._get_widget_scaling()
+        except Exception:
+            dpi_scale = 1.0
+
+        # Convert to logical pixels for CTkImage size parameter
+        logical_w = render_w / dpi_scale
+        logical_h = render_h / dpi_scale
 
         h_img, w_img = bgr_img.shape[:2]
 
         if self.zoom_factor <= 1.0:
-            # Fit entire image into the display area (no cropping)
-            scale = min(render_w / w_img, render_h / h_img)
-            disp_w = max(1, int(w_img * scale))
-            disp_h = max(1, int(h_img * scale))
-            resized = cv2.resize(bgr_img, (disp_w, disp_h), interpolation=cv2.INTER_AREA)
+            # Calculate scale to fit in logical pixel space
+            scale = min(logical_w / w_img, logical_h / h_img)
+            disp_w = max(1, int(w_img * scale))  # logical pixels
+            disp_h = max(1, int(h_img * scale))  # logical pixels
+            # Physical pixels for PIL image
+            pil_w = max(1, int(disp_w * dpi_scale))
+            pil_h = max(1, int(disp_h * dpi_scale))
+            interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+            resized = cv2.resize(bgr_img, (pil_w, pil_h), interpolation=interp)
         else:
-            # Zoomed in: crop a portion of the image
-            view_w, view_h = self.calculate_view_window(bgr_img, render_w, render_h)
+            view_w, view_h = self.calculate_view_window(bgr_img, int(logical_w), int(logical_h))
             cx = int(self.view_center[0] * w_img)
             cy = int(self.view_center[1] * h_img)
             x1 = max(0, min(cx - view_w // 2, w_img - view_w))
             y1 = max(0, min(cy - view_h // 2, h_img - view_h))
             crop = bgr_img[y1:y1 + view_h, x1:x1 + view_w]
-            disp_w = render_w
-            disp_h = render_h
-            resized = cv2.resize(crop, (disp_w, disp_h), interpolation=cv2.INTER_CUBIC)
+            disp_w = int(logical_w)  # logical pixels
+            disp_h = int(logical_h)  # logical pixels
+            pil_w = max(1, int(disp_w * dpi_scale))
+            pil_h = max(1, int(disp_h * dpi_scale))
+            scale_x = pil_w / max(view_w, 1)
+            scale_y = pil_h / max(view_h, 1)
+            interp = cv2.INTER_AREA if min(scale_x, scale_y) < 1.0 else cv2.INTER_CUBIC
+            resized = cv2.resize(crop, (pil_w, pil_h), interpolation=interp)
 
         try:
             img_rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
             im_pil = Image.fromarray(img_rgb)
+            # size parameter is in logical pixels, PIL image is in physical pixels
             ctk_img = ctk.CTkImage(light_image=im_pil, dark_image=im_pil, size=(disp_w, disp_h))
             is_output_panel = (label_widget is self.lbl_img_out)
             if not self._set_label_image(label_widget, ctk_img):
@@ -1500,6 +1715,13 @@ class ModernApp(ctk.CTk):
         return True
 
     def render_main_images(self):
+        self._rendering_in_progress = True
+        try:
+            self._render_main_images_impl()
+        finally:
+            self._rendering_in_progress = False
+
+    def _render_main_images_impl(self):
         with self._state_lock:
             img_in = self.img_input
             img_out = self.img_output
@@ -1507,6 +1729,7 @@ class ModernApp(ctk.CTk):
         if img_in is None:
             try:
                 self.lbl_img_in.configure(image=None, text="Waiting for input...")
+                self.lbl_img_in.image = None
                 self._input_ctk_image = None
             except Exception:
                 return
@@ -1525,14 +1748,15 @@ class ModernApp(ctk.CTk):
         if img_out is None:
             try:
                 self.lbl_img_out.configure(image=None, text="")
+                self.lbl_img_out.image = None
                 self._output_ctk_image = None
             except Exception:
                 pass
+            if not self.is_processing:
+                self.hide_output_overlay()
             self._log_output_render(self._current_run_id, "render-main", "clear-output", True, None)
             return
-        if not self.is_processing:
-            # Defensive: ensure output overlay never obscures a completed frame.
-            self.hide_output_overlay()
+        self.hide_output_overlay()
         rendered = self.render_zoomed_image(img_out, self.lbl_img_out)
         self._log_output_render(self._current_run_id, "render-main", "render_zoomed_image", rendered, img_out)
         if not rendered:
@@ -1571,7 +1795,6 @@ class ModernApp(ctk.CTk):
         if rendered:
             try:
                 self.lbl_img_out.lift()
-                self.lbl_img_out.update_idletasks()
             except TclError:
                 self._log_output_render(run_id, phase, "lift", False, img_out)
                 return False
@@ -1585,12 +1808,17 @@ class ModernApp(ctk.CTk):
             self._log_output_render(run_id, "success", "missing-output", False, None)
             return
 
-        for delay_ms, phase in ((0, "success-0"), (60, "success-60"), (150, "success-150"), (280, "success-280")):
-            self._after_for_run(
-                run_id,
+        self._cancel_success_render_jobs()
+        first_ok = self._render_output_frame_once(run_id, "success-0")
+        retry_plan = [(100, "success-100")]
+        if not first_ok:
+            retry_plan.append((220, "success-220"))
+        for delay_ms, phase in retry_plan:
+            job_id = self.after(
                 delay_ms,
                 lambda rid=run_id, p=phase: self._render_output_frame_once(rid, p),
             )
+            self.success_render_jobs.append(job_id)
         self._after_for_run(run_id, 0, self.update_compare_controls)
         self._after_for_run(run_id, 0, self.update_resolution_labels)
         self._after_for_run(run_id, 0, self.calculate_metrics)
@@ -1605,12 +1833,25 @@ class ModernApp(ctk.CTk):
         try:
             with Image.open(path) as pil_img:
                 pil_img = pil_img.convert("RGB")
+                # Get physical pixel size
                 w_widget, h_widget = self._get_image_display_size(label_widget)
-                ratio = min(w_widget / pil_img.width, h_widget / pil_img.height)
-                new_w = max(1, int(pil_img.width * ratio))
-                new_h = max(1, int(pil_img.height * ratio))
+                # Get DPI scaling factor
+                try:
+                    dpi_scale = label_widget._get_widget_scaling()
+                except Exception:
+                    dpi_scale = 1.0
+                # Convert to logical pixels
+                logical_w = w_widget / dpi_scale
+                logical_h = h_widget / dpi_scale
+                # Calculate scale in logical space
+                ratio = min(logical_w / pil_img.width, logical_h / pil_img.height)
+                new_w = max(1, int(pil_img.width * ratio))  # logical pixels
+                new_h = max(1, int(pil_img.height * ratio))  # logical pixels
+                # Physical pixels for PIL
+                pil_w = max(1, int(new_w * dpi_scale))
+                pil_h = max(1, int(new_h * dpi_scale))
                 resample = getattr(Image, "Resampling", Image).LANCZOS
-                resized = pil_img.resize((new_w, new_h), resample)
+                resized = pil_img.resize((pil_w, pil_h), resample)
         except Exception as exc:
             logger.warning("show_image_file_ctk failed (%s): %s", os.path.basename(path), exc)
             return False
@@ -1647,6 +1888,7 @@ class ModernApp(ctk.CTk):
         with self._state_lock:
             self.img_output = stable
         if file_rendered:
+            self._cancel_success_render_jobs()
             self.hide_output_overlay()
             self.update_resolution_labels()
             self.calculate_metrics()
@@ -1660,11 +1902,22 @@ class ModernApp(ctk.CTk):
         if sr_bgr is None:
             return lr_bgr
         h, w = sr_bgr.shape[:2]
-        lr_up = cv2.resize(lr_bgr, (w, h), interpolation=cv2.INTER_CUBIC)
+        lr_up = cv2.resize(lr_bgr, (w, h), interpolation=cv2.INTER_LINEAR)
         split = int(w * float(np.clip(split_ratio, 0.0, 1.0)))
         combined = sr_bgr.copy()
         if split > 0:
             combined[:, :split] = lr_up[:, :split]
+        if 0 < split < w:
+            feather_px = max(2, min(4, int(round(w * 0.002))))
+            x1 = max(0, split - feather_px)
+            x2 = min(w, split + feather_px)
+            band_w = x2 - x1
+            if band_w > 1:
+                alpha = np.linspace(0.0, 1.0, band_w, dtype=np.float32)[np.newaxis, :, np.newaxis]
+                left = lr_up[:, x1:x2].astype(np.float32)
+                right = sr_bgr[:, x1:x2].astype(np.float32)
+                band = left * (1.0 - alpha) + right * alpha
+                combined[:, x1:x2] = np.clip(band, 0, 255).astype(np.uint8)
         return combined
 
     def on_compare_mode_toggle(self):
@@ -1691,8 +1944,20 @@ class ModernApp(ctk.CTk):
         else:
             self.slider_compare.configure(state="disabled")
 
+    def _cancel_overlay_animation(self):
+        self.overlay_animation_job = self._cancel_after_job(self.overlay_animation_job)
+
+    def _cancel_success_render_jobs(self):
+        if not self.success_render_jobs:
+            return
+        for job_id in self.success_render_jobs:
+            self._cancel_after_job(job_id)
+        self.success_render_jobs = []
+
     def show_output_overlay(self, text, animate=False):
+        self._cancel_overlay_animation()
         self.overlay_base_text = text
+        self.overlay_dot_count = 0
         self.output_overlay_label.configure(text=text)
         self.output_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
         self.output_overlay.lift()
@@ -1706,6 +1971,7 @@ class ModernApp(ctk.CTk):
             self.animate_output_overlay()
 
     def hide_output_overlay(self):
+        self._cancel_overlay_animation()
         try:
             self.output_overlay.place_forget()
             self.output_overlay.lower()
@@ -1719,13 +1985,14 @@ class ModernApp(ctk.CTk):
 
     def animate_output_overlay(self):
         if not self.is_processing:
+            self.overlay_animation_job = None
             return
         dots = getattr(self, "overlay_dot_count", 0)
         dots = (dots + 1) % 4
         self.overlay_dot_count = dots
         text = f"{self.overlay_base_text}{'.' * dots}"
         self.output_overlay_label.configure(text=text)
-        self.after(500, self.animate_output_overlay)
+        self.overlay_animation_job = self.after(500, self.animate_output_overlay)
 
     def report_progress(self, value, status_text=None, overlay_text=None, run_id: Optional[int] = None):
         def update():
@@ -1813,13 +2080,27 @@ class ModernApp(ctk.CTk):
         except Exception:
             return
 
+        # Get physical pixel size
         w_widget, h_widget = self._get_image_display_size(label_widget)
+        # Get DPI scaling factor
+        try:
+            dpi_scale = label_widget._get_widget_scaling()
+        except Exception:
+            dpi_scale = 1.0
+        # Convert to logical pixels
+        logical_w = w_widget / dpi_scale
+        logical_h = h_widget / dpi_scale
 
         w_img, h_img = im_pil.size
-        ratio = min(w_widget / w_img, h_widget / h_img)
+        ratio = min(logical_w / w_img, logical_h / h_img)
 
-        new_w = max(1, int(w_img * ratio))
-        new_h = max(1, int(h_img * ratio))
+        new_w = max(1, int(w_img * ratio))  # logical pixels
+        new_h = max(1, int(h_img * ratio))  # logical pixels
+        # Physical pixels for PIL
+        pil_w = max(1, int(new_w * dpi_scale))
+        pil_h = max(1, int(new_h * dpi_scale))
+        resample = getattr(Image, "Resampling", Image).LANCZOS
+        im_pil = im_pil.resize((pil_w, pil_h), resample)
 
         ctk_img = ctk.CTkImage(light_image=im_pil, dark_image=im_pil, size=(new_w, new_h))
 
@@ -1904,9 +2185,12 @@ class ModernApp(ctk.CTk):
             edge_norm = clamp_value((metrics["edge_density"] - 0.02) / 0.08, 0.0, 1.0)
 
             face_blend = clamp_value(0.6 + sharpness_norm * 0.2 - noise_norm * 0.1, 0.4, 0.9)
-            natural_blend = clamp_value(0.12 + noise_norm * 0.25 + (1.0 - contrast_norm) * 0.15, 0.0, 0.6)
-            texture_boost = clamp_value(0.12 + (1.0 - sharpness_norm) * 0.25 + edge_norm * 0.1 - noise_norm * 0.1,
-                                        0.0, 0.6)
+            natural_blend = clamp_value(0.03 + noise_norm * 0.07 + (1.0 - contrast_norm) * 0.05, 0.0, 0.12)
+            texture_boost = clamp_value(0.10 + (1.0 - sharpness_norm) * 0.18 + edge_norm * 0.06 - noise_norm * 0.08,
+                                        0.0, 0.35)
+            if edge_norm > 0.25:
+                natural_blend = 0.0
+                texture_boost = 0.0
             film_grain = clamp_value(0.03 + (1.0 - edge_norm) * 0.12 + (1.0 - contrast_norm) * 0.08, 0.0, 0.5)
 
             self.face_blend.set(face_blend)
@@ -1980,6 +2264,7 @@ class ModernApp(ctk.CTk):
     def start_processing(self, batch_mode=False, on_complete=None):
         self._current_run_id += 1
         ui_run_id = self._current_run_id
+        self._cancel_success_render_jobs()
         run_options = {
             "face_enhance": bool(self.use_face_enhance.get()),
             "face_blend": float(self.face_blend.get()),
@@ -2035,9 +2320,9 @@ class ModernApp(ctk.CTk):
             ui_run_id = self._current_run_id
         opts = run_options or {}
         face_enhance = bool(opts.get("face_enhance", False))
-        face_blend = float(opts.get("face_blend", 0.7))
-        natural_blend = float(opts.get("natural_blend", 0.15))
-        texture_boost = float(opts.get("texture_boost", 0.2))
+        face_blend = float(np.clip(opts.get("face_blend", 0.65), 0.4, 0.9))
+        natural_blend = float(np.clip(opts.get("natural_blend", 0.0), 0.0, 0.12))
+        texture_boost = float(np.clip(opts.get("texture_boost", 0.08), 0.0, 0.35))
         film_grain = float(opts.get("film_grain", 0.0))
         scratch_repair = bool(opts.get("scratch_repair", False))
         run_root = self.batch_output_dir if batch_mode else None
@@ -2176,22 +2461,38 @@ class ModernApp(ctk.CTk):
             check_cancel()
             set_stage("blend", 0.80, "Blending fine details...", "Blending")
             stage_start = time.perf_counter()
-            output = blend_with_lr(output, input_img, natural_blend)
-            output = apply_unsharp_mask(output, texture_boost)
+            if natural_blend <= 0.0 and texture_boost <= 0.0:
+                output = suppress_edge_ringing(output, input_img, strength=0.25)
+            else:
+                dehalo_strength = 0.62 if natural_blend <= 0.02 else 0.50
+                output = suppress_edge_ringing(output, input_img, strength=dehalo_strength)
+                output = blend_with_lr(output, input_img, natural_blend)
+                output = apply_unsharp_mask(output, texture_boost, blend_weight=natural_blend)
             run_meta["timing"]["blend"] = round(time.perf_counter() - stage_start, 3)
-            try:
-                check_cancel()
-                set_stage("texture", 0.88, "Generating texture details...", "Texture refinement")
-                stage_start = time.perf_counter()
-                output = self.apply_texture_generation(output)
-                run_meta["timing"]["texture"] = round(time.perf_counter() - stage_start, 3)
-            except Exception as e:
-                texture_msg = f"Texture generation skipped: {e}"
-                self._after_for_run(
-                    ui_run_id,
-                    0,
-                    lambda msg=texture_msg: self.status_label.configure(text=msg),
-                )
+            texture_ran = False
+            if TEXTURE_ENABLED and TEXTURE_MODEL_ID:
+                try:
+                    check_cancel()
+                    set_stage("texture", 0.88, "Generating texture details...", "Texture refinement")
+                    stage_start = time.perf_counter()
+                    output = self.apply_texture_generation(output)
+                    texture_ran = True
+                    run_meta["timing"]["texture"] = round(time.perf_counter() - stage_start, 3)
+                except UserCancelledError:
+                    raise
+                except Exception as e:
+                    texture_msg = f"Texture generation skipped: {e}"
+                    self._after_for_run(
+                        ui_run_id,
+                        0,
+                        lambda msg=texture_msg: self.status_label.configure(text=msg),
+                    )
+            else:
+                run_meta["timing"]["texture"] = 0.0
+            if texture_ran:
+                output = suppress_edge_ringing(output, input_img, strength=0.16)
+            if natural_blend <= 0.0 and texture_boost <= 0.0:
+                film_grain = min(film_grain, 0.02)
             check_cancel()
             set_stage("finalize", 0.95, "Finalizing output...", "Finalizing")
             stage_start = time.perf_counter()
@@ -2230,25 +2531,18 @@ class ModernApp(ctk.CTk):
 
             self.compare_hold_active = False
 
-            self._after_for_run(ui_run_id, 0, lambda: self.refresh_output_after_success(ui_run_id))
+            def apply_success_ui_state() -> None:
+                self.reset_view_state()
+                if face_enhance and not used_face_enhance:
+                    self.status_label.configure(text=f"Done (x{self.scale_factor} Standard Mode)")
+                else:
+                    self.status_label.configure(text=f"Done (x{self.scale_factor})")
+                self.btn_save.configure(state="normal")
+                self.btn_compare.configure(state="normal")
+                if self.feature_maps:
+                    self.btn_features.configure(state="normal")
 
-            if face_enhance and not used_face_enhance:
-                self._after_for_run(
-                    ui_run_id,
-                    0,
-                    lambda: self.status_label.configure(text=f"Done (x{self.scale_factor} Standard Mode)"),
-                )
-            else:
-                self._after_for_run(
-                    ui_run_id,
-                    0,
-                    lambda: self.status_label.configure(text=f"Done (x{self.scale_factor})"),
-                )
-
-            self._after_for_run(ui_run_id, 0, lambda: self.btn_save.configure(state="normal"))
-            self._after_for_run(ui_run_id, 0, lambda: self.btn_compare.configure(state="normal"))
-            if self.feature_maps:
-                self._after_for_run(ui_run_id, 0, lambda: self.btn_features.configure(state="normal"))
+            self._after_for_run(ui_run_id, 0, apply_success_ui_state)
 
         except Exception as e:
             if isinstance(e, UserCancelledError):
@@ -2297,31 +2591,25 @@ class ModernApp(ctk.CTk):
                 run_meta["metrics"]["ssim"] = float(ssim(img_gt_out, self.img_output, data_range=255, channel_axis=2))
             self.write_run_log(run_dir, run_meta)
             self.progress_target = 1.0
-            self._after_for_run(ui_run_id, 0, lambda: self.progress_bar.set(1.0))
-            if batch_mode and self.is_batch_processing:
-                self._after_for_run(ui_run_id, 0, lambda: self.set_run_button_batch(True))
-            else:
-                self._after_for_run(ui_run_id, 0, lambda: self.set_run_button_processing(False))
-            self._after_for_run(ui_run_id, 0, self.update_action_buttons)
-            if elapsed is not None:
-                self._after_for_run(
-                    ui_run_id,
-                    0,
-                    lambda: self.elapsed_label.configure(text=f"Elapsed: {elapsed:.1f}s"),
-                )
+
+            def apply_finalize_ui_state() -> None:
+                self.progress_bar.set(1.0)
+                if batch_mode and self.is_batch_processing:
+                    self.set_run_button_batch(True)
+                else:
+                    self.set_run_button_processing(False)
+                self.update_action_buttons()
+                self.update_compare_controls()
+                if elapsed is not None:
+                    self.elapsed_label.configure(text=f"Elapsed: {elapsed:.1f}s")
+
+            self._after_for_run(ui_run_id, 0, apply_finalize_ui_state)
             if success:
-                # Final fallback repaint from disk snapshot.
+                # Final output repaint from disk snapshot.
                 self._after_for_run(
                     ui_run_id,
-                    120,
+                    80,
                     lambda p=run_output_path, rid=ui_run_id: self.render_output_from_file(p, rid),
-                )
-            if success and elapsed is not None and not batch_mode:
-                # Show completion message after render retries.
-                self._after_for_run(
-                    ui_run_id,
-                    700,
-                    lambda: messagebox.showinfo("Completed", f"Restoration finished in {elapsed:.1f}s."),
                 )
             if batch_mode and on_complete is not None:
                 self._after_for_run(
@@ -2640,8 +2928,11 @@ class ModernApp(ctk.CTk):
                     ("BMP", "*.bmp"),
                 ])
             if path:
-                save_image(path, self.img_output)
-                messagebox.showinfo("Saved", "Image saved successfully")
+                if self.img_output is not None:
+                    save_image(path, self.img_output)
+                    messagebox.showinfo("Saved", "Image saved successfully")
+                else:
+                    messagebox.showerror("Error", "No image to save")
                 preview_window.destroy()
 
         self.show_image_preview("Result Preview", self.img_output, None, "Save As", on_save)
