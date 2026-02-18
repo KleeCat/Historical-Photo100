@@ -126,6 +126,7 @@
 - **禁止无限重试**：同一个子代理任务最多重试 2 次，之后必须换策略或问用户
 
 ### Git & Upload Defaults
+- **🚨 禁止私自 push**：未经用户明确允许，禁止执行 `git push`。只能 commit 到本地，等用户确认后再 push。
 - **Default commit scope**: 上传/提交时默认包含整个仓库，除了 `.gitignore` 忽略的文件。
 - **Do not commit**: `datasets/`, `outputs/`, model weights (`.pth`, `.pt`), local log folders (`136152022024_黄一洲 Log*/`).
 - **GitHub visibility reminder**: GitHub 可见性是仓库级别的，不是文件夹级别。公开仓库 = 所有人可见；私有仓库 = 仅授权协作者可见。
