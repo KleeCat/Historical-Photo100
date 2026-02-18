@@ -18,7 +18,9 @@ import torch
 import torch.nn as nn
 
 logger = logging.getLogger("super_resolution_gui")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+)
 
 
 @contextlib.contextmanager
@@ -95,8 +97,12 @@ if sys.platform == "win32":
     # Declare argtypes for shell32 drag-and-drop functions
     _shell32.DragAcceptFiles.argtypes = [ctypes.wintypes.HWND, ctypes.wintypes.BOOL]
     _shell32.DragAcceptFiles.restype = None
-    _shell32.DragQueryFileW.argtypes = [ctypes.c_void_p, ctypes.c_uint,
-                                        ctypes.c_wchar_p, ctypes.c_uint]
+    _shell32.DragQueryFileW.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint,
+        ctypes.c_wchar_p,
+        ctypes.c_uint,
+    ]
     _shell32.DragQueryFileW.restype = ctypes.c_uint
     _shell32.DragFinish.argtypes = [ctypes.c_void_p]
     _shell32.DragFinish.restype = None
@@ -107,24 +113,42 @@ if sys.platform == "win32":
     # Use SetWindowLongPtrW for 64-bit compatibility
     if ctypes.sizeof(ctypes.c_void_p) == 8:
         _SetWindowLongPtr = _user32.SetWindowLongPtrW
-        _SetWindowLongPtr.argtypes = [ctypes.wintypes.HWND, ctypes.c_int, ctypes.c_int64]
+        _SetWindowLongPtr.argtypes = [
+            ctypes.wintypes.HWND,
+            ctypes.c_int,
+            ctypes.c_int64,
+        ]
         _SetWindowLongPtr.restype = ctypes.c_int64
         _CallWindowProc = _user32.CallWindowProcW
-        _CallWindowProc.argtypes = [ctypes.c_int64, ctypes.wintypes.HWND,
-                                    ctypes.c_uint, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM]
+        _CallWindowProc.argtypes = [
+            ctypes.c_int64,
+            ctypes.wintypes.HWND,
+            ctypes.c_uint,
+            ctypes.wintypes.WPARAM,
+            ctypes.wintypes.LPARAM,
+        ]
         _CallWindowProc.restype = ctypes.c_long
     else:
         _SetWindowLongPtr = _user32.SetWindowLongW
         _SetWindowLongPtr.argtypes = [ctypes.wintypes.HWND, ctypes.c_int, ctypes.c_long]
         _SetWindowLongPtr.restype = ctypes.c_long
         _CallWindowProc = _user32.CallWindowProcW
-        _CallWindowProc.argtypes = [ctypes.c_long, ctypes.wintypes.HWND,
-                                    ctypes.c_uint, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM]
+        _CallWindowProc.argtypes = [
+            ctypes.c_long,
+            ctypes.wintypes.HWND,
+            ctypes.c_uint,
+            ctypes.wintypes.WPARAM,
+            ctypes.wintypes.LPARAM,
+        ]
         _CallWindowProc.restype = ctypes.c_long
 
     _WNDPROC_TYPE = ctypes.WINFUNCTYPE(
-        ctypes.c_long, ctypes.wintypes.HWND, ctypes.c_uint,
-        ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM)
+        ctypes.c_long,
+        ctypes.wintypes.HWND,
+        ctypes.c_uint,
+        ctypes.wintypes.WPARAM,
+        ctypes.wintypes.LPARAM,
+    )
 
     def _setup_win32_drop(tk_window, callback):
         """Register a Tk window for native Win32 file drop.
@@ -158,8 +182,11 @@ if sys.platform == "win32":
         # prevent garbage collection of the callback
         tk_window._win32_wndproc = _WNDPROC_TYPE(wndproc)
         _SetWindowLongPtr(
-            hwnd, _GWL_WNDPROC,
-            ctypes.cast(tk_window._win32_wndproc, ctypes.c_void_p).value)
+            hwnd,
+            _GWL_WNDPROC,
+            ctypes.cast(tk_window._win32_wndproc, ctypes.c_void_p).value,
+        )
+
 
 # --- Global Theme Settings ---
 with suppress_stderr():
@@ -169,7 +196,7 @@ with suppress_stderr():
 TEXTURE_MODEL_ID = os.environ.get("TEXTURE_MODEL_ID", "").strip()
 TEXTURE_PROMPT = os.environ.get(
     "TEXTURE_PROMPT",
-    "restored vintage photo, realistic skin texture, fabric detail, subtle film grain"
+    "restored vintage photo, realistic skin texture, fabric detail, subtle film grain",
 )
 TEXTURE_STRENGTH = float(os.environ.get("TEXTURE_STRENGTH", "0.35"))
 TEXTURE_GUIDANCE = float(os.environ.get("TEXTURE_GUIDANCE", "5.0"))
@@ -333,7 +360,9 @@ def predict_scratch_mask(bgr_img, model, device, threshold):
     mask = pred.squeeze().detach().cpu().numpy()
     mask = (mask >= threshold).astype(np.uint8) * 255
     if mask.shape[:2] != gray.shape[:2]:
-        mask = cv2.resize(mask, (gray.shape[1], gray.shape[0]), interpolation=cv2.INTER_NEAREST)
+        mask = cv2.resize(
+            mask, (gray.shape[1], gray.shape[0]), interpolation=cv2.INTER_NEAREST
+        )
     return mask
 
 
@@ -346,7 +375,9 @@ def apply_scratch_repair(bgr_img, model, device, threshold, inpaint_radius):
     return cv2.inpaint(bgr_img, mask, inpaint_radius, cv2.INPAINT_TELEA)
 
 
-def blend_images(img_a: Optional[np.ndarray], img_b: Optional[np.ndarray], alpha: float) -> Optional[np.ndarray]:
+def blend_images(
+    img_a: Optional[np.ndarray], img_b: Optional[np.ndarray], alpha: float
+) -> Optional[np.ndarray]:
     if img_a is None:
         return img_b
     if img_b is None:
@@ -409,7 +440,9 @@ def apply_film_grain(bgr_img: np.ndarray, strength: float) -> np.ndarray:
     return np.clip(grain, 0, 255).astype(np.uint8)
 
 
-def blend_with_lr(sr_bgr: np.ndarray, lr_bgr: np.ndarray, strength: float) -> np.ndarray:
+def blend_with_lr(
+    sr_bgr: np.ndarray, lr_bgr: np.ndarray, strength: float
+) -> np.ndarray:
     weight = float(np.clip(strength, 0.0, 1.0))
     if weight <= 0.0:
         return sr_bgr
@@ -421,7 +454,9 @@ def blend_with_lr(sr_bgr: np.ndarray, lr_bgr: np.ndarray, strength: float) -> np
     sigma = 3.0 + 4.0 * weight
     low_sr = cv2.GaussianBlur(sr_f, (0, 0), sigmaX=sigma, sigmaY=sigma)
     lr_aligned = lr_up
-    low_lr = cv2.GaussianBlur(lr_up.astype(np.float32), (0, 0), sigmaX=sigma, sigmaY=sigma)
+    low_lr = cv2.GaussianBlur(
+        lr_up.astype(np.float32), (0, 0), sigmaX=sigma, sigmaY=sigma
+    )
     if low_sr is None or low_lr is None:
         fallback = blend_images(lr_up, sr_bgr, min(weight, 0.08))
         return sr_bgr if fallback is None else fallback
@@ -447,7 +482,9 @@ def blend_with_lr(sr_bgr: np.ndarray, lr_bgr: np.ndarray, strength: float) -> np
                 flags=cv2.INTER_CUBIC,
                 borderMode=cv2.BORDER_REFLECT101,
             )
-            low_lr = cv2.GaussianBlur(lr_aligned.astype(np.float32), (0, 0), sigmaX=sigma, sigmaY=sigma)
+            low_lr = cv2.GaussianBlur(
+                lr_aligned.astype(np.float32), (0, 0), sigmaX=sigma, sigmaY=sigma
+            )
     except Exception:
         return sr_bgr
     gated_weight = float(np.clip(gated_weight, 0.0, 0.05))
@@ -519,7 +556,9 @@ def suppress_edge_ringing(
     halo_mask = cv2.GaussianBlur(halo_mask, (0, 0), sigmaX=2.0, sigmaY=2.0)
     halo_mask = (halo_mask * amount)[:, :, np.newaxis].astype(np.float32)
 
-    smoothed = cv2.bilateralFilter(sr_bgr, d=5, sigmaColor=12, sigmaSpace=20).astype(np.float32)
+    smoothed = cv2.bilateralFilter(sr_bgr, d=5, sigmaColor=12, sigmaSpace=20).astype(
+        np.float32
+    )
     src_f = sr_bgr.astype(np.float32)
     corrected = src_f * (1.0 - halo_mask) + smoothed * halo_mask
     return np.clip(corrected, 0, 255).astype(np.uint8)
@@ -594,8 +633,8 @@ def make_comparison_images(lr_bgr, sr_bgr, scale, base_name, out_dir):
     x1 = min(x1, w - crop_size)
     y1 = min(y1, h - crop_size)
 
-    lr_crop = lr_up[y1:y1 + crop_size, x1:x1 + crop_size]
-    sr_crop = sr_bgr[y1:y1 + crop_size, x1:x1 + crop_size]
+    lr_crop = lr_up[y1 : y1 + crop_size, x1 : x1 + crop_size]
+    sr_crop = sr_bgr[y1 : y1 + crop_size, x1 : x1 + crop_size]
     zoom = np.hstack([lr_crop, sr_crop])
     zoom_vis = cv2.resize(zoom, (w, h), interpolation=cv2.INTER_NEAREST)
 
@@ -633,7 +672,7 @@ def tensor_to_grid_image(tensor, grid=4, max_channels=16):
         imgs.append(np.zeros_like(imgs[0]))
     rows = []
     for r in range(grid):
-        row = np.hstack(imgs[r * grid:(r + 1) * grid])
+        row = np.hstack(imgs[r * grid : (r + 1) * grid])
         rows.append(row)
     return np.vstack(rows)
 
@@ -661,8 +700,10 @@ class ModernApp(ctk.CTk):
         self.geometry(UI_WINDOW_SIZE)  # Increased height for new controls
 
         # Thread safety locks
-        self._state_lock = threading.Lock()   # protects img_input/img_output/feature_maps
-        self._model_lock = threading.Lock()   # protects model loading (upsampler/model)
+        self._state_lock = (
+            threading.Lock()
+        )  # protects img_input/img_output/feature_maps
+        self._model_lock = threading.Lock()  # protects model loading (upsampler/model)
 
         # Run-scoped callback guard: incremented at each run start so that
         # delayed after() callbacks from a previous run are silently ignored.
@@ -672,14 +713,16 @@ class ModernApp(ctk.CTk):
         # rendering it.
         self._output_ctk_image: Optional[ctk.CTkImage] = None
         self._input_ctk_image: Optional[ctk.CTkImage] = None
-        self._ui_queue: "queue.Queue[Tuple[Optional[int], int, Callable[[], None]]]" = queue.Queue()
+        self._ui_queue: "queue.Queue[Tuple[Optional[int], int, Callable[[], None]]]" = (
+            queue.Queue()
+        )
 
         # Core variables
         self.model_folder = os.environ.get(
             "REALESRGAN_MODEL_DIR",
             os.path.join(os.path.expanduser("~"), ".cache", "realesrgan"),
         )
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.upsampler = None
         self.model = None
         self.scale_factor = 4  # Default
@@ -745,104 +788,199 @@ class ModernApp(ctk.CTk):
         self._start_ui_dispatch_loop()
 
         # Start background model loading (Default load x4)
-        self.status_label.configure(text=f"Initializing core components ({self.device})...")
+        self.status_label.configure(
+            text=f"Initializing core components ({self.device})..."
+        )
         self.progress_bar.set(0.5)
         threading.Thread(target=self.load_model, daemon=True).start()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def setup_ui(self):
         # === 1. Sidebar (Left) ===
-        self.sidebar = ctk.CTkFrame(self, width=UI_SIDEBAR_WIDTH, corner_radius=0)
-        self.sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew")
-        self.sidebar.grid_rowconfigure(31, weight=1)
+        self._sidebar_outer = ctk.CTkFrame(
+            self, width=UI_SIDEBAR_WIDTH + 16, corner_radius=0
+        )
+        self._sidebar_outer.grid(row=0, column=0, rowspan=4, sticky="nsew")
+        self._sidebar_outer.grid_rowconfigure(0, weight=1)
+        self._sidebar_outer.grid_columnconfigure(0, weight=1)
+        self.sidebar = ctk.CTkScrollableFrame(
+            self._sidebar_outer,
+            width=UI_SIDEBAR_WIDTH,
+            corner_radius=0,
+            fg_color=self._sidebar_outer.cget("fg_color"),
+        )
+        self.sidebar.grid(row=0, column=0, sticky="nsew")
+        self.sidebar.grid_columnconfigure(0, weight=1)
 
         # Logo / Title
-        self.logo_label = ctk.CTkLabel(self.sidebar, text="Super Resolution", font=ctk.CTkFont(size=24, weight="bold"))
+        self.logo_label = ctk.CTkLabel(
+            self.sidebar,
+            text="Super Resolution",
+            font=ctk.CTkFont(size=24, weight="bold"),
+        )
         self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
 
         # Controls
-        self.btn_load = ctk.CTkButton(self.sidebar, text="Open Image", command=self.load_input_image, height=38)
+        self.btn_load = ctk.CTkButton(
+            self.sidebar, text="Open Image", command=self.load_input_image, height=38
+        )
         self.btn_load.grid(row=1, column=0, padx=20, pady=4)
 
-        self.btn_gt = ctk.CTkButton(self.sidebar, text="Load Ground Truth", command=self.load_gt_image,
-                                    fg_color="transparent", border_width=2, text_color=("gray10", "#DCE4EE"), height=38)
+        self.btn_gt = ctk.CTkButton(
+            self.sidebar,
+            text="Load Ground Truth",
+            command=self.load_gt_image,
+            fg_color="transparent",
+            border_width=2,
+            text_color=("gray10", "#DCE4EE"),
+            height=38,
+        )
         self.btn_gt.grid(row=2, column=0, padx=20, pady=4)
 
-        self.separator = ctk.CTkProgressBar(self.sidebar, height=2, progress_color="gray")
+        self.separator = ctk.CTkProgressBar(
+            self.sidebar, height=2, progress_color="gray"
+        )
         self.separator.grid(row=3, column=0, padx=20, pady=6, sticky="ew")
         self.separator.set(1)
 
         # === New Scale Selector ===
-        ctk.CTkLabel(self.sidebar, text="Upscale Factor:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=4,
-                                                                                                          column=0,
-                                                                                                          padx=20,
-                                                                                                          pady=(8, 0),
-                                                                                                          sticky="w")
+        ctk.CTkLabel(
+            self.sidebar,
+            text="Upscale Factor:",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        ).grid(row=4, column=0, padx=20, pady=(8, 0), sticky="w")
         self.scale_var = ctk.StringVar(value="x4")
-        self.scale_combo = ctk.CTkComboBox(self.sidebar, values=["x2", "x4"], variable=self.scale_var,
-                                           command=self.change_model_scale)
+        self.scale_combo = ctk.CTkComboBox(
+            self.sidebar,
+            values=["x2", "x4"],
+            variable=self.scale_var,
+            command=self.change_model_scale,
+        )
         self.scale_combo.grid(row=5, column=0, padx=20, pady=(4, 6))
 
-        self.btn_output_dir = ctk.CTkButton(self.sidebar, text="Set Default Output Dir",
-                                            command=self.set_default_output_dir, height=34)
+        self.btn_output_dir = ctk.CTkButton(
+            self.sidebar,
+            text="Set Default Output Dir",
+            command=self.set_default_output_dir,
+            height=34,
+        )
         self.btn_output_dir.grid(row=6, column=0, padx=20, pady=(6, 4))
-        self.lbl_output_dir = ctk.CTkLabel(self.sidebar, text=self.get_output_dir_label_text(),
-                                           font=ctk.CTkFont(size=11), wraplength=200, justify="left")
+        self.lbl_output_dir = ctk.CTkLabel(
+            self.sidebar,
+            text=self.get_output_dir_label_text(),
+            font=ctk.CTkFont(size=11),
+            wraplength=200,
+            justify="left",
+        )
         self.lbl_output_dir.grid(row=7, column=0, padx=20, pady=(0, 6), sticky="w")
 
         # Face Enhance Switch
         self.use_face_enhance = ctk.BooleanVar(value=False)
-        self.switch_face = ctk.CTkSwitch(self.sidebar, text="Face Enhancement", variable=self.use_face_enhance)
+        self.switch_face = ctk.CTkSwitch(
+            self.sidebar, text="Face Enhancement", variable=self.use_face_enhance
+        )
         self.switch_face.grid(row=8, column=0, padx=20, pady=4, sticky="w")
 
         # Scratch Repair Switch
         self.use_scratch_repair = ctk.BooleanVar(value=False)
-        self.switch_scratch = ctk.CTkSwitch(self.sidebar, text="Scratch Repair", variable=self.use_scratch_repair)
+        self.switch_scratch = ctk.CTkSwitch(
+            self.sidebar, text="Scratch Repair", variable=self.use_scratch_repair
+        )
         self.switch_scratch.grid(row=9, column=0, padx=20, pady=4, sticky="w")
 
-        self.lbl_face_blend = ctk.CTkLabel(self.sidebar, text=f"Face Blend: {self.face_blend.get():.2f}")
+        self.lbl_face_blend = ctk.CTkLabel(
+            self.sidebar, text=f"Face Blend: {self.face_blend.get():.2f}"
+        )
         self.lbl_face_blend.grid(row=10, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_face_blend.grid_remove()
-        self.slider_face_blend = ctk.CTkSlider(self.sidebar, from_=0.0, to=1.0, number_of_steps=20,
-                                               variable=self.face_blend, command=self.on_face_blend_change)
-        self.slider_face_blend.grid(row=11, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_face_blend = ctk.CTkSlider(
+            self.sidebar,
+            from_=0.0,
+            to=1.0,
+            number_of_steps=20,
+            variable=self.face_blend,
+            command=self.on_face_blend_change,
+        )
+        self.slider_face_blend.grid(
+            row=11, column=0, padx=20, pady=(0, 10), sticky="ew"
+        )
         self.slider_face_blend.grid_remove()
 
-        self.lbl_natural_blend = ctk.CTkLabel(self.sidebar, text=f"Natural Blend: {self.natural_blend.get():.2f}")
+        self.lbl_natural_blend = ctk.CTkLabel(
+            self.sidebar, text=f"Natural Blend: {self.natural_blend.get():.2f}"
+        )
         self.lbl_natural_blend.grid(row=12, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_natural_blend.grid_remove()
-        self.slider_natural_blend = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.20, number_of_steps=10,
-                                                  variable=self.natural_blend, command=self.on_natural_blend_change)
-        self.slider_natural_blend.grid(row=13, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_natural_blend = ctk.CTkSlider(
+            self.sidebar,
+            from_=0.0,
+            to=0.20,
+            number_of_steps=10,
+            variable=self.natural_blend,
+            command=self.on_natural_blend_change,
+        )
+        self.slider_natural_blend.grid(
+            row=13, column=0, padx=20, pady=(0, 10), sticky="ew"
+        )
         self.slider_natural_blend.grid_remove()
 
-        self.lbl_texture_boost = ctk.CTkLabel(self.sidebar, text=f"Texture Boost: {self.texture_boost.get():.2f}")
+        self.lbl_texture_boost = ctk.CTkLabel(
+            self.sidebar, text=f"Texture Boost: {self.texture_boost.get():.2f}"
+        )
         self.lbl_texture_boost.grid(row=14, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_texture_boost.grid_remove()
-        self.slider_texture_boost = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.35, number_of_steps=7,
-                                                  variable=self.texture_boost, command=self.on_texture_boost_change)
-        self.slider_texture_boost.grid(row=15, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_texture_boost = ctk.CTkSlider(
+            self.sidebar,
+            from_=0.0,
+            to=0.35,
+            number_of_steps=7,
+            variable=self.texture_boost,
+            command=self.on_texture_boost_change,
+        )
+        self.slider_texture_boost.grid(
+            row=15, column=0, padx=20, pady=(0, 10), sticky="ew"
+        )
         self.slider_texture_boost.grid_remove()
 
-        self.lbl_film_grain = ctk.CTkLabel(self.sidebar, text=f"Film Grain: {self.film_grain.get():.2f}")
+        self.lbl_film_grain = ctk.CTkLabel(
+            self.sidebar, text=f"Film Grain: {self.film_grain.get():.2f}"
+        )
         self.lbl_film_grain.grid(row=16, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_film_grain.grid_remove()
-        self.slider_film_grain = ctk.CTkSlider(self.sidebar, from_=0.0, to=0.5, number_of_steps=10,
-                                               variable=self.film_grain, command=self.on_film_grain_change)
-        self.slider_film_grain.grid(row=17, column=0, padx=20, pady=(0, 10), sticky="ew")
+        self.slider_film_grain = ctk.CTkSlider(
+            self.sidebar,
+            from_=0.0,
+            to=0.5,
+            number_of_steps=10,
+            variable=self.film_grain,
+            command=self.on_film_grain_change,
+        )
+        self.slider_film_grain.grid(
+            row=17, column=0, padx=20, pady=(0, 10), sticky="ew"
+        )
         self.slider_film_grain.grid_remove()
 
         self.batch_retry_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         self.batch_retry_frame.grid(row=18, column=0, padx=20, pady=(0, 2), sticky="ew")
         self.batch_retry_frame.grid_columnconfigure(1, weight=1)
-        self.lbl_batch_retry = ctk.CTkLabel(self.batch_retry_frame, text="Batch Retries")
+        self.lbl_batch_retry = ctk.CTkLabel(
+            self.batch_retry_frame, text="Batch Retries"
+        )
         self.lbl_batch_retry.grid(row=0, column=0, sticky="w")
-        self.entry_batch_retry = ctk.CTkEntry(self.batch_retry_frame, width=60, textvariable=self.batch_retry_max)
+        self.entry_batch_retry = ctk.CTkEntry(
+            self.batch_retry_frame, width=60, textvariable=self.batch_retry_max
+        )
         self.entry_batch_retry.grid(row=0, column=1, sticky="e")
 
-        self.btn_run = ctk.CTkButton(self.sidebar, text="Start Restoration", command=self.run_processing_thread,
-                                     fg_color="#2CC985", hover_color="#229A66", height=46,
-                                     font=ctk.CTkFont(size=16, weight="bold"))
+        self.btn_run = ctk.CTkButton(
+            self.sidebar,
+            text="Start Restoration",
+            command=self.run_processing_thread,
+            fg_color="#2CC985",
+            hover_color="#229A66",
+            height=46,
+            font=ctk.CTkFont(size=16, weight="bold"),
+        )
         self.btn_run.grid(row=20, column=0, padx=20, pady=4)
         self.btn_run_default_fg = self.btn_run.cget("fg_color")
         self.btn_run_default_hover = self.btn_run.cget("hover_color")
@@ -864,7 +1002,9 @@ class ModernApp(ctk.CTk):
             height=32,
         )
         self.btn_cancel.grid(row=22, column=0, padx=20, pady=4)
-        self.btn_cancel.configure(state="disabled", text_color_disabled=("gray30", "gray70"))
+        self.btn_cancel.configure(
+            state="disabled", text_color_disabled=("gray30", "gray70")
+        )
 
         self.btn_open_run_dir = ctk.CTkButton(
             self.sidebar,
@@ -873,106 +1013,174 @@ class ModernApp(ctk.CTk):
             height=32,
         )
         self.btn_open_run_dir.grid(row=23, column=0, padx=20, pady=4)
-        self.btn_open_run_dir.configure(state="disabled", text_color_disabled=("gray30", "gray70"))
+        self.btn_open_run_dir.configure(
+            state="disabled", text_color_disabled=("gray30", "gray70")
+        )
 
-        self.btn_compare = ctk.CTkButton(self.sidebar, text="Save Comparison", command=self.save_comparison,
-                                         fg_color="#3A7CA5", hover_color="#2D5F7C", height=36,
-                                         font=ctk.CTkFont(size=14, weight="bold"))
+        self.btn_compare = ctk.CTkButton(
+            self.sidebar,
+            text="Save Comparison",
+            command=self.save_comparison,
+            fg_color="#3A7CA5",
+            hover_color="#2D5F7C",
+            height=36,
+            font=ctk.CTkFont(size=14, weight="bold"),
+        )
         self.btn_compare.grid(row=24, column=0, padx=20, pady=4)
-        self.btn_compare.configure(state="disabled", text_color_disabled=("gray30", "gray70"))
+        self.btn_compare.configure(
+            state="disabled", text_color_disabled=("gray30", "gray70")
+        )
 
-        self.btn_features = ctk.CTkButton(self.sidebar, text="Export Features", command=self.export_feature_maps,
-                                          fg_color="#E0A800", hover_color="#B38600", height=36,
-                                          font=ctk.CTkFont(size=14, weight="bold"))
+        self.btn_features = ctk.CTkButton(
+            self.sidebar,
+            text="Export Features",
+            command=self.export_feature_maps,
+            fg_color="#E0A800",
+            hover_color="#B38600",
+            height=36,
+            font=ctk.CTkFont(size=14, weight="bold"),
+        )
         self.btn_features.grid(row=25, column=0, padx=20, pady=4)
-        self.btn_features.configure(state="disabled", text_color_disabled=("gray30", "gray70"))
+        self.btn_features.configure(
+            state="disabled", text_color_disabled=("gray30", "gray70")
+        )
 
-        self.btn_save = ctk.CTkButton(self.sidebar, text="Save Result", command=self.save_result, state="disabled",
-                                      height=36)
+        self.btn_save = ctk.CTkButton(
+            self.sidebar,
+            text="Save Result",
+            command=self.save_result,
+            state="disabled",
+            height=36,
+        )
         self.btn_save.grid(row=26, column=0, padx=20, pady=4)
         self.btn_save.configure(text_color_disabled=("gray30", "gray70"))
 
-        self.switch_compare = ctk.CTkSwitch(self.sidebar, text="Compare Slider", variable=self.compare_mode,
-                                            command=self.on_compare_mode_toggle)
+        self.switch_compare = ctk.CTkSwitch(
+            self.sidebar,
+            text="Compare Slider",
+            variable=self.compare_mode,
+            command=self.on_compare_mode_toggle,
+        )
         self.switch_compare.grid(row=27, column=0, padx=20, pady=(4, 2), sticky="w")
         self.lbl_compare_split = ctk.CTkLabel(self.sidebar, text="Split: 50%")
         self.lbl_compare_split.grid(row=28, column=0, padx=20, pady=(0, 2), sticky="w")
-        self.slider_compare = ctk.CTkSlider(self.sidebar, from_=0.0, to=1.0, number_of_steps=20,
-                                            variable=self.compare_split, command=self.on_compare_split_change)
+        self.slider_compare = ctk.CTkSlider(
+            self.sidebar,
+            from_=0.0,
+            to=1.0,
+            number_of_steps=20,
+            variable=self.compare_split,
+            command=self.on_compare_split_change,
+        )
         self.slider_compare.grid(row=29, column=0, padx=20, pady=(0, 4), sticky="ew")
         self.slider_compare.configure(state="disabled")
         self.lbl_compare_split.grid_remove()
         self.slider_compare.grid_remove()
 
         # Metrics Display
-        self.metrics_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        self.metrics_frame = ctk.CTkFrame(
+            self.sidebar, fg_color=self.sidebar.cget("fg_color")
+        )
         self.metrics_frame.grid(row=19, column=0, padx=20, pady=(2, 4), sticky="nw")
+        self.metrics_frame.grid_rowconfigure(6, minsize=18)
 
         self.lbl_resolution_title = ctk.CTkLabel(
             self.metrics_frame,
             text="Resolution",
-            font=ctk.CTkFont(size=13, weight="bold")
+            font=ctk.CTkFont(size=13, weight="bold"),
         )
-        self.lbl_resolution_title.pack(anchor="w")
-        self.lbl_resolution_in = ctk.CTkLabel(self.metrics_frame, text="Input: -- x --", font=ctk.CTkFont(size=15))
-        self.lbl_resolution_in.pack(anchor="w")
-        self.lbl_resolution_out = ctk.CTkLabel(self.metrics_frame, text="Output: -- x --", font=ctk.CTkFont(size=15))
-        self.lbl_resolution_out.pack(anchor="w", pady=(0, 4))
-        self.lbl_resolution_title.pack_forget()
-        self.lbl_resolution_in.pack_forget()
-        self.lbl_resolution_out.pack_forget()
+        self.lbl_resolution_title.grid(row=0, column=0, sticky="w")
+        self.lbl_resolution_in = ctk.CTkLabel(
+            self.metrics_frame, text="Input: -- x --", font=ctk.CTkFont(size=15)
+        )
+        self.lbl_resolution_in.grid(row=1, column=0, sticky="w")
+        self.lbl_resolution_out = ctk.CTkLabel(
+            self.metrics_frame, text="Output: -- x --", font=ctk.CTkFont(size=15)
+        )
+        self.lbl_resolution_out.grid(row=2, column=0, sticky="w", pady=(0, 4))
+        self.lbl_resolution_title.grid_remove()
+        self.lbl_resolution_in.grid_remove()
+        self.lbl_resolution_out.grid_remove()
 
         self.lbl_metrics_after = ctk.CTkLabel(
             self.metrics_frame,
             text="Output vs GT",
-            font=ctk.CTkFont(size=13, weight="bold")
+            font=ctk.CTkFont(size=13, weight="bold"),
         )
-        self.lbl_metrics_after.pack(anchor="w")
-        self.lbl_psnr_out = ctk.CTkLabel(self.metrics_frame, text="PSNR: --", font=ctk.CTkFont(size=15))
-        self.lbl_psnr_out.pack(anchor="w")
-        self.lbl_ssim_out = ctk.CTkLabel(self.metrics_frame, text="SSIM: --", font=ctk.CTkFont(size=15))
-        self.lbl_ssim_out.pack(anchor="w")
+        self.lbl_metrics_after.grid(row=3, column=0, sticky="w")
+        self.lbl_psnr_out = ctk.CTkLabel(
+            self.metrics_frame, text="PSNR: --", font=ctk.CTkFont(size=15)
+        )
+        self.lbl_psnr_out.grid(row=4, column=0, sticky="w")
+        self.lbl_ssim_out = ctk.CTkLabel(
+            self.metrics_frame, text="SSIM: --", font=ctk.CTkFont(size=15)
+        )
+        self.lbl_ssim_out.grid(row=5, column=0, sticky="w")
         self.lbl_gt_hint = ctk.CTkLabel(
             self.metrics_frame,
             text="Load Ground Truth to calculate metrics.",
             font=ctk.CTkFont(size=11),
-            text_color=("gray40", "gray60")
+            text_color=("gray40", "gray60"),
         )
-        self.lbl_gt_hint.pack(anchor="w", pady=(2, 0))
+        self.lbl_gt_hint.grid(row=6, column=0, sticky="w", pady=(2, 0))
 
         # === 2. Main Display Area (Right) ===
         self.display_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
         self.display_frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
-        self.display_frame.grid_columnconfigure(0, weight=1, uniform="images", minsize=320)
-        self.display_frame.grid_columnconfigure(1, weight=1, uniform="images", minsize=320)
+        self.display_frame.grid_columnconfigure(
+            0, weight=1, uniform="images", minsize=320
+        )
+        self.display_frame.grid_columnconfigure(
+            1, weight=1, uniform="images", minsize=320
+        )
         self.display_frame.grid_rowconfigure(1, weight=0)
         self.display_frame.grid_rowconfigure(2, weight=1)
         self.display_frame.grid_rowconfigure(3, weight=0)
 
         # Headers
-        ctk.CTkLabel(self.display_frame, text="Original Input", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0,
-                                                                                                               column=0,
-                                                                                                               pady=5)
-        ctk.CTkLabel(self.display_frame, text="Super-Resolution Output", font=ctk.CTkFont(size=14, weight="bold")).grid(
-            row=0, column=1, pady=5)
+        ctk.CTkLabel(
+            self.display_frame,
+            text="Original Input",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).grid(row=0, column=0, pady=5)
+        ctk.CTkLabel(
+            self.display_frame,
+            text="Super-Resolution Output",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).grid(row=0, column=1, pady=5)
 
         # Image Containers
-        self.frame_input = ctk.CTkFrame(self.display_frame, fg_color=("gray85", "#1C1C1C"))
+        self.frame_input = ctk.CTkFrame(
+            self.display_frame, fg_color=("gray85", "#1C1C1C")
+        )
         self.frame_input.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
 
-        self.frame_output = ctk.CTkFrame(self.display_frame, fg_color=("gray85", "#1C1C1C"))
+        self.frame_output = ctk.CTkFrame(
+            self.display_frame, fg_color=("gray85", "#1C1C1C")
+        )
         self.frame_output.grid(row=2, column=1, sticky="nsew", padx=5, pady=5)
 
         # Image Labels
-        self.lbl_img_in = ctk.CTkLabel(self.frame_input, text="Waiting for input...", corner_radius=6, anchor="center")
+        self.lbl_img_in = ctk.CTkLabel(
+            self.frame_input,
+            text="Waiting for input...",
+            corner_radius=6,
+            anchor="center",
+        )
         self.lbl_img_in.pack(expand=True, fill="both", padx=4, pady=4)
 
-        self.lbl_img_out = ctk.CTkLabel(self.frame_output, text="Waiting for processing...", corner_radius=6, anchor="center")
+        self.lbl_img_out = ctk.CTkLabel(
+            self.frame_output,
+            text="Waiting for processing...",
+            corner_radius=6,
+            anchor="center",
+        )
         self.lbl_img_out.pack(expand=True, fill="both", padx=4, pady=4)
 
         # Filename Labels (below images)
         self.lbl_filename_in = ctk.CTkLabel(
-            self.display_frame, text="No file loaded",
+            self.display_frame,
+            text="No file loaded",
             font=ctk.CTkFont(size=12),
             text_color=("gray30", "gray70"),
             height=20,
@@ -980,28 +1188,33 @@ class ModernApp(ctk.CTk):
         self.lbl_filename_in.grid(row=1, column=0, pady=(0, 2), sticky="n")
 
         self.lbl_filename_out = ctk.CTkLabel(
-            self.display_frame, text="",
+            self.display_frame,
+            text="",
             font=ctk.CTkFont(size=12),
             text_color=("gray30", "gray70"),
             height=20,
         )
         self.lbl_filename_out.grid(row=1, column=1, pady=(0, 2), sticky="n")
 
-        self.output_overlay = ctk.CTkFrame(self.frame_output, corner_radius=6, fg_color=("gray85", "#222222"))
+        self.output_overlay = ctk.CTkFrame(
+            self.frame_output, corner_radius=6, fg_color=("gray85", "#222222")
+        )
         self.output_overlay_label = ctk.CTkLabel(
             self.output_overlay,
             text="Waiting for processing...",
             text_color=("gray20", "gray80"),
-            font=ctk.CTkFont(size=14, weight="bold")
+            font=ctk.CTkFont(size=14, weight="bold"),
         )
         self.output_overlay_label.pack(expand=True)
         self.output_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
 
-        self.lbl_resolution_in_display = ctk.CTkLabel(self.display_frame, text="Input: -- x --",
-                                                     font=ctk.CTkFont(size=12))
+        self.lbl_resolution_in_display = ctk.CTkLabel(
+            self.display_frame, text="Input: -- x --", font=ctk.CTkFont(size=12)
+        )
         self.lbl_resolution_in_display.grid(row=3, column=0, pady=(0, 5))
-        self.lbl_resolution_out_display = ctk.CTkLabel(self.display_frame, text="Output: -- x --",
-                                                       font=ctk.CTkFont(size=12))
+        self.lbl_resolution_out_display = ctk.CTkLabel(
+            self.display_frame, text="Output: -- x --", font=ctk.CTkFont(size=12)
+        )
         self.lbl_resolution_out_display.grid(row=3, column=1, pady=(0, 5))
 
         self.bind_image_interactions()
@@ -1017,9 +1230,13 @@ class ModernApp(ctk.CTk):
         self.status_label.pack(side="left")
 
         # Determinate Progress Bar
-        self.progress_bar = ctk.CTkProgressBar(self.status_frame, width=300, mode="determinate")
+        self.progress_bar = ctk.CTkProgressBar(
+            self.status_frame, width=300, mode="determinate"
+        )
         self.progress_bar.pack(side="right", padx=20, pady=5)
-        self.elapsed_label = ctk.CTkLabel(self.status_frame, text="Elapsed: --", padx=10)
+        self.elapsed_label = ctk.CTkLabel(
+            self.status_frame, text="Elapsed: --", padx=10
+        )
         self.elapsed_label.pack(side="right")
         self.progress_bar.set(0)
 
@@ -1050,6 +1267,7 @@ class ModernApp(ctk.CTk):
                 if h < 16 or w < 16 or h > 1024 or w > 1024:
                     return
                 self.feature_maps.append((name, tensor.detach().cpu()))
+
             return hook
 
         for name, module in self.model.named_modules():
@@ -1091,7 +1309,7 @@ class ModernApp(ctk.CTk):
     def truncate_path(self, path, max_len):
         if len(path) <= max_len:
             return path
-        return "..." + path[-(max_len - 3):]
+        return "..." + path[-(max_len - 3) :]
 
     def on_close(self):
         self._cancel_overlay_animation()
@@ -1161,31 +1379,56 @@ class ModernApp(ctk.CTk):
 
             if not os.path.exists(full_path):
                 raise FileNotFoundError(
-                    f"Model file not found: {model_name}\nPlease download it to: {self.model_folder}")
+                    f"Model file not found: {model_name}\nPlease download it to: {self.model_folder}"
+                )
 
-            self.model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32,
-                                 scale=self.scale_factor)
+            self.model = RRDBNet(
+                num_in_ch=3,
+                num_out_ch=3,
+                num_feat=64,
+                num_block=23,
+                num_grow_ch=32,
+                scale=self.scale_factor,
+            )
             self.register_feature_hooks()
 
-            self.upsampler = RealESRGANer(scale=self.scale_factor, model_path=full_path, model=self.model, tile=0,
-                                          tile_pad=10, pre_pad=0, half=False, device=self.device)
+            self.upsampler = RealESRGANer(
+                scale=self.scale_factor,
+                model_path=full_path,
+                model=self.model,
+                tile=0,
+                tile_pad=10,
+                pre_pad=0,
+                half=False,
+                device=self.device,
+            )
 
             self._after_for_run(
                 None,
                 0,
-                lambda: self.status_label.configure(text=f"Model x{self.scale_factor} loaded | Device: {self.device}"),
+                lambda: self.status_label.configure(
+                    text=f"Model x{self.scale_factor} loaded | Device: {self.device}"
+                ),
             )
             self._after_for_run(None, 0, lambda: self.progress_bar.set(0))
         except Exception as e:
             err_text = str(e)
-            self._after_for_run(None, 0, lambda: self.status_label.configure(text="Load failed"))
-            self._after_for_run(None, 0, lambda msg=err_text: messagebox.showerror("Model Error", msg))
+            self._after_for_run(
+                None, 0, lambda: self.status_label.configure(text="Load failed")
+            )
+            self._after_for_run(
+                None, 0, lambda msg=err_text: messagebox.showerror("Model Error", msg)
+            )
         finally:
-            self._after_for_run(None, 0, lambda: self.scale_combo.configure(state="normal"))
+            self._after_for_run(
+                None, 0, lambda: self.scale_combo.configure(state="normal")
+            )
             self._model_lock.release()
 
     def load_input_image(self):
-        path = filedialog.askopenfilename(filetypes=[("Image", "*.jpg *.png *.jpeg *.bmp")])
+        path = filedialog.askopenfilename(
+            filetypes=[("Image", "*.jpg *.png *.jpeg *.bmp")]
+        )
         if path:
             try:
                 img = self.read_image(path)
@@ -1197,7 +1440,9 @@ class ModernApp(ctk.CTk):
             with self._state_lock:
                 self.img_input = img
             self.reset_view_state()
-            status_text = f"Loaded: {os.path.basename(path)} | {self.get_texture_status_text()}"
+            status_text = (
+                f"Loaded: {os.path.basename(path)} | {self.get_texture_status_text()}"
+            )
             self.status_label.configure(text=status_text)
             self.lbl_filename_in.configure(text=f"Input: {os.path.basename(path)}")
             self.lbl_filename_out.configure(text="")
@@ -1219,7 +1464,9 @@ class ModernApp(ctk.CTk):
             self.auto_tune_parameters()
 
     def load_gt_image(self):
-        path = filedialog.askopenfilename(filetypes=[("Image", "*.jpg *.png *.jpeg *.bmp")])
+        path = filedialog.askopenfilename(
+            filetypes=[("Image", "*.jpg *.png *.jpeg *.bmp")]
+        )
         if path:
             try:
                 img = self.read_image(path)
@@ -1483,8 +1730,12 @@ class ModernApp(ctk.CTk):
                 self.update_idletasks()
             except Exception:
                 pass
-            dw = max(self.display_frame.winfo_width(), self.display_frame.winfo_reqwidth())
-            dh = max(self.display_frame.winfo_height(), self.display_frame.winfo_reqheight())
+            dw = max(
+                self.display_frame.winfo_width(), self.display_frame.winfo_reqwidth()
+            )
+            dh = max(
+                self.display_frame.winfo_height(), self.display_frame.winfo_reqheight()
+            )
         if dw < 200 or dh < 120:
             dw = max(self.winfo_width() - UI_SIDEBAR_WIDTH - 40, 360)
             dh = max(self.winfo_height() - 120, 260)
@@ -1495,9 +1746,13 @@ class ModernApp(ctk.CTk):
     def _is_run_active(self, run_id: Optional[int]) -> bool:
         return run_id is None or run_id == self._current_run_id
 
-    def _run_guarded_ui_callback(self, run_id: Optional[int], callback: Callable[[], None]) -> None:
+    def _run_guarded_ui_callback(
+        self, run_id: Optional[int], callback: Callable[[], None]
+    ) -> None:
         if not self._is_run_active(run_id):
-            logger.debug("Skip stale UI callback run=%s current=%s", run_id, self._current_run_id)
+            logger.debug(
+                "Skip stale UI callback run=%s current=%s", run_id, self._current_run_id
+            )
             return
         try:
             callback()
@@ -1521,7 +1776,9 @@ class ModernApp(ctk.CTk):
             else:
                 self.after(
                     delay_ms,
-                    lambda rid=run_id, cb=callback: self._run_guarded_ui_callback(rid, cb),
+                    lambda rid=run_id, cb=callback: self._run_guarded_ui_callback(
+                        rid, cb
+                    ),
                 )
             processed += 1
         try:
@@ -1529,7 +1786,9 @@ class ModernApp(ctk.CTk):
         except TclError:
             return
 
-    def _after_for_run(self, run_id: Optional[int], delay_ms: int, callback: Callable[[], None]) -> None:
+    def _after_for_run(
+        self, run_id: Optional[int], delay_ms: int, callback: Callable[[], None]
+    ) -> None:
         if threading.current_thread() is threading.main_thread():
             self.after(
                 delay_ms,
@@ -1584,7 +1843,9 @@ class ModernApp(ctk.CTk):
         except Exception:
             pass
         self._output_ctk_image = None
-        new_label = ctk.CTkLabel(self.frame_output, text="", corner_radius=6, anchor="center")
+        new_label = ctk.CTkLabel(
+            self.frame_output, text="", corner_radius=6, anchor="center"
+        )
         new_label.pack(expand=True, fill="both", padx=4, pady=4)
         self.lbl_img_out = new_label
         # Re-bind event handlers lost during widget recreation
@@ -1605,7 +1866,9 @@ class ModernApp(ctk.CTk):
         except Exception:
             pass
         self._input_ctk_image = None
-        new_label = ctk.CTkLabel(self.frame_input, text="", corner_radius=6, anchor="center")
+        new_label = ctk.CTkLabel(
+            self.frame_input, text="", corner_radius=6, anchor="center"
+        )
         new_label.pack(expand=True, fill="both", padx=4, pady=4)
         self.lbl_img_in = new_label
         # Re-bind event handlers lost during widget recreation
@@ -1642,11 +1905,21 @@ class ModernApp(ctk.CTk):
                     self._input_ctk_image = ctk_img
                 return True
             except TclError as exc:
-                logger.warning("set_label_image failed target=%s attempt=%s err=%s", target, attempt, exc)
+                logger.warning(
+                    "set_label_image failed target=%s attempt=%s err=%s",
+                    target,
+                    attempt,
+                    exc,
+                )
                 if attempt == 2:
                     return False
             except Exception as exc:
-                logger.warning("set_label_image unexpected target=%s attempt=%s err=%s", target, attempt, exc)
+                logger.warning(
+                    "set_label_image unexpected target=%s attempt=%s err=%s",
+                    target,
+                    attempt,
+                    exc,
+                )
                 return False
         return False
 
@@ -1684,12 +1957,14 @@ class ModernApp(ctk.CTk):
             interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
             resized = cv2.resize(bgr_img, (pil_w, pil_h), interpolation=interp)
         else:
-            view_w, view_h = self.calculate_view_window(bgr_img, int(logical_w), int(logical_h))
+            view_w, view_h = self.calculate_view_window(
+                bgr_img, int(logical_w), int(logical_h)
+            )
             cx = int(self.view_center[0] * w_img)
             cy = int(self.view_center[1] * h_img)
             x1 = max(0, min(cx - view_w // 2, w_img - view_w))
             y1 = max(0, min(cy - view_h // 2, h_img - view_h))
-            crop = bgr_img[y1:y1 + view_h, x1:x1 + view_w]
+            crop = bgr_img[y1 : y1 + view_h, x1 : x1 + view_w]
             disp_w = int(logical_w)  # logical pixels
             disp_h = int(logical_h)  # logical pixels
             pil_w = max(1, int(disp_w * dpi_scale))
@@ -1703,8 +1978,10 @@ class ModernApp(ctk.CTk):
             img_rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
             im_pil = Image.fromarray(img_rgb)
             # size parameter is in logical pixels, PIL image is in physical pixels
-            ctk_img = ctk.CTkImage(light_image=im_pil, dark_image=im_pil, size=(disp_w, disp_h))
-            is_output_panel = (label_widget is self.lbl_img_out)
+            ctk_img = ctk.CTkImage(
+                light_image=im_pil, dark_image=im_pil, size=(disp_w, disp_h)
+            )
+            is_output_panel = label_widget is self.lbl_img_out
             if not self._set_label_image(label_widget, ctk_img):
                 return False
             # Use current label ref (may have been recreated by _set_label_image)
@@ -1738,13 +2015,27 @@ class ModernApp(ctk.CTk):
             self.render_zoomed_image(img_in, self.lbl_img_in)
 
         if self.compare_mode.get() and img_in is not None and img_out is not None:
-            compare_img = self.build_compare_image(img_in, img_out, self.compare_split.get())
+            compare_img = self.build_compare_image(
+                img_in, img_out, self.compare_split.get()
+            )
             rendered = self.render_zoomed_image(compare_img, self.lbl_img_out)
-            self._log_output_render(self._current_run_id, "render-main-compare", "render_zoomed_image", rendered, compare_img)
+            self._log_output_render(
+                self._current_run_id,
+                "render-main-compare",
+                "render_zoomed_image",
+                rendered,
+                compare_img,
+            )
             return
         if self.compare_hold_active and img_in is not None:
             rendered = self.render_zoomed_image(img_in, self.lbl_img_out)
-            self._log_output_render(self._current_run_id, "render-main-hold", "render_zoomed_image", rendered, img_in)
+            self._log_output_render(
+                self._current_run_id,
+                "render-main-hold",
+                "render_zoomed_image",
+                rendered,
+                img_in,
+            )
             return
         if img_out is None:
             try:
@@ -1755,20 +2046,38 @@ class ModernApp(ctk.CTk):
                 pass
             if not self.is_processing:
                 self.hide_output_overlay()
-            self._log_output_render(self._current_run_id, "render-main", "clear-output", True, None)
+            self._log_output_render(
+                self._current_run_id, "render-main", "clear-output", True, None
+            )
             return
         self.hide_output_overlay()
         rendered = self.render_zoomed_image(img_out, self.lbl_img_out)
-        self._log_output_render(self._current_run_id, "render-main", "render_zoomed_image", rendered, img_out)
+        self._log_output_render(
+            self._current_run_id,
+            "render-main",
+            "render_zoomed_image",
+            rendered,
+            img_out,
+        )
         if not rendered:
             try:
                 self.show_image_ctk(img_out, self.lbl_img_out)
-                self._log_output_render(self._current_run_id, "render-main", "show_image_ctk", True, img_out)
+                self._log_output_render(
+                    self._current_run_id, "render-main", "show_image_ctk", True, img_out
+                )
             except TclError:
-                self._log_output_render(self._current_run_id, "render-main", "show_image_ctk", False, img_out)
+                self._log_output_render(
+                    self._current_run_id,
+                    "render-main",
+                    "show_image_ctk",
+                    False,
+                    img_out,
+                )
                 return
 
-    def _render_output_frame_once(self, run_id: Optional[int] = None, phase: str = "single-pass") -> bool:
+    def _render_output_frame_once(
+        self, run_id: Optional[int] = None, phase: str = "single-pass"
+    ) -> bool:
         """Best-effort render for output panel (UI thread)."""
         if not self._is_run_active(run_id):
             self._log_output_render(run_id, phase, "run-guard", False, self.img_output)
@@ -1786,14 +2095,18 @@ class ModernApp(ctk.CTk):
         try:
             self.hide_output_overlay()
             rendered = self.render_zoomed_image(img_out, self.lbl_img_out)
-            self._log_output_render(run_id, phase, "render_zoomed_image", rendered, img_out)
+            self._log_output_render(
+                run_id, phase, "render_zoomed_image", rendered, img_out
+            )
             if not rendered:
                 try:
                     self.show_image_ctk(img_out, self.lbl_img_out)
                     rendered = True
                 except Exception:
                     rendered = False
-                self._log_output_render(run_id, phase, "show_image_ctk", rendered, img_out)
+                self._log_output_render(
+                    run_id, phase, "show_image_ctk", rendered, img_out
+                )
 
             if rendered:
                 try:
@@ -1858,21 +2171,31 @@ class ModernApp(ctk.CTk):
                 resample = getattr(Image, "Resampling", Image).LANCZOS
                 resized = pil_img.resize((pil_w, pil_h), resample)
         except Exception as exc:
-            logger.warning("show_image_file_ctk failed (%s): %s", os.path.basename(path), exc)
+            logger.warning(
+                "show_image_file_ctk failed (%s): %s", os.path.basename(path), exc
+            )
             return False
         try:
-            ctk_img = ctk.CTkImage(light_image=resized, dark_image=resized, size=(new_w, new_h))
-            is_output_panel = (label_widget is self.lbl_img_out)
+            ctk_img = ctk.CTkImage(
+                light_image=resized, dark_image=resized, size=(new_w, new_h)
+            )
+            is_output_panel = label_widget is self.lbl_img_out
             if not self._set_label_image(label_widget, ctk_img):
-                logger.warning("show_image_file_ctk assign failed (%s): set_label_image returned false",
-                               os.path.basename(path))
+                logger.warning(
+                    "show_image_file_ctk assign failed (%s): set_label_image returned false",
+                    os.path.basename(path),
+                )
                 return False
             # Use current label ref (may have been recreated by _set_label_image)
             actual_widget = self.lbl_img_out if is_output_panel else self.lbl_img_in
             actual_widget.lift()
             return True
         except Exception as exc:
-            logger.warning("show_image_file_ctk assign failed (%s): %s", os.path.basename(path), exc)
+            logger.warning(
+                "show_image_file_ctk assign failed (%s): %s",
+                os.path.basename(path),
+                exc,
+            )
             return False
 
     def render_output_from_file(self, path, run_id: Optional[int] = None):
@@ -1882,13 +2205,17 @@ class ModernApp(ctk.CTk):
         if not path:
             return
         file_rendered = self.show_image_file_ctk(path, self.lbl_img_out)
-        self._log_output_render(run_id, "from-file", "show_image_file_ctk", file_rendered, self.img_output)
+        self._log_output_render(
+            run_id, "from-file", "show_image_file_ctk", file_rendered, self.img_output
+        )
         if file_rendered:
             self._cancel_success_render_jobs()
             self.hide_output_overlay()
             self.update_resolution_labels()
             self.calculate_metrics()
-            self._log_output_render(run_id, "from-file", "commit", True, self.img_output)
+            self._log_output_render(
+                run_id, "from-file", "commit", True, self.img_output
+            )
         else:
             fallback = self._render_output_frame_once(run_id, "from-file-fallback")
             if fallback:
@@ -1926,7 +2253,9 @@ class ModernApp(ctk.CTk):
             x2 = min(w, split + feather_px)
             band_w = x2 - x1
             if band_w > 1:
-                alpha = np.linspace(0.0, 1.0, band_w, dtype=np.float32)[np.newaxis, :, np.newaxis]
+                alpha = np.linspace(0.0, 1.0, band_w, dtype=np.float32)[
+                    np.newaxis, :, np.newaxis
+                ]
                 left = lr_up[:, x1:x2].astype(np.float32)
                 right = sr_bgr[:, x1:x2].astype(np.float32)
                 band = left * (1.0 - alpha) + right * alpha
@@ -2007,7 +2336,9 @@ class ModernApp(ctk.CTk):
         self.output_overlay_label.configure(text=text)
         self.overlay_animation_job = self.after(500, self.animate_output_overlay)
 
-    def report_progress(self, value, status_text=None, overlay_text=None, run_id: Optional[int] = None):
+    def report_progress(
+        self, value, status_text=None, overlay_text=None, run_id: Optional[int] = None
+    ):
         def update():
             self.progress_target = max(self.progress_target, value)
             # Immediately jump the bar to at least the previous target
@@ -2021,6 +2352,7 @@ class ModernApp(ctk.CTk):
                 self.overlay_base_text = overlay_text
                 self.overlay_dot_count = 0
                 self.output_overlay_label.configure(text=overlay_text)
+
         self._after_for_run(run_id, 0, update)
 
     def start_elapsed_timer(self):
@@ -2040,14 +2372,14 @@ class ModernApp(ctk.CTk):
                 state="disabled",
                 text="Processing...",
                 fg_color=("gray70", "#444444"),
-                hover_color=("gray70", "#444444")
+                hover_color=("gray70", "#444444"),
             )
         else:
             self.btn_run.configure(
                 state="normal",
                 text="Start Restoration",
                 fg_color=self.btn_run_default_fg,
-                hover_color=self.btn_run_default_hover
+                hover_color=self.btn_run_default_hover,
             )
 
     def set_run_button_batch(self, processing):
@@ -2056,7 +2388,7 @@ class ModernApp(ctk.CTk):
                 state="disabled",
                 text="Batch Running...",
                 fg_color=("gray70", "#444444"),
-                hover_color=("gray70", "#444444")
+                hover_color=("gray70", "#444444"),
             )
         else:
             self.set_run_button_processing(False)
@@ -2125,9 +2457,11 @@ class ModernApp(ctk.CTk):
         resample = getattr(Image, "Resampling", Image).LANCZOS
         im_pil = im_pil.resize((pil_w, pil_h), resample)
 
-        ctk_img = ctk.CTkImage(light_image=im_pil, dark_image=im_pil, size=(new_w, new_h))
+        ctk_img = ctk.CTkImage(
+            light_image=im_pil, dark_image=im_pil, size=(new_w, new_h)
+        )
 
-        is_output_panel = (label_widget is self.lbl_img_out)
+        is_output_panel = label_widget is self.lbl_img_out
         if not self._set_label_image(label_widget, ctk_img):
             raise TclError("set_label_image failed")
         # Use current label ref (may have been recreated by _set_label_image)
@@ -2156,7 +2490,9 @@ class ModernApp(ctk.CTk):
         ratio = min(max_w / w_img, max_h / h_img, 1.0)
         new_w = int(w_img * ratio)
         new_h = int(h_img * ratio)
-        ctk_img = ctk.CTkImage(light_image=im_pil, dark_image=im_pil, size=(new_w, new_h))
+        ctk_img = ctk.CTkImage(
+            light_image=im_pil, dark_image=im_pil, size=(new_w, new_h)
+        )
         lbl.configure(image=ctk_img)
         lbl.image = ctk_img
 
@@ -2164,7 +2500,9 @@ class ModernApp(ctk.CTk):
             info_label = ctk.CTkLabel(preview, text=info_text)
             info_label.pack(pady=(0, 10))
 
-        btn_save = ctk.CTkButton(preview, text=save_text, command=lambda: on_save(preview))
+        btn_save = ctk.CTkButton(
+            preview, text=save_text, command=lambda: on_save(preview)
+        )
         btn_save.pack(pady=(0, 10))
 
     def update_slider_label(self, label_widget, prefix, value):
@@ -2188,13 +2526,17 @@ class ModernApp(ctk.CTk):
         return "Texture gen: off (disabled)"
 
     def detect_faces(self, gray_img):
-        cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
+        cascade_path = os.path.join(
+            cv2.data.haarcascades, "haarcascade_frontalface_default.xml"
+        )
         if not os.path.exists(cascade_path):
             return False
         cascade = cv2.CascadeClassifier(cascade_path)
         if cascade.empty():
             return False
-        faces = cascade.detectMultiScale(gray_img, scaleFactor=1.1, minNeighbors=4, minSize=(40, 40))
+        faces = cascade.detectMultiScale(
+            gray_img, scaleFactor=1.1, minNeighbors=4, minSize=(40, 40)
+        )
         return len(faces) > 0
 
     def auto_tune_parameters(self):
@@ -2207,14 +2549,26 @@ class ModernApp(ctk.CTk):
             contrast_norm = clamp_value((metrics["contrast"] - 20.0) / 60.0, 0.0, 1.0)
             edge_norm = clamp_value((metrics["edge_density"] - 0.02) / 0.08, 0.0, 1.0)
 
-            face_blend = clamp_value(0.6 + sharpness_norm * 0.2 - noise_norm * 0.1, 0.4, 0.9)
-            natural_blend = clamp_value(0.03 + noise_norm * 0.07 + (1.0 - contrast_norm) * 0.05, 0.0, 0.12)
-            texture_boost = clamp_value(0.10 + (1.0 - sharpness_norm) * 0.18 + edge_norm * 0.06 - noise_norm * 0.08,
-                                        0.0, 0.35)
+            face_blend = clamp_value(
+                0.6 + sharpness_norm * 0.2 - noise_norm * 0.1, 0.4, 0.9
+            )
+            natural_blend = clamp_value(
+                0.03 + noise_norm * 0.07 + (1.0 - contrast_norm) * 0.05, 0.0, 0.12
+            )
+            texture_boost = clamp_value(
+                0.10
+                + (1.0 - sharpness_norm) * 0.18
+                + edge_norm * 0.06
+                - noise_norm * 0.08,
+                0.0,
+                0.35,
+            )
             if edge_norm > 0.25:
                 natural_blend = 0.0
                 texture_boost = 0.0
-            film_grain = clamp_value(0.03 + (1.0 - edge_norm) * 0.12 + (1.0 - contrast_norm) * 0.08, 0.0, 0.5)
+            film_grain = clamp_value(
+                0.03 + (1.0 - edge_norm) * 0.12 + (1.0 - contrast_norm) * 0.08, 0.0, 0.5
+            )
 
             self.face_blend.set(face_blend)
             self.natural_blend.set(natural_blend)
@@ -2233,12 +2587,13 @@ class ModernApp(ctk.CTk):
         if not TEXTURE_ENABLED or not TEXTURE_MODEL_ID:
             return None
         if StableDiffusionImg2ImgPipeline is None:
-            raise RuntimeError("diffusers not installed. Run: pip install diffusers transformers accelerate")
+            raise RuntimeError(
+                "diffusers not installed. Run: pip install diffusers transformers accelerate"
+            )
         if self.texture_pipe is None:
             dtype = torch.float16 if self.device.type == "cuda" else torch.float32
             self.texture_pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
-                TEXTURE_MODEL_ID,
-                torch_dtype=dtype
+                TEXTURE_MODEL_ID, torch_dtype=dtype
             )
             self.texture_pipe.to(self.device)
             if self.device.type == "cuda":
@@ -2258,7 +2613,7 @@ class ModernApp(ctk.CTk):
             image=init_image,
             strength=TEXTURE_STRENGTH,
             guidance_scale=TEXTURE_GUIDANCE,
-            num_inference_steps=TEXTURE_STEPS
+            num_inference_steps=TEXTURE_STEPS,
         ).images[0]
         if self.cancel_requested:
             raise UserCancelledError("Cancelled")
@@ -2277,7 +2632,9 @@ class ModernApp(ctk.CTk):
         if self.upsampler is None:
             self.status_label.configure(text="Model not ready. Loading...")
             threading.Thread(target=self.load_model, daemon=True).start()
-            messagebox.showwarning("Model Loading", "Model is still loading. Please try again shortly.")
+            messagebox.showwarning(
+                "Model Loading", "Model is still loading. Please try again shortly."
+            )
             return
         # Start each single-image run from full view to avoid stale zoom crops.
         self.reset_view_state()
@@ -2350,7 +2707,9 @@ class ModernApp(ctk.CTk):
         film_grain = float(opts.get("film_grain", 0.0))
         scratch_repair = bool(opts.get("scratch_repair", False))
         run_root = self.batch_output_dir if batch_mode else None
-        run_record_id, run_dir = self.start_run_record(run_root=run_root, ui_run_id=ui_run_id)
+        run_record_id, run_dir = self.start_run_record(
+            run_root=run_root, ui_run_id=ui_run_id
+        )
         base_name = safe_basename(self.input_path)
         run_output_path = os.path.join(run_dir, f"{base_name}_x{self.scale_factor}.png")
         run_meta = {
@@ -2376,7 +2735,9 @@ class ModernApp(ctk.CTk):
             "gt_path": self.gt_path,
             "model_path": os.path.join(
                 self.model_folder,
-                "RealESRGAN_x2plus.pth" if self.scale_factor == 2 else "RealESRGAN_x4plus.pth",
+                "RealESRGAN_x2plus.pth"
+                if self.scale_factor == 2
+                else "RealESRGAN_x4plus.pth",
             ),
             "gfpgan_model_path": os.environ.get(
                 "GFPGAN_MODEL_PATH",
@@ -2397,6 +2758,7 @@ class ModernApp(ctk.CTk):
                 "features": [],
             },
         }
+
         def set_stage(stage, value, status_text, overlay_text):
             run_meta["stage"] = stage
             run_meta["stage_at"] = timestamp_str()
@@ -2408,14 +2770,18 @@ class ModernApp(ctk.CTk):
                     f" | {status_text}"
                 )
             self.report_progress(value, ui_status, overlay_text, run_id=ui_run_id)
+
         def check_cancel():
             if self.cancel_requested:
                 raise UserCancelledError("Cancelled")
+
         if not batch_mode:
             self._after_for_run(
                 ui_run_id,
                 0,
-                lambda: self.status_label.configure(text=f"Run {run_record_id} started..."),
+                lambda: self.status_label.configure(
+                    text=f"Run {run_record_id} started..."
+                ),
             )
         try:
             check_cancel()
@@ -2432,15 +2798,28 @@ class ModernApp(ctk.CTk):
                 set_stage("scratch", 0.05, "Repairing scratches...", "Scratch repair")
                 stage_start = time.perf_counter()
                 if self.scratch_model is None:
-                    self.scratch_model = load_scratch_model(SCRATCH_MODEL_PATH, self.device)
+                    self.scratch_model = load_scratch_model(
+                        SCRATCH_MODEL_PATH, self.device
+                    )
                 if self.scratch_model is not None:
                     input_img = apply_scratch_repair(
-                        input_img, self.scratch_model, self.device,
-                        SCRATCH_MASK_THRESHOLD, SCRATCH_INPAINT_RADIUS)
-                run_meta["timing"]["scratch"] = round(time.perf_counter() - stage_start, 3)
+                        input_img,
+                        self.scratch_model,
+                        self.device,
+                        SCRATCH_MASK_THRESHOLD,
+                        SCRATCH_INPAINT_RADIUS,
+                    )
+                run_meta["timing"]["scratch"] = round(
+                    time.perf_counter() - stage_start, 3
+                )
                 run_meta["scratch_repair"] = True
 
-            set_stage("upscale", 0.10, f"Upscaling image (x{self.scale_factor})...", "Upscaling")
+            set_stage(
+                "upscale",
+                0.10,
+                f"Upscaling image (x{self.scale_factor})...",
+                "Upscaling",
+            )
             stage_start = time.perf_counter()
             # Auto-select tile size based on image dimensions and available VRAM
             h_in, w_in = input_img.shape[:2]
@@ -2451,11 +2830,15 @@ class ModernApp(ctk.CTk):
             run_meta["timing"]["upscale"] = round(time.perf_counter() - stage_start, 3)
             output = sr_base
             check_cancel()
-            set_stage("refine", 0.65, "Upscale complete. Refining details...", "Refining")
+            set_stage(
+                "refine", 0.65, "Upscale complete. Refining details...", "Refining"
+            )
 
             if face_enhance:
                 check_cancel()
-                set_stage("face", 0.70, "Applying face enhancement...", "Face enhancement")
+                set_stage(
+                    "face", 0.70, "Applying face enhancement...", "Face enhancement"
+                )
                 stage_start = time.perf_counter()
                 try:
                     if GFPGANer is None:
@@ -2464,22 +2847,38 @@ class ModernApp(ctk.CTk):
                         "GFPGAN_MODEL_PATH",
                         "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth",
                     )
-                    if self.face_enhancer is None or self.face_enhancer_scale != self.scale_factor:
+                    if (
+                        self.face_enhancer is None
+                        or self.face_enhancer_scale != self.scale_factor
+                    ):
                         self.face_enhancer = GFPGANer(
                             model_path=gfpgan_path,
-                            upscale=self.scale_factor, arch='clean',
-                            channel_multiplier=2, bg_upsampler=self.upsampler)
+                            upscale=self.scale_factor,
+                            arch="clean",
+                            channel_multiplier=2,
+                            bg_upsampler=self.upsampler,
+                        )
                         self.face_enhancer_scale = self.scale_factor
                     _, _, face_output = self.face_enhancer.enhance(
-                        input_img, has_aligned=False,
-                        only_center_face=False, paste_back=True)
+                        input_img,
+                        has_aligned=False,
+                        only_center_face=False,
+                        paste_back=True,
+                    )
                     if face_output is not None:
                         output = blend_images(face_output, sr_base, face_blend)
                         used_face_enhance = True
                 except Exception as e:
-                    logger.warning("Face enhance failed (%s), switching to standard mode.", e)
-                    self._after_for_run(ui_run_id, 0, lambda: self.status_label.configure(
-                        text="Face enhancement unavailable, switching to standard mode..."))
+                    logger.warning(
+                        "Face enhance failed (%s), switching to standard mode.", e
+                    )
+                    self._after_for_run(
+                        ui_run_id,
+                        0,
+                        lambda: self.status_label.configure(
+                            text="Face enhancement unavailable, switching to standard mode..."
+                        ),
+                    )
                 run_meta["timing"]["face"] = round(time.perf_counter() - stage_start, 3)
 
             check_cancel()
@@ -2489,19 +2888,30 @@ class ModernApp(ctk.CTk):
                 output = suppress_edge_ringing(output, input_img, strength=0.25)
             else:
                 dehalo_strength = 0.62 if natural_blend <= 0.02 else 0.50
-                output = suppress_edge_ringing(output, input_img, strength=dehalo_strength)
+                output = suppress_edge_ringing(
+                    output, input_img, strength=dehalo_strength
+                )
                 output = blend_with_lr(output, input_img, natural_blend)
-                output = apply_unsharp_mask(output, texture_boost, blend_weight=natural_blend)
+                output = apply_unsharp_mask(
+                    output, texture_boost, blend_weight=natural_blend
+                )
             run_meta["timing"]["blend"] = round(time.perf_counter() - stage_start, 3)
             texture_ran = False
             if TEXTURE_ENABLED and TEXTURE_MODEL_ID:
                 try:
                     check_cancel()
-                    set_stage("texture", 0.88, "Generating texture details...", "Texture refinement")
+                    set_stage(
+                        "texture",
+                        0.88,
+                        "Generating texture details...",
+                        "Texture refinement",
+                    )
                     stage_start = time.perf_counter()
                     output = self.apply_texture_generation(output)
                     texture_ran = True
-                    run_meta["timing"]["texture"] = round(time.perf_counter() - stage_start, 3)
+                    run_meta["timing"]["texture"] = round(
+                        time.perf_counter() - stage_start, 3
+                    )
                 except UserCancelledError:
                     raise
                 except Exception as e:
@@ -2535,21 +2945,25 @@ class ModernApp(ctk.CTk):
                     self.img_output = stable_output
             except Exception as exc:
                 logger.warning("Reload output snapshot for GUI failed: %s", exc)
-            
+
             # Update output filename label
             output_filename = f"{base_name}_x{self.scale_factor}.png"
             self._after_for_run(
                 ui_run_id,
                 0,
-                lambda: self.lbl_filename_out.configure(text=f"Output: {output_filename}"),
+                lambda: self.lbl_filename_out.configure(
+                    text=f"Output: {output_filename}"
+                ),
             )
-            
+
             run_input_path = os.path.join(run_dir, f"{base_name}_input.png")
             save_image(run_input_path, input_img)
             run_meta["input_snapshot"] = run_input_path
             run_meta["output_files"]["input_snapshot"] = run_input_path
             run_meta["output_files"]["output_snapshot"] = run_output_path
-            run_meta["output_files"]["features"] = [name for name, _ in self.feature_maps]
+            run_meta["output_files"]["features"] = [
+                name for name, _ in self.feature_maps
+            ]
             run_meta["stage"] = "complete"
             run_meta["stage_at"] = timestamp_str()
 
@@ -2563,8 +2977,14 @@ class ModernApp(ctk.CTk):
             if isinstance(e, UserCancelledError):
                 cancelled = True
                 error_message = "Cancelled"
-                self._after_for_run(ui_run_id, 0, lambda: self.status_label.configure(text="Cancelled"))
-                self._after_for_run(ui_run_id, 0, lambda: self.show_output_overlay("Cancelled", animate=False))
+                self._after_for_run(
+                    ui_run_id, 0, lambda: self.status_label.configure(text="Cancelled")
+                )
+                self._after_for_run(
+                    ui_run_id,
+                    0,
+                    lambda: self.show_output_overlay("Cancelled", animate=False),
+                )
                 run_meta["error"] = "Cancelled"
                 run_meta["stage"] = "cancelled"
             else:
@@ -2574,9 +2994,17 @@ class ModernApp(ctk.CTk):
                     self._after_for_run(
                         ui_run_id,
                         0,
-                        lambda msg=error_dialog_text: messagebox.showerror("Error", msg),
+                        lambda msg=error_dialog_text: messagebox.showerror(
+                            "Error", msg
+                        ),
                     )
-                self._after_for_run(ui_run_id, 0, lambda: self.show_output_overlay("Processing failed", animate=False))
+                self._after_for_run(
+                    ui_run_id,
+                    0,
+                    lambda: self.show_output_overlay(
+                        "Processing failed", animate=False
+                    ),
+                )
                 run_meta["error"] = str(e)
                 run_meta["stage"] = "error"
             run_meta["stage_at"] = timestamp_str()
@@ -2599,11 +3027,20 @@ class ModernApp(ctk.CTk):
             if self.img_output is not None:
                 h, w = self.img_output.shape[:2]
                 run_meta["output_size"] = [int(w), int(h)]
-            if psnr is not None and ssim is not None and self.img_gt is not None and self.img_output is not None:
+            if (
+                psnr is not None
+                and ssim is not None
+                and self.img_gt is not None
+                and self.img_output is not None
+            ):
                 h, w = self.img_output.shape[:2]
                 img_gt_out = cv2.resize(self.img_gt, (w, h))
-                run_meta["metrics"]["psnr"] = float(psnr(img_gt_out, self.img_output, data_range=255))
-                run_meta["metrics"]["ssim"] = float(ssim(img_gt_out, self.img_output, data_range=255, channel_axis=2))
+                run_meta["metrics"]["psnr"] = float(
+                    psnr(img_gt_out, self.img_output, data_range=255)
+                )
+                run_meta["metrics"]["ssim"] = float(
+                    ssim(img_gt_out, self.img_output, data_range=255, channel_axis=2)
+                )
             self.write_run_log(run_dir, run_meta)
             self.progress_target = 1.0
 
@@ -2641,7 +3078,9 @@ class ModernApp(ctk.CTk):
                 self._after_for_run(
                     ui_run_id,
                     60,
-                    lambda p=run_output_path, rid=ui_run_id: self.render_output_after_completion(p, rid),
+                    lambda p=run_output_path, rid=ui_run_id: (
+                        self.render_output_after_completion(p, rid)
+                    ),
                 )
                 if not batch_mode:
                     self._after_for_run(ui_run_id, 190, apply_success_controls_state)
@@ -2684,27 +3123,29 @@ class ModernApp(ctk.CTk):
     def calculate_metrics(self):
         if psnr is None or ssim is None:
             self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, None, None)
-            self.lbl_gt_hint.pack(anchor="w", pady=(2, 0))
+            self.lbl_gt_hint.configure(text="Load Ground Truth to calculate metrics.")
             return
         if self.img_gt is None:
             self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, None, None)
-            self.lbl_gt_hint.pack(anchor="w", pady=(2, 0))
+            self.lbl_gt_hint.configure(text="Load Ground Truth to calculate metrics.")
             return
         with self._state_lock:
             img_out = self.img_output
         if img_out is None:
             self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, None, None)
-            self.lbl_gt_hint.pack(anchor="w", pady=(2, 0))
+            self.lbl_gt_hint.configure(text="Load Ground Truth to calculate metrics.")
             return
 
-        self.lbl_gt_hint.pack_forget()
+        self.lbl_gt_hint.configure(text="")
 
         h, w = img_out.shape[:2]
         img_gt_out = cv2.resize(self.img_gt, (w, h))
         s_psnr_out = psnr(img_gt_out, img_out, data_range=255)
         s_ssim_out = ssim(img_gt_out, img_out, data_range=255, channel_axis=2)
 
-        self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, s_psnr_out, s_ssim_out)
+        self.set_metric_labels(
+            self.lbl_psnr_out, self.lbl_ssim_out, s_psnr_out, s_ssim_out
+        )
 
     def start_run_record(self, run_root=None, ui_run_id: Optional[int] = None):
         run_id = uuid.uuid4().hex[:8]
@@ -2714,7 +3155,9 @@ class ModernApp(ctk.CTk):
         ensure_dir(run_dir)
         self.last_run_dir = run_dir
         self.last_run_id = run_id
-        self._after_for_run(ui_run_id, 0, lambda: self.btn_open_run_dir.configure(state="normal"))
+        self._after_for_run(
+            ui_run_id, 0, lambda: self.btn_open_run_dir.configure(state="normal")
+        )
         return run_id, run_dir
 
     def run_batch_folder(self):
@@ -2750,16 +3193,18 @@ class ModernApp(ctk.CTk):
         batch_subdir = os.path.join("batch", timestamp_str())
         self.batch_output_dir = self.get_output_dir(batch_subdir)
         queue_path = os.path.join(self.batch_output_dir, "batch_queue.json")
-        write_json_file(queue_path, {
-            "batch_run_id": self.batch_run_id,
-            "timestamp": timestamp_str(),
-            "folder": folder,
-            "total": self.batch_total,
-            "files": [os.path.basename(path) for path in files],
-        })
+        write_json_file(
+            queue_path,
+            {
+                "batch_run_id": self.batch_run_id,
+                "timestamp": timestamp_str(),
+                "folder": folder,
+                "total": self.batch_total,
+                "files": [os.path.basename(path) for path in files],
+            },
+        )
         messagebox.showinfo(
-            "Batch",
-            f"Found {self.batch_total} images.\nQueue saved to: {queue_path}"
+            "Batch", f"Found {self.batch_total} images.\nQueue saved to: {queue_path}"
         )
         self.set_run_button_batch(True)
         self.update_action_buttons()
@@ -2780,15 +3225,17 @@ class ModernApp(ctk.CTk):
                 self.batch_retry_counts[path] = retry_count + 1
                 self.status_label.configure(
                     text=f"Batch {self.batch_index + 1}/{self.batch_total}: "
-                         f"retry {retry_count + 1} for {os.path.basename(path)}"
+                    f"retry {retry_count + 1} for {os.path.basename(path)}"
                 )
                 self.after(500, self.start_next_batch_item)  # delay before retry
                 return
-            self.batch_errors.append({
-                "path": os.path.basename(path),
-                "error": str(exc),
-                "retries": retry_count,
-            })
+            self.batch_errors.append(
+                {
+                    "path": os.path.basename(path),
+                    "error": str(exc),
+                    "retries": retry_count,
+                }
+            )
             self.batch_index += 1
             self.after(0, self.start_next_batch_item)
             return
@@ -2810,11 +3257,13 @@ class ModernApp(ctk.CTk):
         if cancelled:
             self.batch_cancelled = True
         if not success and error_message:
-            self.batch_errors.append({
-                "path": os.path.basename(self.input_path or ""),
-                "error": error_message,
-                "retries": self.batch_retry_counts.get(self.input_path, 0),
-            })
+            self.batch_errors.append(
+                {
+                    "path": os.path.basename(self.input_path or ""),
+                    "error": error_message,
+                    "retries": self.batch_retry_counts.get(self.input_path, 0),
+                }
+            )
         self.batch_index += 1
         if cancelled or self.cancel_requested:
             self.finish_batch()
@@ -2834,15 +3283,20 @@ class ModernApp(ctk.CTk):
         self.hide_output_overlay()
         error_report_path = None
         if error_count:
-            error_report_path = os.path.join(self.batch_output_dir or "", "batch_errors.json")
-            write_json_file(error_report_path, {
-                "batch_run_id": self.batch_run_id,
-                "timestamp": timestamp_str(),
-                "total": total,
-                "processed": done,
-                "max_retries": self.batch_retry_limit,
-                "errors": self.batch_errors,
-            })
+            error_report_path = os.path.join(
+                self.batch_output_dir or "", "batch_errors.json"
+            )
+            write_json_file(
+                error_report_path,
+                {
+                    "batch_run_id": self.batch_run_id,
+                    "timestamp": timestamp_str(),
+                    "total": total,
+                    "processed": done,
+                    "max_retries": self.batch_retry_limit,
+                    "errors": self.batch_errors,
+                },
+            )
         if self.batch_cancelled:
             status = "Batch cancelled"
         else:
@@ -2910,15 +3364,20 @@ class ModernApp(ctk.CTk):
         def on_save(preview_window):
             out_dir = self.get_output_dir("compare", prompt=True)
             try:
-                pair_path, grid_path = make_comparison_images(img_in, img_out, self.scale_factor,
-                                                              base_name, out_dir)
-                messagebox.showinfo("Saved", f"Comparison images saved:\n{pair_path}\n{grid_path}")
+                pair_path, grid_path = make_comparison_images(
+                    img_in, img_out, self.scale_factor, base_name, out_dir
+                )
+                messagebox.showinfo(
+                    "Saved", f"Comparison images saved:\n{pair_path}\n{grid_path}"
+                )
                 preview_window.destroy()
             except Exception as e:
                 messagebox.showerror("Error", f"Save comparison failed: {e}")
 
         info_text = "Preview shows LR (upscaled) | SR"
-        self.show_image_preview("Comparison Preview", preview, info_text, "Save Comparison", on_save)
+        self.show_image_preview(
+            "Comparison Preview", preview, info_text, "Save Comparison", on_save
+        )
 
     def export_feature_maps(self):
         if not self.feature_maps:
@@ -2937,17 +3396,23 @@ class ModernApp(ctk.CTk):
         def on_save(preview_window):
             try:
                 out_dir = self.get_output_dir("features", prompt=True)
-                saved = save_feature_grids(self.feature_maps, base_name, self.scale_factor, out_dir)
+                saved = save_feature_grids(
+                    self.feature_maps, base_name, self.scale_factor, out_dir
+                )
                 if saved:
                     messagebox.showinfo("Saved", f"Feature grids saved: {len(saved)}")
                 else:
-                    messagebox.showinfo("Info", "No feature grids saved (empty tensors).")
+                    messagebox.showinfo(
+                        "Info", "No feature grids saved (empty tensors)."
+                    )
                 preview_window.destroy()
             except Exception as e:
                 messagebox.showerror("Error", f"Export features failed: {e}")
 
         info_text = f"Captured feature maps: {len(grids)}"
-        self.show_image_preview("Feature Preview", grids[0], info_text, "Save All", on_save)
+        self.show_image_preview(
+            "Feature Preview", grids[0], info_text, "Save All", on_save
+        )
 
     def save_result(self):
         if self.img_output is None:
@@ -2957,10 +3422,13 @@ class ModernApp(ctk.CTk):
             path = filedialog.asksaveasfilename(
                 defaultextension=".png",
                 filetypes=[
-                    ("PNG", "*.png"), ("JPG", "*.jpg"),
-                    ("WebP", "*.webp"), ("TIFF", "*.tiff"),
+                    ("PNG", "*.png"),
+                    ("JPG", "*.jpg"),
+                    ("WebP", "*.webp"),
+                    ("TIFF", "*.tiff"),
                     ("BMP", "*.bmp"),
-                ])
+                ],
+            )
             if path:
                 if self.img_output is not None:
                     save_image(path, self.img_output)
@@ -2969,7 +3437,9 @@ class ModernApp(ctk.CTk):
                     messagebox.showerror("Error", "No image to save")
                 preview_window.destroy()
 
-        self.show_image_preview("Result Preview", self.img_output, None, "Save As", on_save)
+        self.show_image_preview(
+            "Result Preview", self.img_output, None, "Save As", on_save
+        )
 
 
 if __name__ == "__main__":
