@@ -29,21 +29,22 @@
 #### 子代理职责表（oh-my-opencode 配置）
 
 **基础子代理（日常使用）**
-| 子代理 | 模型 | 成本 | 职责 | 何时使用 |
-|-------|------|-----|------|---------|
-| `explore` | Haiku | 低 | 快速代码搜索、文件浏览 | 了解代码结构、查找文件 |
-| `librarian` | Sonnet | 中 | 文档查询、API 资料整理 | 查阅文档、整理参考资料 |
-| `oracle` | Opus | 高 | 架构设计、调试建议、复杂决策 | 需要深度思考的问题 |
-| `multimodal-looker` | GPT-5.2 | 低 | 图像分析、截图理解 | 分析 GUI 截图、图像对比 |
+| 子代理 | 模型 | 思考强度 | 职责 | 何时使用 |
+|-------|------|---------|------|---------|
+| `explore` | Claude Haiku 4.5 | low | 快速代码搜索、文件浏览 | 了解代码结构、查找文件 |
+| `librarian` | Gemini 2.5 Pro | low | 文档查询、API 资料整理 | 查阅文档、整理参考资料 |
+| `oracle` | Gemini 3 Pro | high | 架构设计、调试建议、复杂决策 | 需要深度思考的问题 |
+| `multimodal-looker` | GPT-5.2 | low | 图像分析、截图理解 | 分析 GUI 截图、图像对比 |
 
 **高级工作流子代理（复杂项目）**
-| 子代理 | 模型 | 职责 | 何时使用 |
-|-------|------|------|---------|
-| `metis` | Opus | 前期分析：识别隐藏意图、检测歧义、生成澄清问题 | 需求不清晰时，在规划前调用 |
-| `prometheus` | Opus | 战略规划：需求收集、工作计划设计（保存到 `.sisyphus/plans/*.md`） | 复杂项目需要详细规划时 |
-| `momus` | GPT-5.3 Codex | 计划审查：验证计划可执行性、检查引用文件是否存在、捕获阻塞性问题 | 审查 prometheus 生成的计划 |
-| `atlas` | Sonnet | 主编排器：协调多个代理、管理并行执行、执行 QA 验证 | 需要协调多个子代理完成复杂工作流 |
-| `hephaestus` | GPT-5.3 Codex | 主实现代理：代码编写、测试创建、git 操作 | 需要大量代码实现的任务 |
+| 子代理 | 模型 | 思考强度 | 职责 | 何时使用 |
+|-------|------|---------|------|---------|
+| `metis` | Claude Opus 4.6 | high | 前期分析：识别隐藏意图、检测歧义、生成澄清问题 | 需求不清晰时，在规划前调用 |
+| `prometheus` | Gemini 3 Pro | high | 战略规划：需求收集、工作计划设计（保存到 `.sisyphus/plans/*.md`） | 复杂项目需要详细规划时 |
+| `momus` | Gemini 2.5 Pro | medium | 计划审查：验证计划可执行性、检查引用文件是否存在、捕获阻塞性问题 | 审查 prometheus 生成的计划 |
+| `atlas` | Gemini 2.5 Pro | medium | 主编排器：协调多个代理、管理并行执行、执行 QA 验证 | 需要协调多个子代理完成复杂工作流 |
+| `hephaestus` | GPT-5.3 Codex | xhigh | 主实现代理：代码编写、测试创建、git 操作 | 需要大量代码实现的任务 |
+| `sisyphus-junior` | Gemini 2.5 Pro | medium | 轻量级任务执行：简单代码修改、文件操作 | 不需要 Codex 的简单任务 |
 
 **完整工作流**（复杂项目推荐）：
 ```
@@ -70,6 +71,38 @@
 - **自检规则**：每次准备执行 `apply_patch` 或 `edit` 前，问自己：
   - "我这轮对话调用过子代理了吗？"
   - 如果没有，**必须先调用**，否则视为违规
+
+### 🚨 代码修改必须委派 (MANDATORY - 节省主代理配额)
+**背景**：主代理（sisyphus/hephaestus）使用 Codex，有周限额限制。为节省配额，代码修改工作必须尽量委派给子代理。
+
+#### 强制委派规则
+1. **代码实现任务**：任何需要写代码/改代码的任务，必须委派给 `hephaestus` 子代理执行
+2. **主代理只做协调**：主代理的职责是：
+   - 理解用户需求
+   - 派 `explore` 了解代码结构
+   - 派 `oracle` 设计方案
+   - 派 `hephaestus` 执行代码修改
+   - 汇总结果给用户
+3. **禁止主代理直接改代码**：主代理不应该直接调用 `edit`/`apply_patch`/`write` 修改代码文件
+   - 例外：只有修改 AGENTS.md、README.md 等文档文件时可以直接操作
+
+#### 典型工作流
+```
+用户: "修复这个 bug"
+主代理:
+  1. task(explore) → 定位 bug 位置
+  2. task(oracle) → 分析修复方案
+  3. task(hephaestus) → 执行代码修改
+  4. 汇总结果给用户
+```
+
+#### 违规示例（禁止）
+```
+用户: "修复这个 bug"
+主代理:
+  1. read 文件
+  2. 直接 edit/apply_patch 修改代码  ← 违规！应该委派给 hephaestus
+```
 
 ### 网页和文件读取委托规则 (MANDATORY)
 - **网页抓取**：任何需要访问网页、API 文档、在线资源的任务，必须派子代理（`explore` 或 `librarian`）去完成，主代理不要直接调用 `web_fetch` / `browser` 等工具
@@ -137,6 +170,14 @@ If the workspace is NOT started, tools may produce:
 
 ### Golden rule
 If you see a drive letter (`D:\` / `C:\`) in any `apply_patch` / `edit` / `write` target, **STOP** and convert to workspace-relative path first.
+
+### Hard guard (for this exact failure mode)
+- Before any `apply_patch` / `edit` / `write`, run a preflight check on the target path:
+  1) Reject if it matches `^[A-Za-z]:\\` (Windows absolute path).
+  2) Convert to workspace-relative path.
+  3) `read` the same relative path once; only write after read succeeds.
+- Reason: absolute paths in file tools can be re-prefixed by workspace root and produce errors like:
+  - `apply_patch verification failed: Failed to read file to update: D:\...\Historical-Photo100\D...`
 
 ---
 
