@@ -1,5 +1,13 @@
 # Changelog
 
+- 2026-02-18: Fixed persistent sidebar ghosting and title clipping in `(gui)super-resolution processing.py`.
+  - Stabilized sidebar metric block layout to reduce geometry jitter (`metrics_frame` grid consistency + reserved hint row height).
+  - Replaced transient hint visibility geometry toggles with text-only updates for `lbl_gt_hint` to avoid frequent relayout during metric refresh.
+  - Migrated sidebar container to an outer fixed frame + inner `CTkScrollableFrame` to prevent overflow repaint artifacts under high-DPI or constrained vertical space.
+  - Adjusted sidebar width allocation so `Super Resolution` title renders fully after introducing scrollable container.
+  - User visual verification confirmed the sidebar ghosting issue is resolved; changes were committed and pushed as `09fbd40` on `origin/main`.
+  - Updated `.context/CURRENT_TASK.md` and `.context/CHANGELOG.md` to keep project memory in sync.
+
 - 2026-02-15: Executed repository history sanitization workflow for leaked key cleanup.
   - Ran local history rewrite with `python -m git_filter_repo --replace-text` to redact leaked key fragments from all commits.
   - Verified cleanup with history scans (`git log -S <fragment>`) and working-tree scans (no plaintext key matches).

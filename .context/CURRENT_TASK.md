@@ -1,6 +1,16 @@
 # Current Task
 
-Last update: 2026-02-15
+Last update: 2026-02-18
+
+## Recently Completed (2026-02-18)
+- 已完成侧边栏重影（重绘残影）修复并通过用户可视验收：`Start Restoration` 与 `Compare Slider` 区域不再出现双层错位。
+- 已在 `(gui)super-resolution processing.py` 中完成布局稳定化调整：
+  - `metrics_frame` 内部统一为 `grid` 布局；
+  - `lbl_gt_hint` 改为 `configure(text=...)` 文本切换，避免频繁几何抖动；
+  - `metrics_frame` 背景改为与侧栏同色，并为提示行预留 `minsize`。
+- 已将左侧容器改为“外层固定 + 内层 `CTkScrollableFrame`”结构，降低高 DPI/溢出场景下的重绘伪影风险。
+- 已修复标题显示不完整问题：调整侧栏外层与滚动容器宽度后，`Super Resolution` 文案恢复完整显示。
+- 代码提交与远端同步完成：`09fbd40`（`origin/main`）。
 
 ## Recently Completed (2026-02-15)
 - 已执行历史脱敏清理：使用 `git_filter_repo --replace-text` 重写本地历史，清除已泄露 key 片段；`git log -S <leak-fragment>` 与关键字扫描均无命中。
@@ -77,7 +87,6 @@ Last update: 2026-02-15
 
 ## In Progress
 - Drag-and-drop disabled (windnd/Win32 incompatible with customtkinter); revisit if CTk adds native DnD.
-- 用户侧视觉验收仍待确认：需要基于同一批样例图复测“重影是否显著降低”和“输入/输出面板是否完整显示全图”。
 
 ## Known Optimization Opportunities
 - **单图完成弹窗**: 每次单图处理完弹 `messagebox.showinfo`，可改为状态栏提示以减少打断。
