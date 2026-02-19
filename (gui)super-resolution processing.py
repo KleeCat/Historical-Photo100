@@ -794,6 +794,13 @@ class ModernApp(ctk.CTk):
         self.progress_bar.set(0.5)
         threading.Thread(target=self.load_model, daemon=True).start()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.bind("<Map>", self._on_window_map)
+
+    def _on_window_map(self, event=None):
+        """Force sidebar refresh when window is restored from minimized state."""
+        if event and event.widget is self:
+            self._sidebar_outer.update_idletasks()
+            self.sidebar.update_idletasks()
 
     def setup_ui(self):
         # === 1. Sidebar (Left) ===
@@ -803,6 +810,7 @@ class ModernApp(ctk.CTk):
         self._sidebar_outer.grid(row=0, column=0, rowspan=4, sticky="nsew")
         self._sidebar_outer.grid_rowconfigure(0, weight=1)
         self._sidebar_outer.grid_columnconfigure(0, weight=1)
+        self._sidebar_outer.grid_propagate(False)
         self.sidebar = ctk.CTkScrollableFrame(
             self._sidebar_outer,
             width=UI_SIDEBAR_WIDTH,
