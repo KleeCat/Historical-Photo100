@@ -1,5 +1,12 @@
 # Changelog
 
+- 2026-02-20: Fixed minimize/restore ghosting in `(gui)super-resolution processing.py`.
+  - Root cause isolated via systematic test scripts: CTkButton's internal CTkCanvas fails to redraw after Windows window restore.
+  - Pure tkinter widgets have no issue; ghosting is specific to CustomTkinter's Canvas-based rendering on Windows.
+  - Solution: poll `self.state()` every 50ms; on `iconic→normal` transition, chain three `after_idle` calls to wait for Tk event queue to fully drain, then toggle `wm_attributes('-alpha', 0.99→1.0)` to force DWM recomposition.
+  - All previous approaches failed: grid_remove/grid, pack_forget/pack, fake resize, InvalidateRect, RedrawWindow, WM_PAINT, _draw(), configure(text), appearance mode toggle, alpha without idle chain.
+  - User visual verification confirmed fix; changes committed.
+
 - 2026-02-18: Fixed persistent sidebar ghosting and title clipping in `(gui)super-resolution processing.py`.
   - Stabilized sidebar metric block layout to reduce geometry jitter (`metrics_frame` grid consistency + reserved hint row height).
   - Replaced transient hint visibility geometry toggles with text-only updates for `lbl_gt_hint` to avoid frequent relayout during metric refresh.

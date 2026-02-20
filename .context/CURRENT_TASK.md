@@ -1,6 +1,12 @@
 # Current Task
 
-Last update: 2026-02-18
+Last update: 2026-02-20
+
+## Recently Completed (2026-02-20)
+- 已完成最小化/恢复重影修复并通过用户可视验收。
+- 根本原因：CTkButton 内部 CTkCanvas 在 Windows 窗口恢复后不重绘，pure tkinter 无此问题。
+- 解决方案：轮询 `self.state()`，检测到 `iconic→normal` 后链式调用三层 `after_idle`，等待 Tk 事件队列完全清空，再用 `wm_attributes('-alpha', 0.99→1.0)` 触发 DWM 重新合成。
+- 相关方法：`_poll_window_state`, `_refresh_idle1`, `_refresh_idle2`, `_refresh_sidebar`（约第 800 行）。
 
 ## Recently Completed (2026-02-18)
 - 已完成侧边栏重影（重绘残影）修复并通过用户可视验收：`Start Restoration` 与 `Compare Slider` 区域不再出现双层错位。

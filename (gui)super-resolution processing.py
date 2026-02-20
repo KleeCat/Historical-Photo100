@@ -794,13 +794,28 @@ class ModernApp(ctk.CTk):
         self.progress_bar.set(0.5)
         threading.Thread(target=self.load_model, daemon=True).start()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.bind("<Map>", self._on_window_map)
+        self._last_win_state = "normal"
+        self.after(50, self._poll_window_state)
 
-    def _on_window_map(self, event=None):
-        """Force sidebar refresh when window is restored from minimized state."""
-        if event and event.widget is self:
-            self._sidebar_outer.update_idletasks()
-            self.sidebar.update_idletasks()
+    def _poll_window_state(self):
+        try:
+            current = self.state()
+        except Exception:
+            return
+        if self._last_win_state == "iconic" and current == "normal":
+            self.after_idle(self._refresh_idle1)
+        self._last_win_state = current
+        self.after(50, self._poll_window_state)
+
+    def _refresh_idle1(self):
+        self.after_idle(self._refresh_idle2)
+
+    def _refresh_idle2(self):
+        self.after_idle(self._refresh_sidebar)
+
+    def _refresh_sidebar(self):
+        self.wm_attributes('-alpha', 0.99)
+        self.after(50, lambda: self.wm_attributes('-alpha', 1.0))
 
     def setup_ui(self):
         # === 1. Sidebar (Left) ===
