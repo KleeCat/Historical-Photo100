@@ -1249,7 +1249,7 @@ class ModernApp(ctk.CTk):
         self.status_frame = ctk.CTkFrame(self, height=30, corner_radius=0)
         self.status_frame.grid(row=2, column=1, sticky="ew")
 
-        self.status_label = ctk.CTkLabel(self.status_frame, text="Ready", padx=10)
+        self.status_label = ctk.CTkLabel(self.status_frame, text="Ready", padx=10, width=400, anchor="w")
         self.status_label.pack(side="left")
 
         # Determinate Progress Bar
@@ -2363,6 +2363,8 @@ class ModernApp(ctk.CTk):
         self, value, status_text=None, overlay_text=None, run_id: Optional[int] = None
     ):
         def update():
+            if not self.is_processing:
+                return
             self.progress_target = max(self.progress_target, value)
             # Immediately jump the bar to at least the previous target
             # so it never appears stuck behind the actual stage.
@@ -3094,6 +3096,8 @@ class ModernApp(ctk.CTk):
                     self.update_compare_controls()
                 if elapsed is not None:
                     self.elapsed_label.configure(text=f"Elapsed: {elapsed:.1f}s")
+                if success:
+                    self.calculate_metrics()
 
             self._after_for_run(ui_run_id, 0, apply_finalize_ui_state)
             if success:
