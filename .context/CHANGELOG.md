@@ -1,5 +1,11 @@
 # Changelog
 
+- 2026-02-21: Fixed CTkLabel canvas rendering artifacts in `(gui)super-resolution processing.py`.
+  - Root cause: CTkLabel uses internal canvas with transparent background by default; when text shrinks, old pixels are not cleared, causing visual residue.
+  - Symptoms: "Done (x4)" showed partial "output" residue; overlay "Start restoration" displayed as "art restorati" (clipped on both ends).
+  - Solution: Added `fg_color` matching parent frame to both `status_label` and `output_overlay_label`, ensuring canvas background is opaque and clears old pixels on each redraw.
+  - User visual verification confirmed fix.
+
 - 2026-02-20: Fixed minimize/restore ghosting in `(gui)super-resolution processing.py`.
   - Root cause isolated via systematic test scripts: CTkButton's internal CTkCanvas fails to redraw after Windows window restore.
   - Pure tkinter widgets have no issue; ghosting is specific to CustomTkinter's Canvas-based rendering on Windows.

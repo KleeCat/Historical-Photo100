@@ -1,6 +1,12 @@
 # Current Task
 
-Last update: 2026-02-20
+Last update: 2026-02-21
+
+## Recently Completed (2026-02-21)
+- 已修复 CTkLabel canvas 渲染残影问题并通过用户可视验收。
+- 根本原因：CTkLabel 默认使用透明背景 canvas，文本缩短时旧像素不被清除，产生视觉残留。
+- 症状：状态栏 "Done (x4)" 后显示 "output" 残影；overlay "Start restoration" 显示为 "art restorati"（两端截断）。
+- 解决方案：给 `status_label` 和 `output_overlay_label` 添加 `fg_color` 匹配父 frame，使 canvas 背景不透明，每次重绘时清除旧像素。
 
 ## Recently Completed (2026-02-20)
 - 已完成最小化/恢复重影修复并通过用户可视验收。

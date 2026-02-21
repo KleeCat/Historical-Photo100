@@ -1227,6 +1227,7 @@ class ModernApp(ctk.CTk):
             text="Waiting for processing...",
             text_color=("gray20", "gray80"),
             font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color=self.output_overlay.cget("fg_color"),
         )
         self.output_overlay_label.pack(expand=True)
         self.output_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
@@ -1249,7 +1250,8 @@ class ModernApp(ctk.CTk):
         self.status_frame = ctk.CTkFrame(self, height=30, corner_radius=0)
         self.status_frame.grid(row=2, column=1, sticky="ew")
 
-        self.status_label = ctk.CTkLabel(self.status_frame, text="Ready", padx=10, width=400, anchor="w")
+        self.status_label = ctk.CTkLabel(self.status_frame, text="Ready", padx=10, width=400, anchor="w",
+                                         fg_color=self.status_frame.cget("fg_color"))
         self.status_label.pack(side="left")
 
         # Determinate Progress Bar
