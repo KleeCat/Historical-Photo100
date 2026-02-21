@@ -894,6 +894,7 @@ class ModernApp(ctk.CTk):
             font=ctk.CTkFont(size=11),
             wraplength=200,
             justify="left",
+            fg_color=self.sidebar.cget("fg_color"),
         )
         self.lbl_output_dir.grid(row=7, column=0, padx=20, pady=(0, 6), sticky="w")
 
@@ -912,7 +913,8 @@ class ModernApp(ctk.CTk):
         self.switch_scratch.grid(row=9, column=0, padx=20, pady=4, sticky="w")
 
         self.lbl_face_blend = ctk.CTkLabel(
-            self.sidebar, text=f"Face Blend: {self.face_blend.get():.2f}"
+            self.sidebar, text=f"Face Blend: {self.face_blend.get():.2f}",
+            fg_color=self.sidebar.cget("fg_color"),
         )
         self.lbl_face_blend.grid(row=10, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_face_blend.grid_remove()
@@ -930,7 +932,8 @@ class ModernApp(ctk.CTk):
         self.slider_face_blend.grid_remove()
 
         self.lbl_natural_blend = ctk.CTkLabel(
-            self.sidebar, text=f"Natural Blend: {self.natural_blend.get():.2f}"
+            self.sidebar, text=f"Natural Blend: {self.natural_blend.get():.2f}",
+            fg_color=self.sidebar.cget("fg_color"),
         )
         self.lbl_natural_blend.grid(row=12, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_natural_blend.grid_remove()
@@ -948,7 +951,8 @@ class ModernApp(ctk.CTk):
         self.slider_natural_blend.grid_remove()
 
         self.lbl_texture_boost = ctk.CTkLabel(
-            self.sidebar, text=f"Texture Boost: {self.texture_boost.get():.2f}"
+            self.sidebar, text=f"Texture Boost: {self.texture_boost.get():.2f}",
+            fg_color=self.sidebar.cget("fg_color"),
         )
         self.lbl_texture_boost.grid(row=14, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_texture_boost.grid_remove()
@@ -966,7 +970,8 @@ class ModernApp(ctk.CTk):
         self.slider_texture_boost.grid_remove()
 
         self.lbl_film_grain = ctk.CTkLabel(
-            self.sidebar, text=f"Film Grain: {self.film_grain.get():.2f}"
+            self.sidebar, text=f"Film Grain: {self.film_grain.get():.2f}",
+            fg_color=self.sidebar.cget("fg_color"),
         )
         self.lbl_film_grain.grid(row=16, column=0, padx=20, pady=(0, 4), sticky="w")
         self.lbl_film_grain.grid_remove()
@@ -1085,7 +1090,8 @@ class ModernApp(ctk.CTk):
             command=self.on_compare_mode_toggle,
         )
         self.switch_compare.grid(row=27, column=0, padx=20, pady=(4, 2), sticky="w")
-        self.lbl_compare_split = ctk.CTkLabel(self.sidebar, text="Split: 50%")
+        self.lbl_compare_split = ctk.CTkLabel(self.sidebar, text="Split: 50%",
+                                              fg_color=self.sidebar.cget("fg_color"))
         self.lbl_compare_split.grid(row=28, column=0, padx=20, pady=(0, 2), sticky="w")
         self.slider_compare = ctk.CTkSlider(
             self.sidebar,
@@ -1111,14 +1117,17 @@ class ModernApp(ctk.CTk):
             self.metrics_frame,
             text="Resolution",
             font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=self.metrics_frame.cget("fg_color"),
         )
         self.lbl_resolution_title.grid(row=0, column=0, sticky="w")
         self.lbl_resolution_in = ctk.CTkLabel(
-            self.metrics_frame, text="Input: -- x --", font=ctk.CTkFont(size=15)
+            self.metrics_frame, text="Input: -- x --", font=ctk.CTkFont(size=15),
+            fg_color=self.metrics_frame.cget("fg_color"),
         )
         self.lbl_resolution_in.grid(row=1, column=0, sticky="w")
         self.lbl_resolution_out = ctk.CTkLabel(
-            self.metrics_frame, text="Output: -- x --", font=ctk.CTkFont(size=15)
+            self.metrics_frame, text="Output: -- x --", font=ctk.CTkFont(size=15),
+            fg_color=self.metrics_frame.cget("fg_color"),
         )
         self.lbl_resolution_out.grid(row=2, column=0, sticky="w", pady=(0, 4))
         self.lbl_resolution_title.grid_remove()
@@ -1129,14 +1138,19 @@ class ModernApp(ctk.CTk):
             self.metrics_frame,
             text="Output vs GT",
             font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=self.metrics_frame.cget("fg_color"),
         )
         self.lbl_metrics_after.grid(row=3, column=0, sticky="w")
+        self.psnr_var = ctk.StringVar(value="PSNR: --")
         self.lbl_psnr_out = ctk.CTkLabel(
-            self.metrics_frame, text="PSNR: --", font=ctk.CTkFont(size=15)
+            self.metrics_frame, textvariable=self.psnr_var, font=ctk.CTkFont(size=15),
+            fg_color=self.metrics_frame.cget("fg_color"),
         )
         self.lbl_psnr_out.grid(row=4, column=0, sticky="w")
+        self.ssim_var = ctk.StringVar(value="SSIM: --")
         self.lbl_ssim_out = ctk.CTkLabel(
-            self.metrics_frame, text="SSIM: --", font=ctk.CTkFont(size=15)
+            self.metrics_frame, textvariable=self.ssim_var, font=ctk.CTkFont(size=15),
+            fg_color=self.metrics_frame.cget("fg_color"),
         )
         self.lbl_ssim_out.grid(row=5, column=0, sticky="w")
         self.lbl_gt_hint = ctk.CTkLabel(
@@ -1144,6 +1158,7 @@ class ModernApp(ctk.CTk):
             text="Load Ground Truth to calculate metrics.",
             font=ctk.CTkFont(size=11),
             text_color=("gray40", "gray60"),
+            fg_color=self.metrics_frame.cget("fg_color"),
         )
         self.lbl_gt_hint.grid(row=6, column=0, sticky="w", pady=(2, 0))
 
@@ -1233,11 +1248,13 @@ class ModernApp(ctk.CTk):
         self.output_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
 
         self.lbl_resolution_in_display = ctk.CTkLabel(
-            self.display_frame, text="Input: -- x --", font=ctk.CTkFont(size=12)
+            self.display_frame, text="Input: -- x --", font=ctk.CTkFont(size=12),
+            fg_color=self.display_frame.cget("fg_color"),
         )
         self.lbl_resolution_in_display.grid(row=3, column=0, pady=(0, 5))
         self.lbl_resolution_out_display = ctk.CTkLabel(
-            self.display_frame, text="Output: -- x --", font=ctk.CTkFont(size=12)
+            self.display_frame, text="Output: -- x --", font=ctk.CTkFont(size=12),
+            fg_color=self.display_frame.cget("fg_color"),
         )
         self.lbl_resolution_out_display.grid(row=3, column=1, pady=(0, 5))
 
@@ -1260,7 +1277,8 @@ class ModernApp(ctk.CTk):
         )
         self.progress_bar.pack(side="right", padx=20, pady=5)
         self.elapsed_label = ctk.CTkLabel(
-            self.status_frame, text="Elapsed: --", padx=10
+            self.status_frame, text="Elapsed: --", padx=10,
+            fg_color=self.status_frame.cget("fg_color"),
         )
         self.elapsed_label.pack(side="right")
         self.progress_bar.set(0)
@@ -3143,11 +3161,15 @@ class ModernApp(ctk.CTk):
     def set_metric_labels(self, psnr_label, ssim_label, psnr_value, ssim_value):
         if psnr_value is None or ssim_value is None:
             neutral = ("gray20", "gray70")
-            psnr_label.configure(text="PSNR: --", text_color=neutral)
-            ssim_label.configure(text="SSIM: --", text_color=neutral)
+            self.psnr_var.set("PSNR: --")
+            self.ssim_var.set("SSIM: --")
+            psnr_label.configure(text_color=neutral)
+            ssim_label.configure(text_color=neutral)
             return
-        psnr_label.configure(text=f"PSNR: {psnr_value:.2f} dB", text_color="#2CC985")
-        ssim_label.configure(text=f"SSIM: {ssim_value:.4f}", text_color="#2CC985")
+        self.psnr_var.set(f"PSNR: {psnr_value:.2f} dB")
+        self.ssim_var.set(f"SSIM: {ssim_value:.4f}")
+        psnr_label.configure(text_color="#2CC985")
+        ssim_label.configure(text_color="#2CC985")
 
     def calculate_metrics(self):
         if psnr is None or ssim is None:

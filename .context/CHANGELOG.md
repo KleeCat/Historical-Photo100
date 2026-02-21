@@ -1,5 +1,10 @@
 # Changelog
 
+- 2026-02-21: Fixed CTkLabel canvas rendering artifacts across all dynamic labels in `(gui)super-resolution processing.py`.
+  - Added `fg_color` matching parent frame to all dynamic CTkLabels (status_label, overlay_label, metrics labels, slider labels, etc.).
+  - Replaced `configure(text=...)` with `StringVar` + `textvariable` for `lbl_psnr_out` and `lbl_ssim_out` to eliminate canvas residue on text change.
+  - User visual verification confirmed fix.
+
 - 2026-02-21: Fixed CTkLabel canvas rendering artifacts in `(gui)super-resolution processing.py`.
   - Root cause: CTkLabel uses internal canvas with transparent background by default; when text shrinks, old pixels are not cleared, causing visual residue.
   - Symptoms: "Done (x4)" showed partial "output" residue; overlay "Start restoration" displayed as "art restorati" (clipped on both ends).

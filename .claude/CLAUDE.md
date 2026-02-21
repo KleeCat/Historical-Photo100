@@ -32,3 +32,4 @@
 ## Git 操作
 
 - "提交"和"上传"均指提交并推送（git commit + git push）
+- 未经用户明确允许，不可私自执行 git push

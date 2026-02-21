@@ -3,6 +3,12 @@
 Last update: 2026-02-21
 
 ## Recently Completed (2026-02-21)
+- 已完成 CTkLabel canvas 渲染残影全面修复并通过用户可视验收。
+- 给所有动态更新的 CTkLabel 添加 `fg_color` 匹配父 frame（status_label、overlay_label、metrics labels、slider labels 等）。
+- `lbl_psnr_out` 和 `lbl_ssim_out` 改用 `StringVar` + `textvariable`，彻底消除文本变化时的 canvas 残影。
+- 相关变量：`self.psnr_var`、`self.ssim_var`（约第 1144 行）；`set_metric_labels` 方法（约第 3159 行）。
+
+## Recently Completed (2026-02-21)
 - 已修复 CTkLabel canvas 渲染残影问题并通过用户可视验收。
 - 根本原因：CTkLabel 默认使用透明背景 canvas，文本缩短时旧像素不被清除，产生视觉残留。
 - 症状：状态栏 "Done (x4)" 后显示 "output" 残影；overlay "Start restoration" 显示为 "art restorati"（两端截断）。
