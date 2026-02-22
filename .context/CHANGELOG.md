@@ -1,5 +1,17 @@
 # Changelog
 
+- 2026-02-22: Comprehensive code optimization for `(gui)super-resolution processing.py` (~185 lines net reduction).
+  - Deleted ~150 lines of Win32 drag-and-drop dead code (`_setup_win32_drop`, `on_drop_files`, `_load_dropped_file`).
+  - Extracted `_get_dpi_scale` and `_assign_image_to_label` helpers; refactored `render_zoomed_image`, `show_image_file_ctk`, `show_image_ctk`.
+  - Merged `_recreate_output_label` / `_recreate_input_label` into unified `_recreate_label(target)`.
+  - Split `process_image` into `_stage_scratch_repair`, `_stage_face_enhance`, `_stage_blend_and_texture`.
+  - Fixed `set_stage` calls for texture (0.88) and finalize (0.95) progress inside `_stage_blend_and_texture`.
+  - Cached `CascadeClassifier` as `self._face_cascade` in `detect_faces`.
+  - Merged 3 identical early-return branches in `calculate_metrics` into one condition.
+  - Moved `AppearanceModeTracker` import to file top; removed duplicate inside `_force_ctk_redraw`.
+  - Changed `_log_output_render`, `show_output_overlay`, `hide_output_overlay` from `logger.info` to `logger.debug`.
+  - Fixed Save Comparison / Export Features output dirs to include image name + timestamp.
+
 - 2026-02-22: Code review optimization for window minimize/restore mechanism in `(gui)super-resolution processing.py`.
   - Removed redundant `import time` in `_force_ctk_redraw` (already imported at file top).
   - Reduced `_update_all_scrollable_frames` call count from 3 (immediate + post-layout + 50ms delay) to 2 (immediate + 50ms delay).

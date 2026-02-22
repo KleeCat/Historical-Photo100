@@ -3,14 +3,20 @@
 Last update: 2026-02-22
 
 ## Recently Completed (2026-02-22)
-- 代码审查后优化窗口最小化/恢复机制（`(gui)super-resolution processing.py`）：
-  - 移除 `_force_ctk_redraw` 内的冗余 `import time`（已在文件顶部导入）。
-  - 减少 `_update_all_scrollable_frames` 调用次数：从 3 次（立即 + 布局后 + 50ms 延迟）优化为 2 次（立即 + 50ms 延迟）。
-  - 增强 `_apply_appearance_mode` 兼容性：添加 `hasattr` 检查和降级处理，避免未来 CTk 版本升级时的 API 破坏。
-  - 显式检查 `bbox("all")` 返回值：仅在非 `None` 时更新 `scrollregion`，避免传入空值。
-- 清理临时文件：删除 `BEST_PRACTICES.md`、`DEVELOPER_GUIDE.md`、`TEST_REPORT_TEMPLATE.md`、`test_window_restore.py`、`nul`、`bash.exe.stackdump`。
-- Git 历史清理：重置 3 个未推送的提交（回到 `origin/main`），保留优化后的工作区代码。
-- 相关方法：`_force_ctk_redraw`（行 810）、`_update_all_scrollable_frames`（行 826）。
+- 综合代码优化（`(gui)super-resolution processing.py`，净减约 185 行）：
+  - 删除 Win32 拖放死代码（~150 行）：`_setup_win32_drop`、`on_drop_files`、`_load_dropped_file`。
+  - 提取 `_get_dpi_scale` 和 `_assign_image_to_label` 辅助方法，重构三处图像渲染函数。
+  - 合并 `_recreate_output_label` / `_recreate_input_label` 为统一的 `_recreate_label(target)`。
+  - 拆分 `process_image` 为 `_stage_scratch_repair`、`_stage_face_enhance`、`_stage_blend_and_texture`。
+  - 修复 `_stage_blend_and_texture` 中缺失的 `set_stage` 调用（texture 0.88、finalize 0.95）。
+  - 缓存 `CascadeClassifier` 为 `self._face_cascade` 实例变量。
+  - 合并 `calculate_metrics` 中 3 个相同的 early-return 分支为单一条件。
+  - 移动 `AppearanceModeTracker` 导入到文件顶部。
+  - 高频日志降级为 `logger.debug`。
+  - 修复 Save Comparison / Export Features 输出目录命名（加入图片名 + 时间戳）。
+- 代码审查后优化窗口最小化/恢复机制：
+  - 移除冗余 `import time`、减少 `_update_all_scrollable_frames` 调用次数、增强 API 兼容性、`bbox` 空值检查。
+- 清理临时文件及 Git 历史。
 
 ## Recently Completed (2026-02-21)
 - 已完成窗口最小化/恢复机制优化，采用完整的 CTkScrollableFrame 重绘方案。
