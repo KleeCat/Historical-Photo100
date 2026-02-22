@@ -1,12 +1,25 @@
 # Current Task
 
-Last update: 2026-02-21
+Last update: 2026-02-22
+
+## Recently Completed (2026-02-22)
+- 代码审查后优化窗口最小化/恢复机制（`(gui)super-resolution processing.py`）：
+  - 移除 `_force_ctk_redraw` 内的冗余 `import time`（已在文件顶部导入）。
+  - 减少 `_update_all_scrollable_frames` 调用次数：从 3 次（立即 + 布局后 + 50ms 延迟）优化为 2 次（立即 + 50ms 延迟）。
+  - 增强 `_apply_appearance_mode` 兼容性：添加 `hasattr` 检查和降级处理，避免未来 CTk 版本升级时的 API 破坏。
+  - 显式检查 `bbox("all")` 返回值：仅在非 `None` 时更新 `scrollregion`，避免传入空值。
+- 清理临时文件：删除 `BEST_PRACTICES.md`、`DEVELOPER_GUIDE.md`、`TEST_REPORT_TEMPLATE.md`、`test_window_restore.py`、`nul`、`bash.exe.stackdump`。
+- Git 历史清理：重置 3 个未推送的提交（回到 `origin/main`），保留优化后的工作区代码。
+- 相关方法：`_force_ctk_redraw`（行 810）、`_update_all_scrollable_frames`（行 826）。
 
 ## Recently Completed (2026-02-21)
-- 已完成 CTkLabel canvas 渲染残影全面修复并通过用户可视验收。
-- 给所有动态更新的 CTkLabel 添加 `fg_color` 匹配父 frame（status_label、overlay_label、metrics labels、slider labels 等）。
-- `lbl_psnr_out` 和 `lbl_ssim_out` 改用 `StringVar` + `textvariable`，彻底消除文本变化时的 canvas 残影。
-- 相关变量：`self.psnr_var`、`self.ssim_var`（约第 1144 行）；`set_metric_labels` 方法（约第 3159 行）。
+- 已完成窗口最小化/恢复机制优化，采用完整的 CTkScrollableFrame 重绘方案。
+- 替换三层 `_refresh_idle1/2/sidebar` idle 链为单一 `_force_ctk_redraw()` 方法。
+- 新增 `_update_all_scrollable_frames()` 递归更新所有 CTkScrollableFrame 的 Canvas 背景色和 scrollregion。
+- 改用 `update_idletasks()` 替代 `update()`，避免 UI 阻塞。
+- 添加性能监控，记录执行时间 > 100ms 的警告。
+- 根本原因：CTkScrollableFrame 的 `_set_appearance_mode()` 仅更新 Canvas 背景色，不更新 scrollregion；嵌套控件在最小化/恢复时不被重绘。
+- 解决方案：直接调用 `AppearanceModeTracker.update_callbacks()` + 递归 Canvas/scrollregion 刷新 + 两层更新策略。
 
 ## Recently Completed (2026-02-21)
 - 已修复 CTkLabel canvas 渲染残影问题并通过用户可视验收。

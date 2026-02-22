@@ -1,5 +1,23 @@
 # Changelog
 
+- 2026-02-22: Code review optimization for window minimize/restore mechanism in `(gui)super-resolution processing.py`.
+  - Removed redundant `import time` in `_force_ctk_redraw` (already imported at file top).
+  - Reduced `_update_all_scrollable_frames` call count from 3 (immediate + post-layout + 50ms delay) to 2 (immediate + 50ms delay).
+  - Enhanced `_apply_appearance_mode` compatibility: added `hasattr` check and fallback handling to prevent future CTk API breakage.
+  - Explicit `bbox("all")` null check: only update `scrollregion` when bbox is not `None`.
+  - Cleaned up temporary files: deleted `BEST_PRACTICES.md`, `DEVELOPER_GUIDE.md`, `TEST_REPORT_TEMPLATE.md`, `test_window_restore.py`, `nul`, `bash.exe.stackdump`.
+  - Git history cleanup: reset 3 unpushed commits (back to `origin/main`), kept optimized working tree code.
+
+- 2026-02-21: Optimized window minimize/restore mechanism with complete CTkScrollableFrame redraw solution in `(gui)super-resolution processing.py`.
+  - Replaced three-layer `_refresh_idle1/2/sidebar` idle chain with single `_force_ctk_redraw()` method.
+  - New `_update_all_scrollable_frames()` recursively updates all CTkScrollableFrame Canvas background colors and scrollregions.
+  - Three-layer update mechanism: immediate update → post-layout update → delayed 50ms update.
+  - Replaced `self.update()` with `self.update_idletasks()` to avoid UI blocking.
+  - Added performance monitoring (logs warnings if execution > 100ms).
+  - Root cause: CTkScrollableFrame's `_set_appearance_mode()` only updates Canvas bg, not scrollregion; nested controls not redrawn on minimize/restore.
+  - Solution: Direct `AppearanceModeTracker.update_callbacks()` + recursive Canvas/scrollregion refresh + multi-pass update strategy.
+  - Commit: c3fc818.
+
 - 2026-02-21: Fixed CTkLabel canvas rendering artifacts across all dynamic labels in `(gui)super-resolution processing.py`.
   - Added `fg_color` matching parent frame to all dynamic CTkLabels (status_label, overlay_label, metrics labels, slider labels, etc.).
   - Replaced `configure(text=...)` with `StringVar` + `textvariable` for `lbl_psnr_out` and `lbl_ssim_out` to eliminate canvas residue on text change.

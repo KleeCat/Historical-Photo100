@@ -803,19 +803,57 @@ class ModernApp(ctk.CTk):
         except Exception:
             return
         if self._last_win_state == "iconic" and current == "normal":
-            self.after_idle(self._refresh_idle1)
+            self.after(150, self._force_ctk_redraw)
         self._last_win_state = current
         self.after(50, self._poll_window_state)
 
-    def _refresh_idle1(self):
-        self.after_idle(self._refresh_idle2)
+    def _force_ctk_redraw(self):
+        """强制重绘所有 CTk 控件和 Canvas，解决最小化恢复后黑块问题。"""
+        start_time = time.time()
+        try:
+            from customtkinter.windows.widgets.appearance_mode import AppearanceModeTracker
 
-    def _refresh_idle2(self):
-        self.after_idle(self._refresh_sidebar)
+            AppearanceModeTracker.update_callbacks()
+            self._update_all_scrollable_frames()
+            self.update_idletasks()
+            self.after(50, self._update_all_scrollable_frames)
 
-    def _refresh_sidebar(self):
-        self.wm_attributes('-alpha', 0.99)
-        self.after(50, lambda: self.wm_attributes('-alpha', 1.0))
+            elapsed = (time.time() - start_time) * 1000
+            if elapsed > 100:
+                logger.warning(f"_force_ctk_redraw took {elapsed:.1f}ms")
+
+        except Exception as e:
+            logger.warning(f"Failed to force CTk redraw: {e}")
+
+    def _update_all_scrollable_frames(self):
+        """递归更新所有 CTkScrollableFrame 的 Canvas 背景色和 scrollregion。"""
+        def update_widget(widget):
+            if hasattr(widget, '_parent_canvas') and hasattr(widget, '_parent_frame'):
+                try:
+                    fg = widget._parent_frame.cget("fg_color")
+                    if fg == "transparent":
+                        color_tuple = widget._parent_frame.cget("bg_color")
+                    else:
+                        color_tuple = fg
+                    if hasattr(widget, '_apply_appearance_mode'):
+                        bg_color = widget._apply_appearance_mode(color_tuple)
+                    else:
+                        bg_color = color_tuple[0] if isinstance(color_tuple, (list, tuple)) else color_tuple
+                    widget._parent_canvas.configure(bg=bg_color)
+
+                    bbox = widget._parent_canvas.bbox("all")
+                    if bbox is not None:
+                        widget._parent_canvas.configure(scrollregion=bbox)
+                except Exception:
+                    pass
+
+            try:
+                for child in widget.winfo_children():
+                    update_widget(child)
+            except Exception:
+                pass
+
+        update_widget(self)
 
     def setup_ui(self):
         # === 1. Sidebar (Left) ===
