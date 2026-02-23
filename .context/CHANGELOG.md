@@ -1,5 +1,11 @@
 # Changelog
 
+- 2026-02-23: 建议性问题修复 `(gui)super-resolution processing_server.py`（#16-#19）。
+  - [#16] 为 7 个核心方法添加 docstring（setup_ui, render_zoomed_image, report_progress, _load_sd_pipeline, _apply_sd_pipeline, auto_tune_parameters, process_image 等）。
+  - [#17] `setup_ui` 拆分为 `_setup_sidebar`/`_setup_display_area`/`_setup_status_bar` 三个子方法。
+  - [#18] `process_image` 拆分为 `_run_restoration_pipeline`/`_schedule_post_processing_ui`/`_finalize_processing`。
+  - [#19] GFPGANer 实例缓存：添加 `get_face_enhancer` 方法，避免每次处理重复导入和实例化。
+
 - 2026-02-23: 第二轮代码审查修复 `(gui)super-resolution processing_server.py`（1 CRITICAL + 7 HIGH + 12 MEDIUM）。
   - [CRITICAL] `__init__` 中添加 `_model_lock`/`_state_lock` 定义（之前引用但未初始化，运行时必崩）。
   - [HIGH] `blend_images` 返回类型改为 `Optional[np.ndarray]`。

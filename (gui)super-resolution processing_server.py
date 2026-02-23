@@ -475,6 +475,7 @@ class ModernApp(ctk.CTk):
         self.texture_pipe = None
         self.color_pipe = None
         self.scratch_model = None
+        self.face_enhancer = None
         self.img_gt = None
         self.input_path = None
         self.is_processing = False
@@ -515,6 +516,13 @@ class ModernApp(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def setup_ui(self) -> None:
+        """Build the complete GUI layout: sidebar, display area, and status bar."""
+        self._setup_sidebar()
+        self._setup_display_area()
+        self._setup_status_bar()
+
+    def _setup_sidebar(self) -> None:
+        """Build the left sidebar with controls, sliders, and metrics."""
         # === 1. Sidebar (Left) ===
         self.sidebar = ctk.CTkFrame(self, width=240, corner_radius=0)
         self.sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew")
@@ -673,6 +681,8 @@ class ModernApp(ctk.CTk):
         )
         self.lbl_gt_hint.pack(anchor="w", pady=(2, 0))
 
+    def _setup_display_area(self) -> None:
+        """Build the main image display area with input/output panels."""
         # === 2. Main Display Area (Right) ===
         self.display_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
         self.display_frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
@@ -727,6 +737,8 @@ class ModernApp(ctk.CTk):
 
         self.bind_image_interactions()
 
+    def _setup_status_bar(self) -> None:
+        """Build the bottom status bar with progress indicator."""
         # === 3. Status Bar (Bottom) ===
         self.status_frame = ctk.CTkFrame(self, height=30, corner_radius=0)
         self.status_frame.grid(row=2, column=1, sticky="ew")
@@ -1026,6 +1038,7 @@ class ModernApp(ctk.CTk):
         return view_w, view_h
 
     def render_zoomed_image(self, bgr_img: np.ndarray, label_widget: ctk.CTkLabel) -> bool:
+        """Render a zoomed/panned crop of bgr_img into label_widget. Returns False on failure."""
         if not label_widget.winfo_exists():
             return False
         widget_w = label_widget.winfo_width()
@@ -1153,6 +1166,7 @@ class ModernApp(ctk.CTk):
         self.after(500, self.animate_output_overlay)
 
     def report_progress(self, value: float, status_text: Optional[str] = None, overlay_text: Optional[str] = None) -> None:
+        """Thread-safe progress update dispatched to the main thread."""
         def update():
             self.progress_target = max(self.progress_target, value)
             if status_text:
@@ -1293,6 +1307,7 @@ class ModernApp(ctk.CTk):
         return len(faces) > 0
 
     def auto_tune_parameters(self) -> None:
+        """Automatically adjust sliders based on input image metrics and face detection."""
         if self.img_input is None:
             return
         try:
@@ -1322,6 +1337,7 @@ class ModernApp(ctk.CTk):
             self.status_label.configure(text=f"Auto tune failed: {e}")
 
     def _load_sd_pipeline(self, model_id: str, label: str) -> Any:
+        """Load a Stable Diffusion img2img pipeline with device-appropriate settings."""
         if StableDiffusionImg2ImgPipeline is None:
             raise RuntimeError("diffusers not installed. Run: pip install diffusers transformers accelerate")
         logger.info("%s pipeline: loading", label)
@@ -1379,8 +1395,27 @@ class ModernApp(ctk.CTk):
                 logger.warning("Scratch model: load failed")
         return self.scratch_model
 
+    def get_face_enhancer(self) -> Optional[Any]:
+        """Return cached GFPGANer instance, creating it on first call."""
+        if self.face_enhancer is not None:
+            return self.face_enhancer
+        try:
+            from gfpgan import GFPGANer
+            self.face_enhancer = GFPGANer(
+                model_path=GFPGAN_MODEL_URL,
+                upscale=self.scale_factor,
+                arch='clean',
+                channel_multiplier=2,
+                bg_upsampler=self.upsampler,
+            )
+        except Exception as e:
+            logger.warning("GFPGANer init failed: %s", e, exc_info=True)
+            return None
+        return self.face_enhancer
+
     def _apply_sd_pipeline(self, bgr_img: np.ndarray, pipe: Any, prompt: str, strength: float,
                            guidance: float, steps: int, max_dim: int, label: str) -> np.ndarray:
+        """Run a Stable Diffusion pipeline on bgr_img and return the result as BGR numpy array."""
         height, width = bgr_img.shape[:2]
         resized_bgr = bgr_img
         scale = 1.0
@@ -1452,120 +1487,125 @@ class ModernApp(ctk.CTk):
         threading.Thread(target=self.process_image, daemon=True).start()
 
     def process_image(self) -> None:
+        """Run the full image restoration pipeline in a background thread."""
         success = False
         try:
-            output = None
-            used_face_enhance = False
-            with self._state_lock:
-                input_bgr = self.img_input
-
-            if SCRATCH_ENABLED and self.use_scratch_repair.get():
-                self.report_progress(0.08, "Repairing scratches...", "Scratch repair")
-                scratch_model = self.get_scratch_model()
-                if scratch_model is not None:
-                    try:
-                        input_bgr = apply_scratch_repair(
-                            input_bgr,
-                            scratch_model,
-                            self.device,
-                            SCRATCH_MASK_THRESHOLD,
-                            SCRATCH_INPAINT_RADIUS
-                        )
-                    except Exception as e:
-                        logger.error("Scratch repair failed: %s", e, exc_info=True)
-                else:
-                    logger.info("Scratch repair: skipped (no model)")
-
-            self.report_progress(0.15, f"Upscaling image (x{self.scale_factor})...", "Upscaling")
-            sr_base, _ = self.upsampler.enhance(input_bgr, outscale=self.scale_factor)
-            output = sr_base
-            self.report_progress(0.45, "Upscale complete. Refining details...", "Refining")
-
-            if self.use_face_enhance.get():
-                self.report_progress(0.55, "Applying face enhancement...", "Face enhancement")
-                try:
-                    from gfpgan import GFPGANer
-                    face_enhancer = GFPGANer(
-                        model_path=GFPGAN_MODEL_URL,
-                        upscale=self.scale_factor, arch='clean', channel_multiplier=2, bg_upsampler=self.upsampler)
-                    _, _, face_output = face_enhancer.enhance(input_bgr, has_aligned=False, only_center_face=False,
-                                                              paste_back=True)
-                    if face_output is not None:
-                        output = blend_images(face_output, sr_base, self.face_blend.get())
-                        used_face_enhance = True
-                except Exception as e:
-                    logger.warning("Face enhance failed: %s", e, exc_info=True)
-                    self.after(0, lambda: self.status_label.configure(
-                        text="Face enhancement unavailable, switching to standard mode..."))
-
-            self.report_progress(0.7, "Blending fine details...", "Blending")
-            output = blend_with_lr(output, input_bgr, self.natural_blend.get())
-            output = apply_unsharp_mask(output, self.texture_boost.get())
-            try:
-                self.report_progress(0.82, "Generating texture details...", "Texture refinement")
-                logger.info("Texture generation: start")
-                output = self.apply_texture_generation(output)
-                logger.info("Texture generation: done")
-            except Exception as e:
-                logger.error("Texture generation failed: %s", e, exc_info=True)
-                error_message = f"Texture generation skipped: {e}"
-                self.after(0, lambda message=error_message: self.status_label.configure(text=message))
-
-            if COLORIZE_ENABLED and self.use_colorize.get():
-                try:
-                    self.report_progress(0.88, "Colorizing image...", "Colorization")
-                    logger.info("Colorization: start")
-                    output = self.apply_colorization(output)
-                    logger.info("Colorization: done")
-                except Exception as e:
-                    logger.error("Colorization failed: %s", e, exc_info=True)
-            self.report_progress(0.92, "Finalizing output...", "Finalizing")
-            output = apply_film_grain(output, self.film_grain.get())
-
+            output, used_face_enhance = self._run_restoration_pipeline()
             with self._state_lock:
                 self.img_output = output
             success = True
-
-            self.compare_hold_active = False
-
-            self.after(0, self.hide_output_overlay)
-            self.after(0, self.render_main_images)
-            self.after(0, self.update_idletasks)
-            self.after(80, self.render_main_images)
-            self.after(140, self.force_output_refresh)
-            self.after(0, self.update_compare_controls)
-            self.after(0, self.update_resolution_labels)
-            self.after(0, self.calculate_metrics)
-
-            if self.use_face_enhance.get() and not used_face_enhance:
-                self.after(0, lambda: self.status_label.configure(text=f"Done (x{self.scale_factor} Standard Mode)"))
-            else:
-                self.after(0, lambda: self.status_label.configure(text=f"Done (x{self.scale_factor})"))
-
-            self.after(0, lambda: self.btn_save.configure(state="normal"))
-            self.after(0, lambda: self.btn_compare.configure(state="normal"))
-            if self.feature_maps:
-                self.after(0, lambda: self.btn_features.configure(state="normal"))
-
+            self._schedule_post_processing_ui(used_face_enhance)
         except Exception as e:
             error_msg = str(e)
             self.after(0, lambda msg=error_msg: messagebox.showerror("Error", f"Processing failed: {msg}"))
             self.after(0, lambda: self.show_output_overlay("Processing failed", animate=False))
         finally:
-            with self._state_lock:
-                self.is_processing = False
-            elapsed = None
-            if self.processing_start_time is not None:
-                elapsed = time.perf_counter() - self.processing_start_time
-            self.after(0, lambda: self.progress_bar.set(1.0))
-            self.after(0, lambda: self.set_run_button_processing(False))
-            if elapsed is not None:
-                self.after(0, lambda: self.elapsed_label.configure(text=f"Elapsed: {elapsed:.1f}s"))
-            if success and elapsed is not None:
-                self.after(0, lambda: messagebox.showinfo(
-                    "Completed",
-                    f"Restoration finished in {elapsed:.1f}s."
-                ))
+            self._finalize_processing(success)
+
+    def _run_restoration_pipeline(self) -> tuple[np.ndarray, bool]:
+        """Execute all restoration stages and return (output, used_face_enhance)."""
+        used_face_enhance = False
+        with self._state_lock:
+            input_bgr = self.img_input
+
+        if SCRATCH_ENABLED and self.use_scratch_repair.get():
+            self.report_progress(0.08, "Repairing scratches...", "Scratch repair")
+            scratch_model = self.get_scratch_model()
+            if scratch_model is not None:
+                try:
+                    input_bgr = apply_scratch_repair(
+                        input_bgr,
+                        scratch_model,
+                        self.device,
+                        SCRATCH_MASK_THRESHOLD,
+                        SCRATCH_INPAINT_RADIUS
+                    )
+                except Exception as e:
+                    logger.error("Scratch repair failed: %s", e, exc_info=True)
+            else:
+                logger.info("Scratch repair: skipped (no model)")
+
+        self.report_progress(0.15, f"Upscaling image (x{self.scale_factor})...", "Upscaling")
+        sr_base, _ = self.upsampler.enhance(input_bgr, outscale=self.scale_factor)
+        output = sr_base
+        self.report_progress(0.45, "Upscale complete. Refining details...", "Refining")
+
+        if self.use_face_enhance.get():
+            self.report_progress(0.55, "Applying face enhancement...", "Face enhancement")
+            try:
+                face_enhancer = self.get_face_enhancer()
+                if face_enhancer is not None:
+                    _, _, face_output = face_enhancer.enhance(
+                        input_bgr, has_aligned=False, only_center_face=False, paste_back=True)
+                    if face_output is not None:
+                        output = blend_images(face_output, sr_base, self.face_blend.get())
+                        used_face_enhance = True
+            except Exception as e:
+                logger.warning("Face enhance failed: %s", e, exc_info=True)
+                self.after(0, lambda: self.status_label.configure(
+                    text="Face enhancement unavailable, switching to standard mode..."))
+
+        self.report_progress(0.7, "Blending fine details...", "Blending")
+        output = blend_with_lr(output, input_bgr, self.natural_blend.get())
+        output = apply_unsharp_mask(output, self.texture_boost.get())
+        try:
+            self.report_progress(0.82, "Generating texture details...", "Texture refinement")
+            logger.info("Texture generation: start")
+            output = self.apply_texture_generation(output)
+            logger.info("Texture generation: done")
+        except Exception as e:
+            logger.error("Texture generation failed: %s", e, exc_info=True)
+            error_message = f"Texture generation skipped: {e}"
+            self.after(0, lambda message=error_message: self.status_label.configure(text=message))
+
+        if COLORIZE_ENABLED and self.use_colorize.get():
+            try:
+                self.report_progress(0.88, "Colorizing image...", "Colorization")
+                logger.info("Colorization: start")
+                output = self.apply_colorization(output)
+                logger.info("Colorization: done")
+            except Exception as e:
+                logger.error("Colorization failed: %s", e, exc_info=True)
+        self.report_progress(0.92, "Finalizing output...", "Finalizing")
+        output = apply_film_grain(output, self.film_grain.get())
+        return output, used_face_enhance
+
+    def _schedule_post_processing_ui(self, used_face_enhance: bool) -> None:
+        """Schedule GUI updates after successful processing."""
+        self.compare_hold_active = False
+        self.after(0, self.hide_output_overlay)
+        self.after(0, self.render_main_images)
+        self.after(0, self.update_idletasks)
+        self.after(80, self.render_main_images)
+        self.after(140, self.force_output_refresh)
+        self.after(0, self.update_compare_controls)
+        self.after(0, self.update_resolution_labels)
+        self.after(0, self.calculate_metrics)
+        if self.use_face_enhance.get() and not used_face_enhance:
+            self.after(0, lambda: self.status_label.configure(text=f"Done (x{self.scale_factor} Standard Mode)"))
+        else:
+            self.after(0, lambda: self.status_label.configure(text=f"Done (x{self.scale_factor})"))
+        self.after(0, lambda: self.btn_save.configure(state="normal"))
+        self.after(0, lambda: self.btn_compare.configure(state="normal"))
+        if self.feature_maps:
+            self.after(0, lambda: self.btn_features.configure(state="normal"))
+
+    def _finalize_processing(self, success: bool) -> None:
+        """Clean up processing state and update progress UI."""
+        with self._state_lock:
+            self.is_processing = False
+        elapsed = None
+        if self.processing_start_time is not None:
+            elapsed = time.perf_counter() - self.processing_start_time
+        self.after(0, lambda: self.progress_bar.set(1.0))
+        self.after(0, lambda: self.set_run_button_processing(False))
+        if elapsed is not None:
+            self.after(0, lambda e=elapsed: self.elapsed_label.configure(text=f"Elapsed: {e:.1f}s"))
+        if success and elapsed is not None:
+            self.after(0, lambda e=elapsed: messagebox.showinfo(
+                "Completed",
+                f"Restoration finished in {e:.1f}s."
+            ))
 
     def update_resolution_labels(self) -> None:
         if self.img_input is None:

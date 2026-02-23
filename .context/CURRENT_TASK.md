@@ -3,6 +3,12 @@
 Last update: 2026-02-23
 
 ## Recently Completed (2026-02-23)
+- 对 `(gui)super-resolution processing_server.py` 修复建议性问题（#16-#19）：
+  - [#16] 为 7 个核心方法添加 docstring。
+  - [#17] `setup_ui` 拆分为 3 个子方法（sidebar/display/status_bar）。
+  - [#18] `process_image` 拆分为 pipeline/post-UI/finalize 三部分。
+  - [#19] GFPGANer 缓存：`get_face_enhancer` 方法。
+
 - 对 `(gui)super-resolution processing_server.py` 进行第二轮代码审查并修复（1 CRITICAL + 7 HIGH + 12 MEDIUM）：
   - [CRITICAL] `__init__` 中添加 `_model_lock`/`_state_lock` 初始化（回归缺陷修复）。
   - [HIGH] 修正 `blend_images`/`build_compare_image` 返回和参数类型标注。
