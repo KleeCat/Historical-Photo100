@@ -3,20 +3,10 @@
 Last update: 2026-02-23
 
 ## Recently Completed (2026-02-23)
-- 对 `(gui)super-resolution processing_server.py` 修复建议性问题（#16-#19）：
-  - [#16] 为 7 个核心方法添加 docstring。
-  - [#17] `setup_ui` 拆分为 3 个子方法（sidebar/display/status_bar）。
-  - [#18] `process_image` 拆分为 pipeline/post-UI/finalize 三部分。
-  - [#19] GFPGANer 缓存：`get_face_enhancer` 方法。
-
-- 对 `(gui)super-resolution processing_server.py` 进行第二轮代码审查并修复（1 CRITICAL + 7 HIGH + 12 MEDIUM）：
-  - [CRITICAL] `__init__` 中添加 `_model_lock`/`_state_lock` 初始化（回归缺陷修复）。
-  - [HIGH] 修正 `blend_images`/`build_compare_image` 返回和参数类型标注。
-  - [HIGH] `_apply_sd_pipeline` 补全缺失参数类型。
-  - [HIGH] 7 个事件处理函数 `event: object` → `event: tk.Event`。
-  - [HIGH] `label_widget`/`on_save`/metric labels 参数类型精确化。
-  - [HIGH] pipeline 返回类型 `object` → `Any`/`Optional[Any]`，添加 `_model_lock` 保护。
-  - [MEDIUM] `read_image` 增加单通道/异常通道处理；lambda 闭包变量预捕获；返回类型精确化；字典推导式优化。
+- 对 `super-resolution processing.py` 进行全面代码审查并修复 22 个问题（2 CRITICAL + 7 HIGH + 13 MEDIUM）：
+  - [CRITICAL] `torch.load` 添加 `weights_only=True`；`exit(1)` → `sys.exit(1)`。
+  - [HIGH] 全部公共函数添加类型提示；异常捕获收窄；docstring 补全；常量提升。
+  - [MEDIUM] print→logging；推导式重写；环境变量容错；排序输出；类 docstring；__main__ 重构。
 
 - 修复 `(gui)super-resolution processing.py` 中 6 处类型注解不一致。
 - 为 `(gui)super-resolution processing.py` 添加完整的类型提示（100+ 函数和方法）：

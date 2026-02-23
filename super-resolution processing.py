@@ -1,4 +1,6 @@
+import logging
 import os
+import sys
 from typing import Optional, cast
 
 import cv2
@@ -10,36 +12,36 @@ from basicsr.archs.rrdbnet_arch import RRDBNet
 from realesrgan import RealESRGANer
 from gfpgan import GFPGANer
 
+logger = logging.getLogger(__name__)
 
-def get_image_paths(directory):
-    image_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif')
-    image_paths = []
+IMAGE_EXTENSIONS = frozenset({'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif'})
 
-    # Check if directory exists
+
+def get_image_paths(directory: str) -> list[str]:
+    """Return sorted list of image file paths from the given directory."""
     if not os.path.exists(directory):
-        print(f"Error: Directory {directory} does not exist")
-        return image_paths
+        logger.error("Directory %s does not exist", directory)
+        return []
 
-    # Get all files in directory
     try:
         all_files = os.listdir(directory)
     except PermissionError:
-        print(f"Permission error: Cannot access directory {directory}")
-        return image_paths
+        logger.error("Permission error: Cannot access directory %s", directory)
+        return []
 
-    # Filter image files
-    for filename in all_files:
-        filepath = os.path.join(directory, filename)
-        if os.path.isfile(filepath):  # Ensure it's a file not a directory
-            _, ext = os.path.splitext(filename)
-            if ext.lower() in image_extensions:
-                image_paths.append(filepath)
-
-    return image_paths
+    image_paths = [
+        os.path.join(directory, f)
+        for f in all_files
+        if os.path.isfile(os.path.join(directory, f))
+        and os.path.splitext(f)[1].lower() in IMAGE_EXTENSIONS
+    ]
+    return sorted(image_paths)
 
 
 class ConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    """Double convolution block with ReLU activation for UNet encoder/decoder."""
+
+    def __init__(self, in_channels: int, out_channels: int) -> None:
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
@@ -48,12 +50,18 @@ class ConvBlock(nn.Module):
             nn.ReLU(inplace=True),
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.block(x)
 
 
 class ScratchUNet(nn.Module):
-    def __init__(self):
+    """UNet architecture for scratch detection in historical photographs.
+
+    Input: single-channel grayscale image (1, H, W)
+    Output: scratch probability map (1, H, W)
+    """
+
+    def __init__(self) -> None:
         super().__init__()
         self.down1 = ConvBlock(1, 32)
         self.pool1 = nn.MaxPool2d(2)
@@ -72,7 +80,7 @@ class ScratchUNet(nn.Module):
 
         self.out = nn.Conv2d(32, 1, kernel_size=1)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         d1 = self.down1(x)
         d2 = self.down2(self.pool1(d1))
         d3 = self.down3(self.pool2(d2))
@@ -87,36 +95,44 @@ class ScratchUNet(nn.Module):
         return self.out(u1)
 
 
-def clean_state_dict(state_dict):
-    cleaned = {}
-    for key, value in state_dict.items():
-        cleaned[key.replace("module.", "")] = value
-    return cleaned
+def clean_state_dict(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    """Remove 'module.' prefix from state_dict keys."""
+    return {key.replace("module.", ""): value for key, value in state_dict.items()}
 
 
-def load_scratch_model(model_path, device):
+def load_scratch_model(model_path: str, device: torch.device) -> Optional[ScratchUNet]:
+    """Load scratch detection UNet model from checkpoint."""
     if not model_path:
         return None
     if not os.path.exists(model_path):
-        print(f"Scratch model not found: {model_path}")
+        logger.warning("Scratch model not found: %s", model_path)
         return None
     try:
-        checkpoint = torch.load(model_path, map_location=device)
+        checkpoint = torch.load(model_path, map_location=device, weights_only=True)
     except Exception as exc:
-        print(f"Failed to load scratch model: {exc}")
+        logger.error("Failed to load scratch model: %s", exc)
         return None
     if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
         state_dict = checkpoint["state_dict"]
     else:
         state_dict = checkpoint
     model = ScratchUNet()
-    model.load_state_dict(clean_state_dict(state_dict), strict=False)
+    missing, unexpected = model.load_state_dict(clean_state_dict(state_dict), strict=False)
+    if missing:
+        logger.warning("Missing keys in scratch model: %s", missing)
+    if unexpected:
+        logger.warning("Unexpected keys in scratch model: %s", unexpected)
     model.to(device)
     model.eval()
     return model
 
 
-def predict_scratch_mask(bgr_img, model, device, threshold):
+def predict_scratch_mask(
+    bgr_img: NDArray[np.uint8],
+    model: ScratchUNet,
+    device: torch.device,
+    threshold: float,
+) -> Optional[NDArray[np.uint8]]:
     if model is None:
         return None
     gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
@@ -128,10 +144,17 @@ def predict_scratch_mask(bgr_img, model, device, threshold):
     mask = (mask >= threshold).astype(np.uint8) * 255
     if mask.shape[:2] != gray.shape[:2]:
         mask = cv2.resize(mask, (gray.shape[1], gray.shape[0]), interpolation=cv2.INTER_NEAREST)
+        mask = mask.astype(np.uint8)
     return mask
 
 
-def apply_scratch_repair(bgr_img, model, device, threshold=0.5, inpaint_radius=3):
+def apply_scratch_repair(
+    bgr_img: NDArray[np.uint8],
+    model: ScratchUNet,
+    device: torch.device,
+    threshold: float = 0.5,
+    inpaint_radius: int = 3,
+) -> NDArray[np.uint8]:
     if model is None:
         return bgr_img
     mask = predict_scratch_mask(bgr_img, model, device, threshold)
@@ -141,9 +164,9 @@ def apply_scratch_repair(bgr_img, model, device, threshold=0.5, inpaint_radius=3
 
 
 def esrgan_super_resolution(
-    lr_dir,
-    sr_dir,
-    model_path,
+    lr_dir: str,
+    sr_dir: str,
+    model_path: str,
     scale_factor: int = 4,
     use_face_enhance: bool = False,
     tile_size: int = 0,
@@ -151,9 +174,9 @@ def esrgan_super_resolution(
     scratch_model_path: str = "",
     scratch_threshold: float = 0.5,
     inpaint_radius: int = 3,
-):
+) -> None:
     """
-    Perform super-resolution using Real-ESRGAN
+    Perform super-resolution using Real-ESRGAN.
 
     Parameters:
         lr_dir: Input directory for low-resolution images
@@ -162,15 +185,19 @@ def esrgan_super_resolution(
         scale_factor: Scaling factor (default 4x)
         use_face_enhance: Whether to use GFPGAN for face enhancement
         tile_size: Tile size for processing, 0 means no tiling
+        use_scratch_repair: Whether to apply scratch detection and repair
+        scratch_model_path: Path to scratch detection UNet model
+        scratch_threshold: Confidence threshold for scratch mask (0.0-1.0)
+        inpaint_radius: Radius for inpainting repair (pixels)
     """
     # Create output directory
     os.makedirs(sr_dir, exist_ok=True)
 
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
+    logger.info("Using device: %s", device)
 
-    # Initialize Real-ESRGAN model
+    # Initialize Real-ESRGAN model (RealESRGAN x4plus standard architecture)
     model = RRDBNet(
         num_in_ch=3,
         num_out_ch=3,
@@ -205,36 +232,36 @@ def esrgan_super_resolution(
                 channel_multiplier=2,
                 bg_upsampler=upsampler,
             )
-        except Exception as exc:
-            print(f"Warning: Face enhancer init failed ({exc}); disabling face enhancement.")
+        except (RuntimeError, OSError, ImportError) as exc:
+            logger.warning("Face enhancer init failed (%s); disabling face enhancement.", exc)
             face_enhancer = None
 
     scratch_model = None
     if use_scratch_repair:
         scratch_model = load_scratch_model(scratch_model_path, device)
         if scratch_model is None:
-            print("Scratch repair disabled (model unavailable)")
+            logger.warning("Scratch repair disabled (model unavailable)")
 
     # Get all image files using robust method
     image_paths = get_image_paths(lr_dir)
 
     if not image_paths:
-        print(f"No image files found in directory: {lr_dir}")
+        logger.warning("No image files found in directory: %s", lr_dir)
         return
 
-    print(f"Found {len(image_paths)} image files to process")
+    logger.info("Found %d image files to process", len(image_paths))
 
     for i, img_path in enumerate(image_paths):
         img_name = os.path.basename(img_path)
         sr_path = os.path.join(sr_dir, img_name)
 
-        print(f"Processing image {i + 1}/{len(image_paths)}: {img_name}")
+        logger.info("Processing image %d/%d: %s", i + 1, len(image_paths), img_name)
 
         try:
             # Read image
             img = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
             if img is None:
-                print(f"Cannot read image: {img_name}")
+                logger.warning("Cannot read image: %s", img_name)
                 continue
             img = cast(NDArray[np.uint8], img)
 
@@ -254,7 +281,7 @@ def esrgan_super_resolution(
                     inpaint_radius=inpaint_radius,
                 )
 
-            print(f"Input image dimensions: {img.shape[1]}x{img.shape[0]}")
+            logger.info("Input image dimensions: %dx%d", img.shape[1], img.shape[0])
 
             # Perform super-resolution processing
             with torch.no_grad():
@@ -271,80 +298,78 @@ def esrgan_super_resolution(
                     output, _ = upsampler.enhance(img, outscale=scale_factor)
 
             if output is None:
-                print(f"✗ No output generated for image {img_name}")
+                logger.warning("No output generated for image %s", img_name)
                 continue
 
             # Ensure output is within valid range
             output = output.astype(np.float32)
             output = np.clip(output, 0, 255).astype(np.uint8)
 
-            print(f"Output image dimensions: {output.shape[1]}x{output.shape[0]}")
+            logger.info("Output image dimensions: %dx%d", output.shape[1], output.shape[0])
 
             # Save result image
             cv2.imwrite(sr_path, output)
-            print(f"✓ Saved: {img_name}")
+            logger.info("Saved: %s", img_name)
 
-        except Exception as e:
-            print(f"✗ Error processing image {img_name}: {str(e)}")
-            # If it's due to insufficient GPU memory, suggest reducing tile_size
+        except (cv2.error, RuntimeError, ValueError, OSError) as e:
+            logger.error("Error processing image %s: %s", img_name, e)
             if "CUDA out of memory" in str(e):
-                print("Suggestion: Reduce tile_size parameter to decrease GPU memory usage")
+                logger.info("Suggestion: Reduce tile_size parameter to decrease GPU memory usage")
 
-    print("Super-resolution processing completed!")
+    logger.info("Super-resolution processing completed!")
 
 
-def main():
-    """Main function to configure and run super-resolution processing"""
+def _safe_float_env(key: str, default: float) -> float:
+    """Parse float from environment variable with fallback."""
+    try:
+        return float(os.environ.get(key, str(default)))
+    except ValueError:
+        logger.warning("Invalid value for %s, using default %s", key, default)
+        return default
+
+
+def _safe_int_env(key: str, default: int) -> int:
+    """Parse int from environment variable with fallback."""
+    try:
+        return int(os.environ.get(key, str(default)))
+    except ValueError:
+        logger.warning("Invalid value for %s, using default %s", key, default)
+        return default
+
+
+def main() -> None:
+    """Main function to configure and run super-resolution processing."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    # Configuration parameters
-    CONFIG = {
-        "lr_dir": os.environ.get("LR_DIR", os.path.join(base_dir, "LR")),  # Low-resolution image directory
-        "sr_dir": os.environ.get("SR_DIR", os.path.join(base_dir, "SR")),  # Super-resolution output directory
-        "model_path": os.environ.get(
-            "REALESRGAN_MODEL_PATH",
-            os.path.join(
-                os.path.expanduser("~"),
-                ".cache",
-                "realesrgan",
-                "RealESRGAN_x4plus.pth",
-            ),
-        ),  # Model path
-        "scale_factor": 4,  # Scaling factor
-        "use_face_enhance": False,  # Whether to enable face enhancement
-        "tile_size": 0,  # Tile size, 0 means no tiling (set to 400-800 if GPU memory is insufficient)
-        "use_scratch_repair": False,
-        "scratch_model_path": os.environ.get("SCRATCH_MODEL_PATH", ""),
-        "scratch_threshold": float(os.environ.get("SCRATCH_MASK_THRESHOLD", "0.5")),
-        "inpaint_radius": int(os.environ.get("SCRATCH_INPAINT_RADIUS", "3")),
-    }
 
-    # Run super-resolution processing
     esrgan_super_resolution(
-        lr_dir=CONFIG["lr_dir"],
-        sr_dir=CONFIG["sr_dir"],
-        model_path=CONFIG["model_path"],
-        scale_factor=CONFIG["scale_factor"],
-        use_face_enhance=CONFIG["use_face_enhance"],
-        tile_size=CONFIG["tile_size"],
-        use_scratch_repair=CONFIG["use_scratch_repair"],
-        scratch_model_path=CONFIG["scratch_model_path"],
-        scratch_threshold=CONFIG["scratch_threshold"],
-        inpaint_radius=CONFIG["inpaint_radius"],
+        lr_dir=os.environ.get("LR_DIR", os.path.join(base_dir, "LR")),
+        sr_dir=os.environ.get("SR_DIR", os.path.join(base_dir, "SR")),
+        model_path=os.environ.get(
+            "REALESRGAN_MODEL_PATH",
+            os.path.join(os.path.expanduser("~"), ".cache", "realesrgan", "RealESRGAN_x4plus.pth"),
+        ),
+        scale_factor=4,
+        use_face_enhance=False,
+        tile_size=0,
+        use_scratch_repair=False,
+        scratch_model_path=os.environ.get("SCRATCH_MODEL_PATH", ""),
+        scratch_threshold=_safe_float_env("SCRATCH_MASK_THRESHOLD", 0.5),
+        inpaint_radius=_safe_int_env("SCRATCH_INPAINT_RADIUS", 3),
     )
 
 
 if __name__ == "__main__":
-    # Check if required libraries are installed
-    try:
-        import basicsr
-        from realesrgan import RealESRGANer
-        from gfpgan import GFPGANer
-    except ImportError as e:
-        print("Missing required dependencies, please install:")
-        print("pip install basicsr")
-        print("pip install realesrgan")
-        print("pip install gfpgan")  # Optional, for face enhancement
-        print("pip install opencv-python")
-        exit(1)
+    missing = []
+    for pkg in ("basicsr", "realesrgan", "gfpgan", "cv2"):
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing.append(pkg)
+    if missing:
+        print(f"Missing required dependencies: {', '.join(missing)}")
+        print("pip install basicsr realesrgan gfpgan opencv-python")
+        sys.exit(1)
 
     main()

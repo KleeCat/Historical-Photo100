@@ -1,5 +1,22 @@
 # Changelog
 
+- 2026-02-23: `super-resolution processing.py` 全面代码审查修复（2 CRITICAL + 7 HIGH + 13 MEDIUM）。
+  - [CRITICAL] `torch.load` 添加 `weights_only=True` 防止不安全反序列化。
+  - [CRITICAL] `exit(1)` 改为 `sys.exit(1)`。
+  - [HIGH] 8 个公共函数/方法添加完整类型提示。
+  - [HIGH] `esrgan_super_resolution` 补全 docstring（缺失 4 个参数说明）。
+  - [HIGH] GFPGAN 初始化异常收窄为 `(RuntimeError, OSError, ImportError)`。
+  - [HIGH] 图像处理循环异常收窄为 `(cv2.error, RuntimeError, ValueError, OSError)`。
+  - [HIGH] `IMAGE_EXTENSIONS` 提升为模块级 `frozenset` 常量。
+  - [MEDIUM] 全部 `print()` 替换为 `logging` 模块。
+  - [MEDIUM] `clean_state_dict`/`get_image_paths` 改为推导式写法。
+  - [MEDIUM] `load_state_dict(strict=False)` 添加缺失/多余键日志。
+  - [MEDIUM] 环境变量解析添加 `_safe_float_env`/`_safe_int_env` 容错。
+  - [MEDIUM] `get_image_paths` 返回排序结果。
+  - [MEDIUM] `ConvBlock`/`ScratchUNet` 添加类级 docstring。
+  - [MEDIUM] `predict_scratch_mask` resize 后显式 `astype(np.uint8)`。
+  - [MEDIUM] `__main__` 块重构：去除重复导入，改用 `__import__` 检查。
+
 - 2026-02-23: 建议性问题修复 `(gui)super-resolution processing_server.py`（#16-#19）。
   - [#16] 为 7 个核心方法添加 docstring（setup_ui, render_zoomed_image, report_progress, _load_sd_pipeline, _apply_sd_pipeline, auto_tune_parameters, process_image 等）。
   - [#17] `setup_ui` 拆分为 `_setup_sidebar`/`_setup_display_area`/`_setup_status_bar` 三个子方法。
