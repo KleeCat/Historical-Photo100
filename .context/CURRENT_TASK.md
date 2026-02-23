@@ -3,6 +3,12 @@
 Last update: 2026-02-23
 
 ## Recently Completed (2026-02-23)
+- 对 `super-resolution processing.py` 代码审查后续修复（3 MEDIUM + 3 LOW）：
+  - [MEDIUM] `load_scratch_model` 异常收窄为 `(RuntimeError, OSError, ValueError, EOFError)`。
+  - [MEDIUM] 移除多余 `float32` 中间转换。
+  - [MEDIUM] `predict_scratch_mask` model 参数改为 `Optional[ScratchUNet]`。
+  - [LOW] 添加 `.webp` 格式支持；`cast` 替换为运行时 dtype 检查；清理未使用 import。
+
 - 对 `super-resolution processing.py` 进行全面代码审查并修复 22 个问题（2 CRITICAL + 7 HIGH + 13 MEDIUM）：
   - [CRITICAL] `torch.load` 添加 `weights_only=True`；`exit(1)` → `sys.exit(1)`。
   - [HIGH] 全部公共函数添加类型提示；异常捕获收窄；docstring 补全；常量提升。

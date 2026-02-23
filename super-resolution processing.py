@@ -1,7 +1,7 @@
 import logging
 import os
 import sys
-from typing import Optional, cast
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -14,7 +14,7 @@ from gfpgan import GFPGANer
 
 logger = logging.getLogger(__name__)
 
-IMAGE_EXTENSIONS = frozenset({'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif'})
+IMAGE_EXTENSIONS = frozenset({'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp'})
 
 
 def get_image_paths(directory: str) -> list[str]:
@@ -109,7 +109,7 @@ def load_scratch_model(model_path: str, device: torch.device) -> Optional[Scratc
         return None
     try:
         checkpoint = torch.load(model_path, map_location=device, weights_only=True)
-    except Exception as exc:
+    except (RuntimeError, OSError, ValueError, EOFError) as exc:
         logger.error("Failed to load scratch model: %s", exc)
         return None
     if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
@@ -129,7 +129,7 @@ def load_scratch_model(model_path: str, device: torch.device) -> Optional[Scratc
 
 def predict_scratch_mask(
     bgr_img: NDArray[np.uint8],
-    model: ScratchUNet,
+    model: Optional[ScratchUNet],
     device: torch.device,
     threshold: float,
 ) -> Optional[NDArray[np.uint8]]:
@@ -263,7 +263,8 @@ def esrgan_super_resolution(
             if img is None:
                 logger.warning("Cannot read image: %s", img_name)
                 continue
-            img = cast(NDArray[np.uint8], img)
+            if img.dtype != np.uint8:
+                img = np.clip(img, 0, 255).astype(np.uint8)
 
             # Handle single-channel images
             if len(img.shape) == 2:
@@ -302,7 +303,6 @@ def esrgan_super_resolution(
                 continue
 
             # Ensure output is within valid range
-            output = output.astype(np.float32)
             output = np.clip(output, 0, 255).astype(np.uint8)
 
             logger.info("Output image dimensions: %dx%d", output.shape[1], output.shape[0])

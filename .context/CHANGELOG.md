@@ -1,5 +1,13 @@
 # Changelog
 
+- 2026-02-23: `super-resolution processing.py` 代码审查后续修复（3 MEDIUM + 3 LOW）。
+  - [MEDIUM] `load_scratch_model` 异常捕获从 `Exception` 收窄为 `(RuntimeError, OSError, ValueError, EOFError)`。
+  - [MEDIUM] 移除 `output.astype(np.float32)` 多余中间转换，直接 `np.clip`。
+  - [MEDIUM] `predict_scratch_mask` 的 `model` 参数类型修正为 `Optional[ScratchUNet]`。
+  - [LOW] `IMAGE_EXTENSIONS` 添加 `.webp` 格式支持。
+  - [LOW] `cv2.imread` 后添加 `dtype != np.uint8` 运行时检查和显式转换，替代不安全的 `cast`。
+  - [LOW] 移除未使用的 `cast` import。
+
 - 2026-02-23: `super-resolution processing.py` 全面代码审查修复（2 CRITICAL + 7 HIGH + 13 MEDIUM）。
   - [CRITICAL] `torch.load` 添加 `weights_only=True` 防止不安全反序列化。
   - [CRITICAL] `exit(1)` 改为 `sys.exit(1)`。
