@@ -226,7 +226,7 @@ def load_scratch_model(model_path, device):
     if not os.path.exists(model_path):
         return None
     try:
-        checkpoint = torch.load(model_path, map_location=device)
+        checkpoint = torch.load(model_path, map_location=device, weights_only=True)
     except Exception:
         return None
     if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
@@ -1216,12 +1216,14 @@ class ModernApp(ctk.CTk):
 
     def register_feature_hooks(self):
         self.clear_feature_hooks()
-        self.feature_maps = []
+        with self._state_lock:
+            self.feature_maps = []
 
         def make_hook(name):
             def hook(module, input, output):
-                if len(self.feature_maps) >= self.max_feature_maps:
-                    return
+                with self._state_lock:
+                    if len(self.feature_maps) >= self.max_feature_maps:
+                        return
                 tensor = output
                 if isinstance(tensor, (tuple, list)):
                     if not tensor:
@@ -1234,7 +1236,9 @@ class ModernApp(ctk.CTk):
                 _, _, h, w = tensor.shape
                 if h < 16 or w < 16 or h > 1024 or w > 1024:
                     return
-                self.feature_maps.append((name, tensor.detach().cpu()))
+                detached = (name, tensor.detach().cpu())
+                with self._state_lock:
+                    self.feature_maps.append(detached)
 
             return hook
 
@@ -1442,7 +1446,8 @@ class ModernApp(ctk.CTk):
                 self.status_label.configure(text=f"Load failed: {exc}")
                 messagebox.showerror("Error", f"Failed to load ground truth: {exc}")
                 return
-            self.img_gt = img
+            with self._state_lock:
+                self.img_gt = img
             self.gt_path = path
             self.calculate_metrics()
             messagebox.showinfo("Info", "Ground Truth loaded")
@@ -2817,9 +2822,11 @@ class ModernApp(ctk.CTk):
             stage_start = time.perf_counter()
             h_in, w_in = input_img.shape[:2]
             tile = auto_tile_size(h_in, w_in, self.scale_factor)
-            self.upsampler.tile = tile
+            with self._model_lock:
+                self.upsampler.tile = tile
+                upsampler_ref = self.upsampler
             run_meta["tile_size"] = tile
-            sr_base, _ = self.upsampler.enhance(input_img, outscale=self.scale_factor)
+            sr_base, _ = upsampler_ref.enhance(input_img, outscale=self.scale_factor)
             run_meta["timing"]["upscale"] = round(time.perf_counter() - stage_start, 3)
             output = sr_base
             check_cancel()
@@ -2934,22 +2941,26 @@ class ModernApp(ctk.CTk):
             if input_img is not None:
                 h, w = input_img.shape[:2]
                 run_meta["input_size"] = [int(w), int(h)]
-            if self.img_output is not None:
-                h, w = self.img_output.shape[:2]
+            # Snapshot shared state under lock to avoid races with UI thread
+            with self._state_lock:
+                img_out_snap = self.img_output
+                img_gt_snap = self.img_gt
+            if img_out_snap is not None:
+                h, w = img_out_snap.shape[:2]
                 run_meta["output_size"] = [int(w), int(h)]
             if (
                 psnr is not None
                 and ssim is not None
-                and self.img_gt is not None
-                and self.img_output is not None
+                and img_gt_snap is not None
+                and img_out_snap is not None
             ):
-                h, w = self.img_output.shape[:2]
-                img_gt_out = cv2.resize(self.img_gt, (w, h))
+                h, w = img_out_snap.shape[:2]
+                img_gt_out = cv2.resize(img_gt_snap, (w, h))
                 run_meta["metrics"]["psnr"] = float(
-                    psnr(img_gt_out, self.img_output, data_range=255)
+                    psnr(img_gt_out, img_out_snap, data_range=255)
                 )
                 run_meta["metrics"]["ssim"] = float(
-                    ssim(img_gt_out, self.img_output, data_range=255, channel_axis=2)
+                    ssim(img_gt_out, img_out_snap, data_range=255, channel_axis=2)
                 )
             self.write_run_log(run_dir, run_meta)
             self.progress_target = 1.0
@@ -2960,7 +2971,9 @@ class ModernApp(ctk.CTk):
                     self.status_label.configure(text=success_status_text)
                 self.btn_save.configure(state="normal")
                 self.btn_compare.configure(state="normal")
-                if self.feature_maps:
+                with self._state_lock:
+                    has_features = bool(self.feature_maps)
+                if has_features:
                     self.btn_features.configure(state="normal")
                 self.set_run_button_processing(False)
                 self.update_action_buttons()
@@ -3231,13 +3244,18 @@ class ModernApp(ctk.CTk):
         if not self.last_run_dir or not os.path.exists(self.last_run_dir):
             messagebox.showinfo("Info", "No run folder available yet.")
             return
+        # Resolve to absolute real path to prevent path traversal
+        resolved = os.path.realpath(self.last_run_dir)
+        if not os.path.isdir(resolved):
+            messagebox.showerror("Error", "Target is not a valid directory.")
+            return
         try:
             if sys.platform.startswith("win"):
-                os.startfile(self.last_run_dir)
+                os.startfile(resolved)
             elif sys.platform == "darwin":
-                subprocess.run(["open", self.last_run_dir], check=False)
+                subprocess.run(["open", resolved], check=False)
             else:
-                subprocess.run(["xdg-open", self.last_run_dir], check=False)
+                subprocess.run(["xdg-open", resolved], check=False)
         except Exception as exc:
             messagebox.showerror("Error", f"Open folder failed: {exc}")
 
@@ -3290,12 +3308,14 @@ class ModernApp(ctk.CTk):
         )
 
     def export_feature_maps(self):
-        if not self.feature_maps:
+        with self._state_lock:
+            feature_maps_snap = list(self.feature_maps)
+        if not feature_maps_snap:
             messagebox.showinfo("Info", "No feature maps captured.")
             return
         base_name = safe_basename(self.input_path)
         grids = []
-        for name, tensor in self.feature_maps:
+        for name, tensor in feature_maps_snap:
             grid_img = tensor_to_grid_image(tensor)
             if grid_img is not None:
                 grids.append(grid_img)
@@ -3309,7 +3329,7 @@ class ModernApp(ctk.CTk):
                     f"features/{base_name}_{timestamp_str()}"
                 )
                 saved = save_feature_grids(
-                    self.feature_maps, base_name, self.scale_factor, out_dir
+                    feature_maps_snap, base_name, self.scale_factor, out_dir
                 )
                 if saved:
                     messagebox.showinfo("Saved", f"Feature grids saved: {len(saved)}")

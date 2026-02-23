@@ -1,6 +1,15 @@
 # Current Task
 
-Last update: 2026-02-22
+Last update: 2026-02-23
+
+## Recently Completed (2026-02-23)
+- Python 代码审查修复（`(gui)super-resolution processing.py`，6 个问题：2 CRITICAL + 4 HIGH）：
+  - [CRITICAL] `torch.load` 添加 `weights_only=True` 防止 pickle 任意代码执行。
+  - [CRITICAL] `open_last_run_folder` 添加 `realpath` + `isdir` 路径验证。
+  - [HIGH] `process_image` finally 块中 `img_output`/`img_gt` 改为 `_state_lock` 下快照读取。
+  - [HIGH] `load_gt_image` 中 `self.img_gt` 写入加 `_state_lock` 保护。
+  - [HIGH] `upsampler.tile` 修改加 `_model_lock` 保护，取本地引用调用 `enhance()`。
+  - [HIGH] `feature_maps` 全链路加锁：hook append、register 重置、export 快照、success 状态检查。
 
 ## Recently Completed (2026-02-22)
 - 综合代码优化（`(gui)super-resolution processing.py`，净减约 185 行）：

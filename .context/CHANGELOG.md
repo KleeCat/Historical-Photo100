@@ -1,5 +1,13 @@
 # Changelog
 
+- 2026-02-23: Python code review fixes for `(gui)super-resolution processing.py` (6 issues: 2 CRITICAL + 4 HIGH).
+  - [CRITICAL] Added `weights_only=True` to `torch.load` in `load_scratch_model()` to prevent arbitrary code execution via pickle.
+  - [CRITICAL] Added `os.path.realpath` + `os.path.isdir` validation in `open_last_run_folder()` to prevent path traversal.
+  - [HIGH] Fixed `img_output`/`img_gt` unlocked reads in `process_image()` finally block: snapshot under `_state_lock` before use.
+  - [HIGH] Protected `self.img_gt` write in `load_gt_image()` with `_state_lock`.
+  - [HIGH] Protected `self.upsampler.tile` modification with `_model_lock`; take local `upsampler_ref` for `enhance()` call.
+  - [HIGH] Protected `self.feature_maps` across threads: locked append in hook callback, locked reset in `register_feature_hooks`, snapshot in `export_feature_maps` and `apply_success_controls_state`.
+
 - 2026-02-22: Comprehensive code optimization for `(gui)super-resolution processing.py` (~185 lines net reduction).
   - Deleted ~150 lines of Win32 drag-and-drop dead code (`_setup_win32_drop`, `on_drop_files`, `_load_dropped_file`).
   - Extracted `_get_dpi_scale` and `_assign_image_to_label` helpers; refactored `render_zoomed_image`, `show_image_file_ctk`, `show_image_ctk`.
