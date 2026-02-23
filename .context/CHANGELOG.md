@@ -1,5 +1,16 @@
 # Changelog
 
+- 2026-02-23: `(model) super-resolution processing.py` 全面代码审查修复（2 CRITICAL + 7 HIGH + 5 MEDIUM）。
+  - [CRITICAL] 移除无意义的裸 `except:` 块，改为 `(RuntimeError, OSError, ValueError, EOFError)` 精确捕获。
+  - [CRITICAL] 移除未使用的导入（requests, ToTensor, ToPILImage, Image, numpy 新增）。
+  - [HIGH] `download_pretrained_model` / `esrgan_super_resolution` 添加完整类型提示和 docstring。
+  - [HIGH] `scale_factor` 参数实际生效，修复硬编码 `* 4`；提取 `DEFAULT_SCALE_FACTOR` 常量。
+  - [HIGH] `RRDBNet` 从函数内部提升到模块级别，添加类型提示、docstring、`_make_layer` 改为 `@staticmethod`。
+  - [HIGH] `download_pretrained_model` 添加 `.tmp` 中间文件下载 + 异常处理 + 失败清理。
+  - [HIGH] 添加 `if __name__ == "__main__"` 保护和 `argparse` 命令行参数。
+  - [HIGH] 添加 `SUPPORTED_EXTENSIONS` frozenset 过滤非图像文件。
+  - [MEDIUM] 全部 `print()` 替换为 `logging` 模块；导入顺序按 PEP 8 分组；`super()` 简化；`cv2.imwrite` 返回值检查。
+
 - 2026-02-23: `super-resolution processing.py` 代码审查后续修复（3 MEDIUM + 3 LOW）。
   - [MEDIUM] `load_scratch_model` 异常捕获从 `Exception` 收窄为 `(RuntimeError, OSError, ValueError, EOFError)`。
   - [MEDIUM] 移除 `output.astype(np.float32)` 多余中间转换，直接 `np.clip`。
