@@ -3,6 +3,12 @@
 Last update: 2026-02-23
 
 ## Recently Completed (2026-02-23)
+- 对 `download.py` Python 代码审查全面修复（3 CRITICAL + 3 HIGH + 3 MEDIUM + 1 LOW）：
+  - [CRITICAL] 修复除零风险、移除硬编码路径、HTTP→HTTPS。
+  - [HIGH] 添加类型提示、错误处理+文件清理、timeout、`__main__` 保护。
+  - [MEDIUM] print→logging、docstring 补全、魔术数字提取为常量。
+  - [LOW] 进度输出按百分比去重。
+
 - 对 `(model) super-resolution processing.py` 全面代码审查修复（2 CRITICAL + 7 HIGH + 5 MEDIUM）：
   - [CRITICAL] 移除无意义的裸 `except:` 块，改为精确异常捕获。
   - [CRITICAL] 移除未使用的导入（requests, ToTensor, ToPILImage, Image）。

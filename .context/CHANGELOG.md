@@ -1,5 +1,15 @@
 # Changelog
 
+- 2026-02-23: `download.py` Python 代码审查全面修复（3 CRITICAL + 3 HIGH + 3 MEDIUM + 1 LOW）。
+  - [CRITICAL] 修复除零风险：`Content-Length` 为 0 时不再触发 `ZeroDivisionError`。
+  - [CRITICAL] 移除硬编码绝对路径，改为脚本目录相对路径。
+  - [CRITICAL] URL 从 HTTP 升级为 HTTPS，防止中间人攻击。
+  - [HIGH] 添加完整类型提示（`url: str, filename: str -> None`）。
+  - [HIGH] 添加 `requests.RequestException` 错误处理 + 不完整文件清理。
+  - [HIGH] 添加 `timeout=(10, 30)` 防止永久挂起；添加 `if __name__ == "__main__"` 保护。
+  - [MEDIUM] `print()` 替换为 `logging`；docstring 补全参数说明；`8192` 提取为 `CHUNK_SIZE` 常量。
+  - [LOW] 进度输出改为按百分比去重，避免大文件产生数万行输出。
+
 - 2026-02-23: `(model) super-resolution processing.py` 全面代码审查修复（2 CRITICAL + 7 HIGH + 5 MEDIUM）。
   - [CRITICAL] 移除无意义的裸 `except:` 块，改为 `(RuntimeError, OSError, ValueError, EOFError)` 精确捕获。
   - [CRITICAL] 移除未使用的导入（requests, ToTensor, ToPILImage, Image, numpy 新增）。
