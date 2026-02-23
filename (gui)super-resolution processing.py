@@ -2064,7 +2064,7 @@ class ModernApp(ctk.CTk):
     def force_output_refresh(self) -> None:
         self._render_output_frame_once(self._current_run_id, "force-refresh")
 
-    def show_image_file_ctk(self, path: str, label_widget: Any) -> None:
+    def show_image_file_ctk(self, path: str, label_widget: Any) -> bool:
         """Render an image file directly via PIL into a CTkLabel."""
         if not path or not os.path.exists(path):
             return False
@@ -2471,7 +2471,7 @@ class ModernApp(ctk.CTk):
         except Exception as e:
             self.status_label.configure(text=f"Auto tune failed: {e}")
 
-    def get_texture_pipeline(self) -> Dict[str, Any]:
+    def get_texture_pipeline(self) -> Optional["StableDiffusionImg2ImgPipeline"]:
         if not TEXTURE_ENABLED or not TEXTURE_MODEL_ID:
             return None
         if StableDiffusionImg2ImgPipeline is None:
@@ -2595,7 +2595,7 @@ class ModernApp(ctk.CTk):
         run_meta["scratch_repair"] = True
         return input_img
 
-    def _stage_face_enhance(self, input_img: np.ndarray, sr_base: np.ndarray, face_blend: float, ui_run_id: Optional[int], run_meta: Dict[str, Any]) -> np.ndarray:
+    def _stage_face_enhance(self, input_img: np.ndarray, sr_base: np.ndarray, face_blend: float, ui_run_id: Optional[int], run_meta: Dict[str, Any]) -> Tuple[np.ndarray, bool]:
         """Face enhancement stage. Returns (output, used_face_enhance)."""
         stage_start = time.perf_counter()
         output = sr_base
@@ -3036,7 +3036,7 @@ class ModernApp(ctk.CTk):
         self.lbl_resolution_out.configure(text=output_text)
         self.lbl_resolution_out_display.configure(text=output_text)
 
-    def set_metric_labels(self, psnr_label: str, ssim_label: str, psnr_value: Optional[float], ssim_value: Optional[float]) -> None:
+    def set_metric_labels(self, psnr_label: Any, ssim_label: Any, psnr_value: Optional[float], ssim_value: Optional[float]) -> None:
         if psnr_value is None or ssim_value is None:
             neutral = ("gray20", "gray70")
             self.psnr_var.set("PSNR: --")
@@ -3068,7 +3068,7 @@ class ModernApp(ctk.CTk):
             self.lbl_psnr_out, self.lbl_ssim_out, s_psnr_out, s_ssim_out
         )
 
-    def start_run_record(self, run_root: Optional[str] = None, ui_run_id: Optional[int] = None) -> str:
+    def start_run_record(self, run_root: Optional[str] = None, ui_run_id: Optional[int] = None) -> Tuple[str, str]:
         run_id = uuid.uuid4().hex[:8]
         base_name = safe_basename(self.input_path)
         run_root = run_root or self.get_output_dir("")
@@ -3235,7 +3235,7 @@ class ModernApp(ctk.CTk):
             message = f"{status}. Completed {done}/{total}."
         messagebox.showinfo("Batch", message)
 
-    def write_run_log(self, run_dir: str, payload: Dict[str, Any]) -> None:
+    def write_run_log(self, run_dir: str, payload: Dict[str, Any]) -> str:
         log_path = os.path.join(run_dir, "run_log.json")
         write_json_file(log_path, payload)
         return log_path

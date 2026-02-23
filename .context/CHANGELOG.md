@@ -1,5 +1,8 @@
 # Changelog
 
+- 2026-02-23: Fixed mismatched type hints in `(gui)super-resolution processing.py` (6 items).
+  - Updated return/parameter annotations for `show_image_file_ctk`, `get_texture_pipeline`, `_stage_face_enhance`, `set_metric_labels`, `start_run_record`, `write_run_log`.
+
 - 2026-02-23: Added comprehensive type hints to `(gui)super-resolution processing.py` (100+ functions and methods).
   - Added type hints to 8 module-level functions: `clean_state_dict`, `load_scratch_model`, `predict_scratch_mask`, `apply_scratch_repair`, `clamp_value`, `make_comparison_images`, `tensor_to_grid_image`, `save_feature_grids`.
   - Added type hints to 100+ ModernApp class methods covering all public and private methods.

@@ -3,6 +3,7 @@
 Last update: 2026-02-23
 
 ## Recently Completed (2026-02-23)
+- 修复 `(gui)super-resolution processing.py` 中 6 处类型注解与实际返回值/参数不一致的问题（show_image_file_ctk、get_texture_pipeline、_stage_face_enhance、set_metric_labels、start_run_record、write_run_log）。
 - 为 `(gui)super-resolution processing.py` 添加完整的类型提示（100+ 函数和方法）：
   - 为 8 个模块级函数添加类型提示：`clean_state_dict`、`load_scratch_model`、`predict_scratch_mask`、`apply_scratch_repair`、`clamp_value`、`make_comparison_images`、`tensor_to_grid_image`、`save_feature_grids`。
   - 为 ModernApp 类的 100+ 个方法添加类型提示，覆盖所有公共和私有方法。
