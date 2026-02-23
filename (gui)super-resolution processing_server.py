@@ -1,20 +1,25 @@
-﻿import os
+import io
+import os
 import json
+import logging
 import sys
 import contextlib
+import threading
 import warnings
 import time
 from datetime import datetime
+from typing import Iterator, Optional
 
+logger = logging.getLogger(__name__)
 
 @contextlib.contextmanager
-def suppress_stderr():
+def suppress_stderr() -> Iterator[None]:
     if sys.stderr is None:
         yield
         return
     try:
         fd = sys.stderr.fileno()
-    except Exception:
+    except (AttributeError, io.UnsupportedOperation):
         yield
         return
     saved_fd = os.dup(fd)
@@ -34,7 +39,6 @@ import cv2
 import torch
 import torch.nn as nn
 import numpy as np
-import threading
 if not hasattr(torch, "xpu"):
     class _TorchXpuStub:
         @staticmethod
@@ -82,63 +86,104 @@ try:
 except ImportError:
     psnr = None
     ssim = None
-    print("Warning: skimage not installed.")
+    logger.warning("skimage not installed, metrics unavailable")
 
 # --- Global Theme Settings ---
 with suppress_stderr():
     ctk.set_appearance_mode("System")
     ctk.set_default_color_theme("blue")
 
-def env_flag(name, default=False):
+def env_flag(name: str, default: bool = False) -> bool:
     value = os.environ.get(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _safe_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw.strip())
+    except ValueError:
+        logger.warning("Invalid value for %s=%r, using default %s", name, raw, default)
+        return default
+
+
+def _safe_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw.strip())
+    except ValueError:
+        logger.warning("Invalid value for %s=%r, using default %s", name, raw, default)
+        return default
 
 TEXTURE_MODEL_ID = os.environ.get("TEXTURE_MODEL_ID", r"D:\Tools\models\stable-diffusion-v1-5").strip()
 TEXTURE_PROMPT = os.environ.get(
     "TEXTURE_PROMPT",
     "restored vintage photo, realistic skin texture, fabric detail, subtle film grain"
 )
-TEXTURE_STRENGTH = float(os.environ.get("TEXTURE_STRENGTH", "0.35"))
-TEXTURE_GUIDANCE = float(os.environ.get("TEXTURE_GUIDANCE", "5.0"))
-TEXTURE_STEPS = int(os.environ.get("TEXTURE_STEPS", "2"))
-TEXTURE_MAX_DIM = int(os.environ.get("TEXTURE_MAX_DIM", "1536"))
+TEXTURE_STRENGTH = _safe_float("TEXTURE_STRENGTH", 0.35)
+TEXTURE_GUIDANCE = _safe_float("TEXTURE_GUIDANCE", 5.0)
+TEXTURE_STEPS = _safe_int("TEXTURE_STEPS", 2)
+TEXTURE_MAX_DIM = _safe_int("TEXTURE_MAX_DIM", 1536)
 TEXTURE_ENABLED = env_flag("TEXTURE_ENABLED", True)
 SCRATCH_MODEL_PATH = os.environ.get("SCRATCH_MODEL_PATH", "").strip()
-SCRATCH_MASK_THRESHOLD = float(os.environ.get("SCRATCH_MASK_THRESHOLD", "0.5"))
-SCRATCH_INPAINT_RADIUS = int(os.environ.get("SCRATCH_INPAINT_RADIUS", "3"))
+SCRATCH_MASK_THRESHOLD = _safe_float("SCRATCH_MASK_THRESHOLD", 0.5)
+SCRATCH_INPAINT_RADIUS = _safe_int("SCRATCH_INPAINT_RADIUS", 3)
 SCRATCH_ENABLED = env_flag("SCRATCH_ENABLED", bool(SCRATCH_MODEL_PATH))
 COLOR_MODEL_ID = os.environ.get("COLOR_MODEL_ID", TEXTURE_MODEL_ID).strip()
 COLOR_PROMPT = os.environ.get(
     "COLOR_PROMPT",
     "colorized vintage portrait photo, natural skin tones, cinematic lighting"
 )
-COLOR_STRENGTH = float(os.environ.get("COLOR_STRENGTH", "0.35"))
-COLOR_GUIDANCE = float(os.environ.get("COLOR_GUIDANCE", "5.0"))
-COLOR_STEPS = int(os.environ.get("COLOR_STEPS", "6"))
-COLOR_MAX_DIM = int(os.environ.get("COLOR_MAX_DIM", "1536"))
+COLOR_STRENGTH = _safe_float("COLOR_STRENGTH", 0.35)
+COLOR_GUIDANCE = _safe_float("COLOR_GUIDANCE", 5.0)
+COLOR_STEPS = _safe_int("COLOR_STEPS", 6)
+COLOR_MAX_DIM = _safe_int("COLOR_MAX_DIM", 1536)
 COLORIZE_ENABLED = env_flag("COLORIZE_ENABLED", False)
 COLORIZE_ONLY_IF_GRAY = env_flag("COLORIZE_ONLY_IF_GRAY", True)
-COLOR_GRAY_THRESHOLD = float(os.environ.get("COLOR_GRAY_THRESHOLD", "8.0"))
+COLOR_GRAY_THRESHOLD = _safe_float("COLOR_GRAY_THRESHOLD", 8.0)
+GFPGAN_MODEL_URL = (
+    "https://github.com/TencentARC/GFPGAN/releases/"
+    "download/v1.3.0/GFPGANv1.3.pth"
+)
+
+# --- UI / Processing Constants ---
+MIN_CROP_SIZE = 32
+CANNY_LOW_THRESHOLD = 60
+CANNY_HIGH_THRESHOLD = 120
+FEATURE_MAP_MIN_DIM = 16
+FEATURE_MAP_MAX_DIM = 1024
+PROGRESS_INCREMENT = 0.03
+ANIMATION_INTERVAL_MS = 120
+IMAGE_MARGIN_RATIO = 0.08
+DEFAULT_WINDOW_SIZE = "1300x900"
+FACE_DETECT_SCALE_FACTOR = 1.1
+FACE_DETECT_MIN_NEIGHBORS = 4
+FACE_DETECT_MIN_SIZE = (40, 40)
+FALLBACK_WIDGET_SIZE = 500
 
 
-def ensure_dir(path):
+def ensure_dir(path: str) -> str:
     os.makedirs(path, exist_ok=True)
     return path
 
 
-def timestamp_str():
+def timestamp_str() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
-def safe_basename(path, fallback="image"):
+def safe_basename(path: str, fallback: str = "image") -> str:
     if not path:
         return fallback
     return os.path.splitext(os.path.basename(path))[0]
 
 
-def save_image(path, bgr_img):
+def save_image(path: str, bgr_img: np.ndarray) -> str:
     ext = os.path.splitext(path)[1].lower()
     if ext not in [".png", ".jpg", ".jpeg", ".bmp"]:
         ext = ".png"
@@ -152,7 +197,7 @@ def save_image(path, bgr_img):
 
 
 class ConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels: int, out_channels: int) -> None:
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
@@ -161,12 +206,12 @@ class ConvBlock(nn.Module):
             nn.ReLU(inplace=True),
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.block(x)
 
 
 class ScratchUNet(nn.Module):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.down1 = ConvBlock(1, 32)
         self.pool1 = nn.MaxPool2d(2)
@@ -185,7 +230,7 @@ class ScratchUNet(nn.Module):
 
         self.out = nn.Conv2d(32, 1, kernel_size=1)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         d1 = self.down1(x)
         d2 = self.down2(self.pool1(d1))
         d3 = self.down3(self.pool2(d2))
@@ -200,21 +245,22 @@ class ScratchUNet(nn.Module):
         return self.out(u1)
 
 
-def clean_state_dict(state_dict):
+def clean_state_dict(state_dict: dict) -> dict:
     cleaned = {}
     for key, value in state_dict.items():
         cleaned[key.replace("module.", "")] = value
     return cleaned
 
 
-def load_scratch_model(model_path, device):
+def load_scratch_model(model_path: str, device: torch.device) -> Optional[ScratchUNet]:
     if not model_path:
         return None
     if not os.path.exists(model_path):
         return None
     try:
-        checkpoint = torch.load(model_path, map_location=device)
+        checkpoint = torch.load(model_path, map_location=device, weights_only=True)
     except Exception:
+        logger.exception("Failed to load scratch model from %s", model_path)
         return None
     if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
         state_dict = checkpoint["state_dict"]
@@ -227,7 +273,7 @@ def load_scratch_model(model_path, device):
     return model
 
 
-def predict_scratch_mask(bgr_img, model, device, threshold):
+def predict_scratch_mask(bgr_img: np.ndarray, model: Optional[nn.Module], device: torch.device, threshold: float) -> Optional[np.ndarray]:
     if model is None:
         return None
     gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
@@ -242,7 +288,7 @@ def predict_scratch_mask(bgr_img, model, device, threshold):
     return mask
 
 
-def apply_scratch_repair(bgr_img, model, device, threshold, inpaint_radius):
+def apply_scratch_repair(bgr_img: np.ndarray, model: Optional[nn.Module], device: torch.device, threshold: float, inpaint_radius: int) -> np.ndarray:
     if model is None:
         return bgr_img
     mask = predict_scratch_mask(bgr_img, model, device, threshold)
@@ -251,7 +297,7 @@ def apply_scratch_repair(bgr_img, model, device, threshold, inpaint_radius):
     return cv2.inpaint(bgr_img, mask, inpaint_radius, cv2.INPAINT_TELEA)
 
 
-def blend_images(img_a, img_b, alpha):
+def blend_images(img_a: Optional[np.ndarray], img_b: Optional[np.ndarray], alpha: float) -> np.ndarray:
     if img_a is None:
         return img_b
     if img_b is None:
@@ -264,7 +310,7 @@ def blend_images(img_a, img_b, alpha):
     return cv2.addWeighted(img_a, weight, img_b, 1.0 - weight, 0)
 
 
-def apply_unsharp_mask(bgr_img, strength, radius=1.5):
+def apply_unsharp_mask(bgr_img: np.ndarray, strength: float, radius: float = 1.5) -> np.ndarray:
     weight = float(np.clip(strength, 0.0, 1.0))
     if weight <= 0.0:
         return bgr_img
@@ -273,7 +319,7 @@ def apply_unsharp_mask(bgr_img, strength, radius=1.5):
     return np.clip(sharpened, 0, 255).astype(np.uint8)
 
 
-def apply_film_grain(bgr_img, strength):
+def apply_film_grain(bgr_img: np.ndarray, strength: float) -> np.ndarray:
     weight = float(np.clip(strength, 0.0, 1.0))
     if weight <= 0.0:
         return bgr_img
@@ -284,7 +330,7 @@ def apply_film_grain(bgr_img, strength):
     return np.clip(grain, 0, 255).astype(np.uint8)
 
 
-def blend_with_lr(sr_bgr, lr_bgr, strength):
+def blend_with_lr(sr_bgr: np.ndarray, lr_bgr: np.ndarray, strength: float) -> np.ndarray:
     weight = float(np.clip(strength, 0.0, 1.0))
     if weight <= 0.0:
         return sr_bgr
@@ -293,17 +339,17 @@ def blend_with_lr(sr_bgr, lr_bgr, strength):
     return blend_images(lr_up, sr_bgr, weight)
 
 
-def clamp_value(value, min_value, max_value):
+def clamp_value(value: float, min_value: float, max_value: float) -> float:
     return max(min_value, min(float(value), max_value))
 
 
-def estimate_image_metrics(bgr_img):
+def estimate_image_metrics(bgr_img: np.ndarray) -> dict:
     gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
     lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
     blur = cv2.GaussianBlur(gray, (0, 0), 1.0)
     noise_sigma = float(np.std(gray.astype(np.float32) - blur.astype(np.float32)))
     contrast = float(np.std(gray))
-    edges = cv2.Canny(gray, 60, 120)
+    edges = cv2.Canny(gray, CANNY_LOW_THRESHOLD, CANNY_HIGH_THRESHOLD)
     edge_density = float(np.mean(edges > 0))
     return {
         "lap_var": lap_var,
@@ -313,7 +359,7 @@ def estimate_image_metrics(bgr_img):
     }
 
 
-def is_probably_gray(bgr_img, threshold):
+def is_probably_gray(bgr_img: Optional[np.ndarray], threshold: float) -> bool:
     if bgr_img is None:
         return False
     b, g, r = cv2.split(bgr_img)
@@ -325,7 +371,7 @@ def is_probably_gray(bgr_img, threshold):
     return mean_diff < float(threshold)
 
 
-def make_comparison_images(lr_bgr, sr_bgr, scale, base_name, out_dir):
+def make_comparison_images(lr_bgr: np.ndarray, sr_bgr: np.ndarray, scale: int, base_name: str, out_dir: str) -> tuple:
     ensure_dir(out_dir)
     ts = timestamp_str()
     h, w = sr_bgr.shape[:2]
@@ -340,7 +386,7 @@ def make_comparison_images(lr_bgr, sr_bgr, scale, base_name, out_dir):
     diff_norm = cv2.normalize(diff_gray, None, 0, 255, cv2.NORM_MINMAX)
     heat = cv2.applyColorMap(diff_norm.astype(np.uint8), cv2.COLORMAP_JET)
 
-    crop_size = max(32, min(h, w) // 3)
+    crop_size = max(MIN_CROP_SIZE, min(h, w) // 3)
     cx, cy = w // 2, h // 2
     x1 = max(0, cx - crop_size // 2)
     y1 = max(0, cy - crop_size // 2)
@@ -360,7 +406,7 @@ def make_comparison_images(lr_bgr, sr_bgr, scale, base_name, out_dir):
     return pair_path, grid_path
 
 
-def tensor_to_grid_image(tensor, grid=4, max_channels=16):
+def tensor_to_grid_image(tensor: torch.Tensor, grid: int = 4, max_channels: int = 16) -> Optional[np.ndarray]:
     if not torch.is_tensor(tensor):
         return None
     t = tensor
@@ -391,7 +437,7 @@ def tensor_to_grid_image(tensor, grid=4, max_channels=16):
     return np.vstack(rows)
 
 
-def save_feature_grids(feature_maps, base_name, scale, out_dir):
+def save_feature_grids(feature_maps: list, base_name: str, scale: int, out_dir: str) -> list:
     ensure_dir(out_dir)
     ts = timestamp_str()
     saved = []
@@ -406,12 +452,12 @@ def save_feature_grids(feature_maps, base_name, scale, out_dir):
 
 
 class ModernApp(ctk.CTk):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
         # Window setup
         self.title("Image Super-Resolution System (ESRGAN)")
-        self.geometry("1300x900")  # Increased height for new controls
+        self.geometry(DEFAULT_WINDOW_SIZE)  # Increased height for new controls
 
         # Core variables
         self.model_folder = os.environ.get(
@@ -466,7 +512,7 @@ class ModernApp(ctk.CTk):
         threading.Thread(target=self.load_model, daemon=True).start()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
-    def setup_ui(self):
+    def setup_ui(self) -> None:
         # === 1. Sidebar (Left) ===
         self.sidebar = ctk.CTkFrame(self, width=240, corner_radius=0)
         self.sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew")
@@ -694,12 +740,12 @@ class ModernApp(ctk.CTk):
         self.progress_bar.set(0)
 
     # --- Feature Extraction Hooks ---
-    def clear_feature_hooks(self):
+    def clear_feature_hooks(self) -> None:
         for handle in self.hook_handles:
             handle.remove()
         self.hook_handles = []
 
-    def register_feature_hooks(self):
+    def register_feature_hooks(self) -> None:
         self.clear_feature_hooks()
         self.feature_maps = []
 
@@ -717,7 +763,7 @@ class ModernApp(ctk.CTk):
                 if tensor.ndim != 4:
                     return
                 _, _, h, w = tensor.shape
-                if h < 16 or w < 16 or h > 1024 or w > 1024:
+                if h < FEATURE_MAP_MIN_DIM or w < FEATURE_MAP_MIN_DIM or h > FEATURE_MAP_MAX_DIM or w > FEATURE_MAP_MAX_DIM:
                     return
                 self.feature_maps.append((name, tensor.detach().cpu()))
             return hook
@@ -726,7 +772,7 @@ class ModernApp(ctk.CTk):
             if isinstance(module, torch.nn.Conv2d):
                 self.hook_handles.append(module.register_forward_hook(make_hook(name)))
 
-    def load_config(self):
+    def load_config(self) -> None:
         if not os.path.exists(self.config_path):
             return
         try:
@@ -734,17 +780,18 @@ class ModernApp(ctk.CTk):
                 data = json.load(f)
             self.default_output_dir = data.get("default_output_dir")
         except Exception:
+            logger.warning("Failed to load config from %s", self.config_path, exc_info=True)
             self.default_output_dir = None
 
-    def save_config(self):
+    def save_config(self) -> None:
         data = {"default_output_dir": self.default_output_dir}
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except Exception:
-            pass
+            logger.warning("Failed to save config to %s", self.config_path, exc_info=True)
 
-    def set_default_output_dir(self):
+    def set_default_output_dir(self) -> None:
         selected = filedialog.askdirectory()
         if selected:
             self.default_output_dir = selected
@@ -753,35 +800,35 @@ class ModernApp(ctk.CTk):
             if hasattr(self, "lbl_output_dir"):
                 self.lbl_output_dir.configure(text=self.get_output_dir_label_text())
 
-    def get_output_dir_label_text(self):
+    def get_output_dir_label_text(self) -> str:
         if self.default_output_dir:
             return f"Default output: {self.truncate_path(self.default_output_dir, 40)}"
         return "Default output: (project outputs)"
 
-    def truncate_path(self, path, max_len):
+    def truncate_path(self, path: str, max_len: int) -> str:
         if len(path) <= max_len:
             return path
         return "..." + path[-(max_len - 3):]
 
-    def on_close(self):
+    def on_close(self) -> None:
         self.clear_feature_hooks()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         self.destroy()
 
     # --- Logic: Progress Bar Animation ---
-    def auto_increment_progress(self):
+    def auto_increment_progress(self) -> None:
         if not self.is_processing:
             return
         current_val = self.progress_bar.get()
         target_val = self.progress_target
         if current_val < target_val:
-            increment = min(0.03, target_val - current_val)
+            increment = min(PROGRESS_INCREMENT, target_val - current_val)
             self.progress_bar.set(current_val + increment)
-        self.after(120, self.auto_increment_progress)
+        self.after(ANIMATION_INTERVAL_MS, self.auto_increment_progress)
 
     # --- Logic: Model Loading & Switching ---
-    def change_model_scale(self, choice):
+    def change_model_scale(self, choice: str) -> None:
         """Handle scale change event from combobox"""
         self.scale_factor = 2 if choice == "x2" else 4
         self.status_label.configure(text=f"Switching to {choice} model...")
@@ -789,7 +836,9 @@ class ModernApp(ctk.CTk):
         self.progress_bar.set(0.5)
         threading.Thread(target=self.load_model, daemon=True).start()
 
-    def load_model(self):
+    def load_model(self) -> None:
+        if not self._model_lock.acquire(blocking=False):
+            return  # another load is already in progress
         try:
             self.clear_feature_hooks()
             self.model = None
@@ -815,13 +864,17 @@ class ModernApp(ctk.CTk):
             self.upsampler = RealESRGANer(scale=self.scale_factor, model_path=full_path, model=self.model, tile=0,
                                           tile_pad=10, pre_pad=0, half=False, device=self.device)
 
-            self.status_label.configure(text=f"Model x{self.scale_factor} loaded | Device: {self.device}")
-            self.progress_bar.set(0)
+            self.after(0, lambda: self.status_label.configure(
+                text=f"Model x{self.scale_factor} loaded | Device: {self.device}"))
+            self.after(0, lambda: self.progress_bar.set(0))
         except Exception as e:
-            self.status_label.configure(text="Load failed")
-            messagebox.showerror("Model Error", str(e))
+            logger.exception("Model loading failed")
+            self.after(0, lambda: self.status_label.configure(text="Load failed"))
+            self.after(0, lambda: messagebox.showerror("Model Error", str(e)))
+        finally:
+            self._model_lock.release()
 
-    def load_input_image(self):
+    def load_input_image(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("Image", "*.jpg *.png *.jpeg *.bmp")])
         if path:
             self.input_path = path
@@ -848,23 +901,25 @@ class ModernApp(ctk.CTk):
             self.calculate_metrics()
             self.auto_tune_parameters()
 
-    def load_gt_image(self):
+    def load_gt_image(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("Image", "*.jpg *.png *.jpeg *.bmp")])
         if path:
             self.img_gt = self.read_image(path)
             self.calculate_metrics()
             messagebox.showinfo("Info", "Ground Truth loaded")
 
-    def read_image(self, path):
+    def read_image(self, path: str) -> np.ndarray:
         with suppress_stderr():
             img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+        if img is None:
+            raise ValueError(f"Failed to decode image: {path}")
         if len(img.shape) == 2:
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         elif img.shape[2] == 4:
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
         return img
 
-    def bind_image_interactions(self):
+    def bind_image_interactions(self) -> None:
         widgets = (self.lbl_img_in, self.lbl_img_out)
         for widget in widgets:
             widget.bind("<MouseWheel>", self.on_zoom)
@@ -877,18 +932,18 @@ class ModernApp(ctk.CTk):
         self.lbl_img_out.bind("<Leave>", self.on_compare_leave)
         self.bind("<ButtonRelease-1>", self.on_compare_release)
 
-    def reset_view_state(self):
+    def reset_view_state(self) -> None:
         self.zoom_factor = 1.0
         self.view_center = [0.5, 0.5]
         self.pan_start = None
         self.compare_hold_active = False
 
-    def on_display_resize(self, event):
+    def on_display_resize(self, event: object) -> None:
         if self.resize_job is not None:
             self.after_cancel(self.resize_job)
-        self.resize_job = self.after(120, self.render_main_images)
+        self.resize_job = self.after(ANIMATION_INTERVAL_MS, self.render_main_images)
 
-    def on_zoom(self, event):
+    def on_zoom(self, event: object) -> None:
         if self.img_input is None:
             return
         if event.delta > 0:
@@ -900,12 +955,12 @@ class ModernApp(ctk.CTk):
         self.zoom_factor = float(np.clip(zoom, 1.0, 6.0))
         self.render_main_images()
 
-    def on_pan_start(self, event):
+    def on_pan_start(self, event: object) -> None:
         if self.img_input is None:
             return
         self.pan_start = (event.x, event.y)
 
-    def on_pan_move(self, event):
+    def on_pan_move(self, event: object) -> None:
         if self.img_input is None or self.pan_start is None:
             return
         dx = event.x - self.pan_start[0]
@@ -923,10 +978,10 @@ class ModernApp(ctk.CTk):
         self.view_center[1] = float(np.clip(self.view_center[1], 0.0, 1.0))
         self.render_main_images()
 
-    def on_pan_end(self, event):
+    def on_pan_end(self, event: object) -> None:
         self.pan_start = None
 
-    def on_compare_press(self, event):
+    def on_compare_press(self, event: object) -> None:
         if self.img_input is None or self.img_output is None:
             return
         if self.is_processing:
@@ -936,19 +991,19 @@ class ModernApp(ctk.CTk):
         self.compare_hold_active = True
         self.render_main_images()
 
-    def on_compare_release(self, event):
+    def on_compare_release(self, event: object) -> None:
         if not self.compare_hold_active:
             return
         self.compare_hold_active = False
         self.render_main_images()
 
-    def on_compare_leave(self, event):
+    def on_compare_leave(self, event: object) -> None:
         if not self.compare_hold_active:
             return
         self.compare_hold_active = False
         self.render_main_images()
 
-    def calculate_view_window(self, bgr_img, widget_w, widget_h):
+    def calculate_view_window(self, bgr_img: np.ndarray, widget_w: int, widget_h: int) -> tuple:
         h_img, w_img = bgr_img.shape[:2]
         zoom = max(self.zoom_factor, 1e-3)
         view_w = max(1, int(w_img / zoom))
@@ -963,15 +1018,15 @@ class ModernApp(ctk.CTk):
         view_h = max(1, min(view_h, h_img))
         return view_w, view_h
 
-    def render_zoomed_image(self, bgr_img, label_widget):
+    def render_zoomed_image(self, bgr_img: np.ndarray, label_widget: object) -> bool:
         if not label_widget.winfo_exists():
             return False
         widget_w = label_widget.winfo_width()
         widget_h = label_widget.winfo_height()
         if widget_w < 10 or widget_h < 10:
-            widget_w, widget_h = 500, 500
+            widget_w, widget_h = FALLBACK_WIDGET_SIZE, FALLBACK_WIDGET_SIZE
 
-        margin = int(min(widget_w, widget_h) * 0.08)
+        margin = int(min(widget_w, widget_h) * IMAGE_MARGIN_RATIO)
         render_w = max(1, widget_w - margin * 2)
         render_h = max(1, widget_h - margin * 2)
 
@@ -993,7 +1048,7 @@ class ModernApp(ctk.CTk):
             return False
         return True
 
-    def render_main_images(self):
+    def render_main_images(self) -> None:
         if self.img_input is None:
             self.lbl_img_in.configure(image=None, text="Waiting for input...")
             self.lbl_img_in.image = None
@@ -1017,7 +1072,7 @@ class ModernApp(ctk.CTk):
             except TclError:
                 return
 
-    def force_output_refresh(self):
+    def force_output_refresh(self) -> None:
         if self.img_output is None:
             return
         if not self.lbl_img_out.winfo_exists():
@@ -1032,7 +1087,7 @@ class ModernApp(ctk.CTk):
         except TclError:
             return
 
-    def build_compare_image(self, lr_bgr, sr_bgr, split_ratio):
+    def build_compare_image(self, lr_bgr: np.ndarray, sr_bgr: np.ndarray, split_ratio: float) -> np.ndarray:
         if lr_bgr is None:
             return sr_bgr
         if sr_bgr is None:
@@ -1045,18 +1100,18 @@ class ModernApp(ctk.CTk):
             combined[:, :split] = lr_up[:, :split]
         return combined
 
-    def on_compare_mode_toggle(self):
+    def on_compare_mode_toggle(self) -> None:
         self.compare_hold_active = False
         self.update_compare_controls()
         self.render_main_images()
 
-    def on_compare_split_change(self, value):
+    def on_compare_split_change(self, value: float) -> None:
         percent = int(round(float(value) * 100))
         self.lbl_compare_split.configure(text=f"Split: {percent}%")
         if self.compare_mode.get():
             self.render_main_images()
 
-    def update_compare_controls(self):
+    def update_compare_controls(self) -> None:
         compare_enabled = self.compare_mode.get()
         if compare_enabled:
             self.lbl_compare_split.grid()
@@ -1069,7 +1124,7 @@ class ModernApp(ctk.CTk):
         else:
             self.slider_compare.configure(state="disabled")
 
-    def show_output_overlay(self, text, animate=False):
+    def show_output_overlay(self, text: str, animate: bool = False) -> None:
         self.overlay_base_text = text
         self.output_overlay_label.configure(text=text)
         self.output_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
@@ -1077,10 +1132,10 @@ class ModernApp(ctk.CTk):
         if animate:
             self.animate_output_overlay()
 
-    def hide_output_overlay(self):
+    def hide_output_overlay(self) -> None:
         self.output_overlay.place_forget()
 
-    def animate_output_overlay(self):
+    def animate_output_overlay(self) -> None:
         if not self.is_processing:
             return
         dots = getattr(self, "overlay_dot_count", 0)
@@ -1090,7 +1145,7 @@ class ModernApp(ctk.CTk):
         self.output_overlay_label.configure(text=text)
         self.after(500, self.animate_output_overlay)
 
-    def report_progress(self, value, status_text=None, overlay_text=None):
+    def report_progress(self, value: float, status_text: Optional[str] = None, overlay_text: Optional[str] = None) -> None:
         def update():
             self.progress_target = max(self.progress_target, value)
             if status_text:
@@ -1101,18 +1156,18 @@ class ModernApp(ctk.CTk):
                 self.output_overlay_label.configure(text=overlay_text)
         self.after(0, update)
 
-    def start_elapsed_timer(self):
+    def start_elapsed_timer(self) -> None:
         self.processing_start_time = time.perf_counter()
         self.update_elapsed_time()
 
-    def update_elapsed_time(self):
+    def update_elapsed_time(self) -> None:
         if not self.is_processing or self.processing_start_time is None:
             return
         elapsed = time.perf_counter() - self.processing_start_time
         self.elapsed_label.configure(text=f"Elapsed: {elapsed:.1f}s")
         self.after(200, self.update_elapsed_time)
 
-    def set_run_button_processing(self, processing):
+    def set_run_button_processing(self, processing: bool) -> None:
         if processing:
             self.btn_run.configure(
                 state="disabled",
@@ -1128,14 +1183,16 @@ class ModernApp(ctk.CTk):
                 hover_color=self.btn_run_default_hover
             )
 
-    def show_image_ctk(self, cv_img, label_widget):
+    def show_image_ctk(self, cv_img: np.ndarray, label_widget: object) -> None:
         img_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
         im_pil = Image.fromarray(img_rgb)
 
         w_widget = label_widget.winfo_width()
         h_widget = label_widget.winfo_height()
-        if w_widget < 10: w_widget = 500
-        if h_widget < 10: h_widget = 500
+        if w_widget < 10:
+            w_widget = FALLBACK_WIDGET_SIZE
+        if h_widget < 10:
+            h_widget = FALLBACK_WIDGET_SIZE
 
         w_img, h_img = im_pil.size
         ratio = min(w_widget / w_img, h_widget / h_img)
@@ -1149,7 +1206,7 @@ class ModernApp(ctk.CTk):
         label_widget.configure(image=ctk_img, text="")
         label_widget.image = ctk_img
 
-    def show_image_preview(self, title, bgr_img, info_text, save_text, on_save):
+    def show_image_preview(self, title: str, bgr_img: np.ndarray, info_text: Optional[str], save_text: str, on_save: object) -> None:
         preview = ctk.CTkToplevel(self)
         preview.title(title)
         preview.geometry("900x900")
@@ -1182,22 +1239,22 @@ class ModernApp(ctk.CTk):
         btn_save = ctk.CTkButton(preview, text=save_text, command=lambda: on_save(preview))
         btn_save.pack(pady=(0, 10))
 
-    def update_slider_label(self, label_widget, prefix, value):
+    def update_slider_label(self, label_widget: object, prefix: str, value: float) -> None:
         label_widget.configure(text=f"{prefix}: {float(value):.2f}")
 
-    def on_face_blend_change(self, value):
+    def on_face_blend_change(self, value: float) -> None:
         self.update_slider_label(self.lbl_face_blend, "Face Blend", value)
 
-    def on_natural_blend_change(self, value):
+    def on_natural_blend_change(self, value: float) -> None:
         self.update_slider_label(self.lbl_natural_blend, "Natural Blend", value)
 
-    def on_texture_boost_change(self, value):
+    def on_texture_boost_change(self, value: float) -> None:
         self.update_slider_label(self.lbl_texture_boost, "Texture Boost", value)
 
-    def on_film_grain_change(self, value):
+    def on_film_grain_change(self, value: float) -> None:
         self.update_slider_label(self.lbl_film_grain, "Film Grain", value)
 
-    def get_texture_status_text(self):
+    def get_texture_status_text(self) -> str:
         parts = []
         if TEXTURE_ENABLED and TEXTURE_MODEL_ID:
             parts.append("Texture: on")
@@ -1216,17 +1273,19 @@ class ModernApp(ctk.CTk):
             parts.append("Colorize: off")
         return " | ".join(parts)
 
-    def detect_faces(self, gray_img):
+    def detect_faces(self, gray_img: np.ndarray) -> bool:
         cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
         if not os.path.exists(cascade_path):
             return False
         cascade = cv2.CascadeClassifier(cascade_path)
         if cascade.empty():
             return False
-        faces = cascade.detectMultiScale(gray_img, scaleFactor=1.1, minNeighbors=4, minSize=(40, 40))
+        faces = cascade.detectMultiScale(gray_img, scaleFactor=FACE_DETECT_SCALE_FACTOR,
+                                        minNeighbors=FACE_DETECT_MIN_NEIGHBORS,
+                                        minSize=FACE_DETECT_MIN_SIZE)
         return len(faces) > 0
 
-    def auto_tune_parameters(self):
+    def auto_tune_parameters(self) -> None:
         if self.img_input is None:
             return
         try:
@@ -1255,165 +1314,110 @@ class ModernApp(ctk.CTk):
         except Exception as e:
             self.status_label.configure(text=f"Auto tune failed: {e}")
 
-    def get_texture_pipeline(self):
+    def _load_sd_pipeline(self, model_id: str, label: str) -> object:
+        if StableDiffusionImg2ImgPipeline is None:
+            raise RuntimeError("diffusers not installed. Run: pip install diffusers transformers accelerate")
+        logger.info("%s pipeline: loading", label)
+        dtype = torch.float16 if self.device.type == "cuda" else torch.float32
+        variant = None
+        if self.device.type == "cuda":
+            unet_dir = os.path.join(model_id, "unet")
+            fp16_bin = os.path.join(unet_dir, "diffusion_pytorch_model.fp16.bin")
+            fp16_safe = os.path.join(unet_dir, "diffusion_pytorch_model.fp16.safetensors")
+            if os.path.exists(fp16_bin) or os.path.exists(fp16_safe):
+                variant = "fp16"
+                logger.info("%s pipeline: using fp16 weights", label)
+        kwargs = {"torch_dtype": dtype}
+        if variant:
+            kwargs["variant"] = variant
+        pipe = StableDiffusionImg2ImgPipeline.from_pretrained(model_id, **kwargs)
+        use_cpu_offload = False
+        if self.device.type == "cuda" and hasattr(pipe, "enable_model_cpu_offload"):
+            pipe.enable_model_cpu_offload()
+            use_cpu_offload = True
+            logger.info("%s pipeline: cpu offload enabled", label)
+        if not use_cpu_offload:
+            pipe.to(self.device)
+        if self.device.type == "cuda":
+            pipe.enable_attention_slicing()
+            if hasattr(pipe, "enable_vae_slicing"):
+                pipe.enable_vae_slicing()
+            if hasattr(pipe, "enable_vae_tiling"):
+                pipe.enable_vae_tiling()
+        logger.info("%s pipeline: ready", label)
+        return pipe
+
+    def get_texture_pipeline(self) -> object:
         if not TEXTURE_ENABLED or not TEXTURE_MODEL_ID:
             return None
-        if StableDiffusionImg2ImgPipeline is None:
-            raise RuntimeError("diffusers not installed. Run: pip install diffusers transformers accelerate")
         if self.texture_pipe is None:
-            print("Texture pipeline: loading", flush=True)
-            dtype = torch.float16 if self.device.type == "cuda" else torch.float32
-            variant = None
-            if self.device.type == "cuda":
-                unet_dir = os.path.join(TEXTURE_MODEL_ID, "unet")
-                fp16_bin = os.path.join(unet_dir, "diffusion_pytorch_model.fp16.bin")
-                fp16_safe = os.path.join(unet_dir, "diffusion_pytorch_model.fp16.safetensors")
-                if os.path.exists(fp16_bin) or os.path.exists(fp16_safe):
-                    variant = "fp16"
-                    print("Texture pipeline: using fp16 weights", flush=True)
-            if variant:
-                self.texture_pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
-                    TEXTURE_MODEL_ID,
-                    torch_dtype=dtype,
-                    variant=variant
-                )
-            else:
-                self.texture_pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
-                    TEXTURE_MODEL_ID,
-                    torch_dtype=dtype
-                )
-            use_cpu_offload = False
-            if self.device.type == "cuda" and hasattr(self.texture_pipe, "enable_model_cpu_offload"):
-                self.texture_pipe.enable_model_cpu_offload()
-                use_cpu_offload = True
-                print("Texture pipeline: cpu offload enabled", flush=True)
-            if not use_cpu_offload:
-                self.texture_pipe.to(self.device)
-            if self.device.type == "cuda":
-                self.texture_pipe.enable_attention_slicing()
-                if hasattr(self.texture_pipe, "enable_vae_slicing"):
-                    self.texture_pipe.enable_vae_slicing()
-                if hasattr(self.texture_pipe, "enable_vae_tiling"):
-                    self.texture_pipe.enable_vae_tiling()
-            print("Texture pipeline: ready", flush=True)
+            self.texture_pipe = self._load_sd_pipeline(TEXTURE_MODEL_ID, "Texture")
         return self.texture_pipe
 
-    def get_color_pipeline(self):
+    def get_color_pipeline(self) -> object:
         if not COLORIZE_ENABLED or not COLOR_MODEL_ID:
             return None
-        if StableDiffusionImg2ImgPipeline is None:
-            raise RuntimeError("diffusers not installed. Run: pip install diffusers transformers accelerate")
         if self.color_pipe is None:
-            print("Color pipeline: loading", flush=True)
-            dtype = torch.float16 if self.device.type == "cuda" else torch.float32
-            variant = None
-            if self.device.type == "cuda":
-                unet_dir = os.path.join(COLOR_MODEL_ID, "unet")
-                fp16_bin = os.path.join(unet_dir, "diffusion_pytorch_model.fp16.bin")
-                fp16_safe = os.path.join(unet_dir, "diffusion_pytorch_model.fp16.safetensors")
-                if os.path.exists(fp16_bin) or os.path.exists(fp16_safe):
-                    variant = "fp16"
-                    print("Color pipeline: using fp16 weights", flush=True)
-            if variant:
-                self.color_pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
-                    COLOR_MODEL_ID,
-                    torch_dtype=dtype,
-                    variant=variant
-                )
-            else:
-                self.color_pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
-                    COLOR_MODEL_ID,
-                    torch_dtype=dtype
-                )
-            use_cpu_offload = False
-            if self.device.type == "cuda" and hasattr(self.color_pipe, "enable_model_cpu_offload"):
-                self.color_pipe.enable_model_cpu_offload()
-                use_cpu_offload = True
-                print("Color pipeline: cpu offload enabled", flush=True)
-            if not use_cpu_offload:
-                self.color_pipe.to(self.device)
-            if self.device.type == "cuda":
-                self.color_pipe.enable_attention_slicing()
-                if hasattr(self.color_pipe, "enable_vae_slicing"):
-                    self.color_pipe.enable_vae_slicing()
-                if hasattr(self.color_pipe, "enable_vae_tiling"):
-                    self.color_pipe.enable_vae_tiling()
-            print("Color pipeline: ready", flush=True)
+            self.color_pipe = self._load_sd_pipeline(COLOR_MODEL_ID, "Color")
         return self.color_pipe
 
-    def get_scratch_model(self):
+    def get_scratch_model(self) -> Optional[ScratchUNet]:
         if not SCRATCH_ENABLED or not SCRATCH_MODEL_PATH:
             return None
         if self.scratch_model is None:
             self.scratch_model = load_scratch_model(SCRATCH_MODEL_PATH, self.device)
             if self.scratch_model is None:
-                print("Scratch model: load failed", flush=True)
+                logger.warning("Scratch model: load failed")
         return self.scratch_model
 
-    def apply_texture_generation(self, bgr_img):
-        pipe = self.get_texture_pipeline()
-        if pipe is None:
-            return bgr_img
+    def _apply_sd_pipeline(self, bgr_img, pipe, prompt, strength,
+                           guidance: float, steps: int, max_dim: int, label: str) -> np.ndarray:
         height, width = bgr_img.shape[:2]
         resized_bgr = bgr_img
         scale = 1.0
-        if TEXTURE_MAX_DIM > 0:
-            max_dim = max(height, width)
-            if max_dim > TEXTURE_MAX_DIM:
-                scale = TEXTURE_MAX_DIM / float(max_dim)
-                new_width = max(1, int(width * scale))
-                new_height = max(1, int(height * scale))
-                resized_bgr = cv2.resize(bgr_img, (new_width, new_height), interpolation=cv2.INTER_AREA)
-                print(f"Texture generation: downscale {width}x{height} -> {new_width}x{new_height}", flush=True)
+        if max_dim > 0:
+            cur_max = max(height, width)
+            if cur_max > max_dim:
+                scale = max_dim / float(cur_max)
+                new_w = max(1, int(width * scale))
+                new_h = max(1, int(height * scale))
+                resized_bgr = cv2.resize(bgr_img, (new_w, new_h),
+                                         interpolation=cv2.INTER_AREA)
+                logger.info("%s: downscale %dx%d -> %dx%d",
+                            label, width, height, new_w, new_h)
         rgb_img = cv2.cvtColor(resized_bgr, cv2.COLOR_BGR2RGB)
         init_image = Image.fromarray(rgb_img)
         result = pipe(
-            prompt=TEXTURE_PROMPT,
-            image=init_image,
-            strength=TEXTURE_STRENGTH,
-            guidance_scale=TEXTURE_GUIDANCE,
-            num_inference_steps=TEXTURE_STEPS
+            prompt=prompt, image=init_image, strength=strength,
+            guidance_scale=guidance, num_inference_steps=steps
         ).images[0]
         output_bgr = cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
-        if scale != 1.0:
-            output_bgr = cv2.resize(output_bgr, (width, height), interpolation=cv2.INTER_CUBIC)
-            print(f"Texture generation: upscale back to {width}x{height}", flush=True)
+        if abs(scale - 1.0) > 1e-6:
+            output_bgr = cv2.resize(output_bgr, (width, height),
+                                    interpolation=cv2.INTER_CUBIC)
+            logger.info("%s: upscale back to %dx%d", label, width, height)
         return output_bgr
 
-    def apply_colorization(self, bgr_img):
+    def apply_texture_generation(self, bgr_img: np.ndarray) -> np.ndarray:
+        pipe = self.get_texture_pipeline()
+        if pipe is None:
+            return bgr_img
+        return self._apply_sd_pipeline(
+            bgr_img, pipe, TEXTURE_PROMPT, TEXTURE_STRENGTH,
+            TEXTURE_GUIDANCE, TEXTURE_STEPS, TEXTURE_MAX_DIM, "Texture")
+
+    def apply_colorization(self, bgr_img: np.ndarray) -> np.ndarray:
         pipe = self.get_color_pipeline()
         if pipe is None:
             return bgr_img
         if COLORIZE_ONLY_IF_GRAY and not is_probably_gray(bgr_img, COLOR_GRAY_THRESHOLD):
-            print("Colorization: skipped (already color)", flush=True)
+            logger.info("Colorization: skipped (already color)")
             return bgr_img
-        height, width = bgr_img.shape[:2]
-        resized_bgr = bgr_img
-        scale = 1.0
-        if COLOR_MAX_DIM > 0:
-            max_dim = max(height, width)
-            if max_dim > COLOR_MAX_DIM:
-                scale = COLOR_MAX_DIM / float(max_dim)
-                new_width = max(1, int(width * scale))
-                new_height = max(1, int(height * scale))
-                resized_bgr = cv2.resize(bgr_img, (new_width, new_height), interpolation=cv2.INTER_AREA)
-                print(f"Colorization: downscale {width}x{height} -> {new_width}x{new_height}", flush=True)
-        rgb_img = cv2.cvtColor(resized_bgr, cv2.COLOR_BGR2RGB)
-        init_image = Image.fromarray(rgb_img)
-        result = pipe(
-            prompt=COLOR_PROMPT,
-            image=init_image,
-            strength=COLOR_STRENGTH,
-            guidance_scale=COLOR_GUIDANCE,
-            num_inference_steps=COLOR_STEPS
-        ).images[0]
-        output_bgr = cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
-        if scale != 1.0:
-            output_bgr = cv2.resize(output_bgr, (width, height), interpolation=cv2.INTER_CUBIC)
-            print(f"Colorization: upscale back to {width}x{height}", flush=True)
-        return output_bgr
+        return self._apply_sd_pipeline(
+            bgr_img, pipe, COLOR_PROMPT, COLOR_STRENGTH,
+            COLOR_GUIDANCE, COLOR_STEPS, COLOR_MAX_DIM, "Colorization")
 
-    def run_processing_thread(self):
+    def run_processing_thread(self) -> None:
         if self.img_input is None:
             return
         if self.upsampler is None:
@@ -1421,7 +1425,10 @@ class ModernApp(ctk.CTk):
             self.progress_bar.set(0.2)
             threading.Thread(target=self.load_model, daemon=True).start()
             return
-        self.is_processing = True
+        with self._state_lock:
+            if self.is_processing:
+                return
+            self.is_processing = True
         self.progress_bar.set(0)
         self.progress_target = 0.05
         self.feature_maps = []
@@ -1435,12 +1442,13 @@ class ModernApp(ctk.CTk):
 
         threading.Thread(target=self.process_image, daemon=True).start()
 
-    def process_image(self):
+    def process_image(self) -> None:
         success = False
         try:
             output = None
             used_face_enhance = False
-            input_bgr = self.img_input
+            with self._state_lock:
+                input_bgr = self.img_input
 
             if SCRATCH_ENABLED and self.use_scratch_repair.get():
                 self.report_progress(0.08, "Repairing scratches...", "Scratch repair")
@@ -1455,9 +1463,9 @@ class ModernApp(ctk.CTk):
                             SCRATCH_INPAINT_RADIUS
                         )
                     except Exception as e:
-                        print(f"Scratch repair: failed ({e})", flush=True)
+                        logger.error("Scratch repair failed: %s", e, exc_info=True)
                 else:
-                    print("Scratch repair: skipped (no model)", flush=True)
+                    logger.info("Scratch repair: skipped (no model)")
 
             self.report_progress(0.15, f"Upscaling image (x{self.scale_factor})...", "Upscaling")
             sr_base, _ = self.upsampler.enhance(input_bgr, outscale=self.scale_factor)
@@ -1469,7 +1477,7 @@ class ModernApp(ctk.CTk):
                 try:
                     from gfpgan import GFPGANer
                     face_enhancer = GFPGANer(
-                        model_path='https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth',
+                        model_path=GFPGAN_MODEL_URL,
                         upscale=self.scale_factor, arch='clean', channel_multiplier=2, bg_upsampler=self.upsampler)
                     _, _, face_output = face_enhancer.enhance(input_bgr, has_aligned=False, only_center_face=False,
                                                               paste_back=True)
@@ -1477,7 +1485,7 @@ class ModernApp(ctk.CTk):
                         output = blend_images(face_output, sr_base, self.face_blend.get())
                         used_face_enhance = True
                 except Exception as e:
-                    print(f"Warning: Face enhance failed ({e}), switching to standard mode.")
+                    logger.warning("Face enhance failed: %s", e, exc_info=True)
                     self.after(0, lambda: self.status_label.configure(
                         text="Face enhancement unavailable, switching to standard mode..."))
 
@@ -1486,26 +1494,27 @@ class ModernApp(ctk.CTk):
             output = apply_unsharp_mask(output, self.texture_boost.get())
             try:
                 self.report_progress(0.82, "Generating texture details...", "Texture refinement")
-                print("Texture generation: start", flush=True)
+                logger.info("Texture generation: start")
                 output = self.apply_texture_generation(output)
-                print("Texture generation: done", flush=True)
+                logger.info("Texture generation: done")
             except Exception as e:
-                print(f"Texture generation: failed ({e})", flush=True)
+                logger.error("Texture generation failed: %s", e, exc_info=True)
                 error_message = f"Texture generation skipped: {e}"
                 self.after(0, lambda message=error_message: self.status_label.configure(text=message))
 
             if COLORIZE_ENABLED and self.use_colorize.get():
                 try:
                     self.report_progress(0.88, "Colorizing image...", "Colorization")
-                    print("Colorization: start", flush=True)
+                    logger.info("Colorization: start")
                     output = self.apply_colorization(output)
-                    print("Colorization: done", flush=True)
+                    logger.info("Colorization: done")
                 except Exception as e:
-                    print(f"Colorization: failed ({e})", flush=True)
+                    logger.error("Colorization failed: %s", e, exc_info=True)
             self.report_progress(0.92, "Finalizing output...", "Finalizing")
             output = apply_film_grain(output, self.film_grain.get())
 
-            self.img_output = output
+            with self._state_lock:
+                self.img_output = output
             success = True
 
             self.compare_hold_active = False
@@ -1533,7 +1542,8 @@ class ModernApp(ctk.CTk):
             self.after(0, lambda: messagebox.showerror("Error", f"Processing failed: {str(e)}"))
             self.after(0, lambda: self.show_output_overlay("Processing failed", animate=False))
         finally:
-            self.is_processing = False
+            with self._state_lock:
+                self.is_processing = False
             elapsed = None
             if self.processing_start_time is not None:
                 elapsed = time.perf_counter() - self.processing_start_time
@@ -1547,7 +1557,7 @@ class ModernApp(ctk.CTk):
                     f"Restoration finished in {elapsed:.1f}s."
                 ))
 
-    def update_resolution_labels(self):
+    def update_resolution_labels(self) -> None:
         if self.img_input is None:
             input_text = "Input: -- x --"
         else:
@@ -1563,7 +1573,7 @@ class ModernApp(ctk.CTk):
         self.lbl_resolution_out.configure(text=output_text)
         self.lbl_resolution_out_display.configure(text=output_text)
 
-    def set_metric_labels(self, psnr_label, ssim_label, psnr_value, ssim_value):
+    def set_metric_labels(self, psnr_label: object, ssim_label: object, psnr_value: Optional[float], ssim_value: Optional[float]) -> None:
         if psnr_value is None or ssim_value is None:
             neutral = ("gray20", "gray70")
             psnr_label.configure(text="PSNR: --", text_color=neutral)
@@ -1572,7 +1582,7 @@ class ModernApp(ctk.CTk):
         psnr_label.configure(text=f"PSNR: {psnr_value:.2f} dB", text_color="#2CC985")
         ssim_label.configure(text=f"SSIM: {ssim_value:.4f}", text_color="#2CC985")
 
-    def calculate_metrics(self):
+    def calculate_metrics(self) -> None:
         if psnr is None or ssim is None:
             self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, None, None)
             self.lbl_gt_hint.pack(anchor="w", pady=(2, 0))
@@ -1595,7 +1605,7 @@ class ModernApp(ctk.CTk):
 
         self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, s_psnr_out, s_ssim_out)
 
-    def get_output_dir(self, subdir, prompt=False):
+    def get_output_dir(self, subdir: str, prompt: bool = False) -> str:
         selected = filedialog.askdirectory() if prompt else ""
         if selected:
             base_dir = selected
@@ -1607,7 +1617,7 @@ class ModernApp(ctk.CTk):
         ensure_dir(out_dir)
         return out_dir
 
-    def save_comparison(self):
+    def save_comparison(self) -> None:
         if self.img_input is None or self.img_output is None:
             return
         base_name = safe_basename(self.input_path)
@@ -1633,7 +1643,7 @@ class ModernApp(ctk.CTk):
         info_text = "Preview shows LR (upscaled) | SR"
         self.show_image_preview("Comparison Preview", preview, info_text, "Save Comparison", on_save)
 
-    def export_feature_maps(self):
+    def export_feature_maps(self) -> None:
         if not self.feature_maps:
             messagebox.showinfo("Info", "No feature maps captured.")
             return
@@ -1662,7 +1672,7 @@ class ModernApp(ctk.CTk):
         info_text = f"Captured feature maps: {len(grids)}"
         self.show_image_preview("Feature Preview", grids[0], info_text, "Save All", on_save)
 
-    def save_result(self):
+    def save_result(self) -> None:
         if self.img_output is None:
             return
 
@@ -1677,10 +1687,12 @@ class ModernApp(ctk.CTk):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     app = ModernApp()
     try:
         app.mainloop()
     except KeyboardInterrupt:
-        print("Application closed by user.")
-    except Exception as e:
-        print(f"Unexpected error: {e}")
+        logger.info("Application closed by user.")
+    except Exception:
+        logger.exception("Unexpected error")
+        raise

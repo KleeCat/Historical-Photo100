@@ -1,5 +1,24 @@
 # Changelog
 
+- 2026-02-23: Thread safety and code review fixes for `(gui)super-resolution processing_server.py`.
+  - [CRITICAL] Added `_state_lock` to protect `is_processing`, `img_input`, `img_output` shared state across threads.
+  - [CRITICAL] Added `_model_lock` with non-blocking acquire to prevent concurrent `load_model` calls.
+  - [CRITICAL] `torch.load` added `weights_only=True` to prevent unsafe deserialization.
+  - [CRITICAL] `read_image` added `None` check after `cv2.imdecode` to prevent NoneType crash.
+  - [CRITICAL] Environment variable parsing protected with `_safe_float`/`_safe_int` helpers.
+  - [HIGH] `load_model` GUI operations moved to main thread via `self.after()`.
+  - [HIGH] `suppress_stderr` narrowed exception catch to `AttributeError, io.UnsupportedOperation`.
+  - [HIGH] Silently swallowed exceptions replaced with `logger` calls (config load/save, scratch model, etc.).
+  - [HIGH] Extracted `_load_sd_pipeline` and `_apply_sd_pipeline` shared helpers, eliminating ~80 lines of duplicate code.
+  - [HIGH] Added comprehensive type hints to all 88+ functions and methods.
+  - [HIGH] Replaced all `print()` with `logging` module calls.
+  - [MEDIUM] Extracted 13 magic numbers as named constants.
+  - [MEDIUM] Fixed import order (moved `threading` to stdlib section).
+  - [MEDIUM] Fixed single-line if statements to PEP 8 style.
+  - [MEDIUM] Extracted GFPGAN model URL as constant.
+  - [MEDIUM] Improved `__main__` exception handling with `logger.exception` + `raise`.
+  - [MEDIUM] Added `logging.basicConfig` in `__main__` entry point.
+
 - 2026-02-23: Fixed mismatched type hints in `(gui)super-resolution processing.py` (6 items).
   - Updated return/parameter annotations for `show_image_file_ctk`, `get_texture_pipeline`, `_stage_face_enhance`, `set_metric_labels`, `start_run_record`, `write_run_log`.
 
