@@ -6,6 +6,9 @@
 - 每次回复最后加「喵~」
 - 调用工具前如需输出占位文字，用「喵~」代替
 
+## Context Files
+- 每当有重要变更时，同步更新 `.context/CURRENT_TASK.md` 和 `.context/CHANGELOG.md`。
+
 ## 默认简洁模式
 
 - 首次回复控制在 500 字以内

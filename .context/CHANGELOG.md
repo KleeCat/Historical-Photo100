@@ -1,5 +1,11 @@
 # Changelog
 
+- 2026-02-23: Added comprehensive type hints to `(gui)super-resolution processing.py` (100+ functions and methods).
+  - Added type hints to 8 module-level functions: `clean_state_dict`, `load_scratch_model`, `predict_scratch_mask`, `apply_scratch_repair`, `clamp_value`, `make_comparison_images`, `tensor_to_grid_image`, `save_feature_grids`.
+  - Added type hints to 100+ ModernApp class methods covering all public and private methods.
+  - Used `typing` module annotations: `Optional`, `List`, `Tuple`, `Dict`, `Any`, `Callable` for complex types.
+  - All parameter types and return types now explicitly annotated for better IDE support and type checking.
+
 - 2026-02-23: Python code review fixes for `(gui)super-resolution processing.py` (6 issues: 2 CRITICAL + 4 HIGH).
   - [CRITICAL] Added `weights_only=True` to `torch.load` in `load_scratch_model()` to prevent arbitrary code execution via pickle.
   - [CRITICAL] Added `os.path.realpath` + `os.path.isdir` validation in `open_last_run_folder()` to prevent path traversal.

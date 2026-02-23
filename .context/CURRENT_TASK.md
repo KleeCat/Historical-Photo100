@@ -3,6 +3,12 @@
 Last update: 2026-02-23
 
 ## Recently Completed (2026-02-23)
+- 为 `(gui)super-resolution processing.py` 添加完整的类型提示（100+ 函数和方法）：
+  - 为 8 个模块级函数添加类型提示：`clean_state_dict`、`load_scratch_model`、`predict_scratch_mask`、`apply_scratch_repair`、`clamp_value`、`make_comparison_images`、`tensor_to_grid_image`、`save_feature_grids`。
+  - 为 ModernApp 类的 100+ 个方法添加类型提示，覆盖所有公共和私有方法。
+  - 使用 `typing` 模块注解：`Optional`、`List`、`Tuple`、`Dict`、`Any`、`Callable` 用于复杂类型。
+  - 所有参数类型和返回类型现已明确标注，提供更好的 IDE 支持和类型检查。
+
 - Python 代码审查修复（`(gui)super-resolution processing.py`，6 个问题：2 CRITICAL + 4 HIGH）：
   - [CRITICAL] `torch.load` 添加 `weights_only=True` 防止 pickle 任意代码执行。
   - [CRITICAL] `open_last_run_folder` 添加 `realpath` + `isdir` 路径验证。

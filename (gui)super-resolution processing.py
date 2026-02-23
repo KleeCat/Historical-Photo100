@@ -165,7 +165,7 @@ def save_image(path: str, bgr_img: np.ndarray) -> str:
 
 
 class ConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels: int, out_channels: int) -> None:
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
@@ -174,12 +174,12 @@ class ConvBlock(nn.Module):
             nn.ReLU(inplace=True),
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.block(x)
 
 
 class ScratchUNet(nn.Module):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.down1 = ConvBlock(1, 32)
         self.pool1 = nn.MaxPool2d(2)
@@ -198,7 +198,7 @@ class ScratchUNet(nn.Module):
 
         self.out = nn.Conv2d(32, 1, kernel_size=1)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         d1 = self.down1(x)
         d2 = self.down2(self.pool1(d1))
         d3 = self.down3(self.pool2(d2))
@@ -213,14 +213,14 @@ class ScratchUNet(nn.Module):
         return self.out(u1)
 
 
-def clean_state_dict(state_dict):
+def clean_state_dict(state_dict: Dict[str, Any]) -> Dict[str, Any]:
     cleaned = {}
     for key, value in state_dict.items():
         cleaned[key.replace("module.", "")] = value
     return cleaned
 
 
-def load_scratch_model(model_path, device):
+def load_scratch_model(model_path: str, device: torch.device) -> Optional[nn.Module]:
     if not model_path:
         return None
     if not os.path.exists(model_path):
@@ -240,7 +240,7 @@ def load_scratch_model(model_path, device):
     return model
 
 
-def predict_scratch_mask(bgr_img, model, device, threshold):
+def predict_scratch_mask(bgr_img: np.ndarray, model: Optional[nn.Module], device: torch.device, threshold: float) -> Optional[np.ndarray]:
     if model is None:
         return None
     gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
@@ -257,7 +257,7 @@ def predict_scratch_mask(bgr_img, model, device, threshold):
     return mask
 
 
-def apply_scratch_repair(bgr_img, model, device, threshold, inpaint_radius):
+def apply_scratch_repair(bgr_img: np.ndarray, model: Optional[nn.Module], device: torch.device, threshold: float, inpaint_radius: int) -> np.ndarray:
     if model is None:
         return bgr_img
     mask = predict_scratch_mask(bgr_img, model, device, threshold)
@@ -455,7 +455,7 @@ def suppress_edge_ringing(
     return np.clip(corrected, 0, 255).astype(np.uint8)
 
 
-def clamp_value(value, min_value, max_value):
+def clamp_value(value: float, min_value: float, max_value: float) -> float:
     return max(min_value, min(float(value), max_value))
 
 
@@ -502,7 +502,7 @@ def estimate_image_metrics(bgr_img: np.ndarray) -> Dict[str, float]:
     }
 
 
-def make_comparison_images(lr_bgr, sr_bgr, scale, base_name, out_dir):
+def make_comparison_images(lr_bgr: np.ndarray, sr_bgr: np.ndarray, scale: int, base_name: str, out_dir: str) -> Tuple[str, str]:
     ensure_dir(out_dir)
     ts = timestamp_str()
     h, w = sr_bgr.shape[:2]
@@ -537,7 +537,7 @@ def make_comparison_images(lr_bgr, sr_bgr, scale, base_name, out_dir):
     return pair_path, grid_path
 
 
-def tensor_to_grid_image(tensor, grid=4, max_channels=16):
+def tensor_to_grid_image(tensor: torch.Tensor, grid: int = 4, max_channels: int = 16) -> Optional[np.ndarray]:
     if not torch.is_tensor(tensor):
         return None
     t = tensor
@@ -568,7 +568,7 @@ def tensor_to_grid_image(tensor, grid=4, max_channels=16):
     return np.vstack(rows)
 
 
-def save_feature_grids(feature_maps, base_name, scale, out_dir):
+def save_feature_grids(feature_maps: List[Tuple[str, torch.Tensor]], base_name: str, scale: int, out_dir: str) -> List[str]:
     ensure_dir(out_dir)
     ts = timestamp_str()
     saved = []
@@ -583,7 +583,7 @@ def save_feature_grids(feature_maps, base_name, scale, out_dir):
 
 
 class ModernApp(ctk.CTk):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
         # Window setup
@@ -689,7 +689,7 @@ class ModernApp(ctk.CTk):
         self._last_win_state = "normal"
         self.after(50, self._poll_window_state)
 
-    def _poll_window_state(self):
+    def _poll_window_state(self) -> None:
         try:
             current = self.state()
         except Exception:
@@ -699,7 +699,7 @@ class ModernApp(ctk.CTk):
         self._last_win_state = current
         self.after(50, self._poll_window_state)
 
-    def _force_ctk_redraw(self):
+    def _force_ctk_redraw(self) -> None:
         """强制重绘所有 CTk 控件和 Canvas，解决最小化恢复后黑块问题。"""
         start_time = time.time()
         try:
@@ -715,7 +715,7 @@ class ModernApp(ctk.CTk):
         except Exception as e:
             logger.warning(f"Failed to force CTk redraw: {e}")
 
-    def _update_all_scrollable_frames(self):
+    def _update_all_scrollable_frames(self) -> None:
         """递归更新所有 CTkScrollableFrame 的 Canvas 背景色和 scrollregion。"""
         def update_widget(widget):
             if hasattr(widget, '_parent_canvas') and hasattr(widget, '_parent_frame'):
@@ -745,7 +745,7 @@ class ModernApp(ctk.CTk):
 
         update_widget(self)
 
-    def setup_ui(self):
+    def setup_ui(self) -> None:
         # === 1. Sidebar (Left) ===
         self._sidebar_outer = ctk.CTkFrame(
             self, width=UI_SIDEBAR_WIDTH + 16, corner_radius=0
@@ -1209,12 +1209,12 @@ class ModernApp(ctk.CTk):
         self.progress_bar.set(0)
 
     # --- Feature Extraction Hooks ---
-    def clear_feature_hooks(self):
+    def clear_feature_hooks(self) -> None:
         for handle in self.hook_handles:
             handle.remove()
         self.hook_handles = []
 
-    def register_feature_hooks(self):
+    def register_feature_hooks(self) -> None:
         self.clear_feature_hooks()
         with self._state_lock:
             self.feature_maps = []
@@ -1246,7 +1246,7 @@ class ModernApp(ctk.CTk):
             if isinstance(module, torch.nn.Conv2d):
                 self.hook_handles.append(module.register_forward_hook(make_hook(name)))
 
-    def load_config(self):
+    def load_config(self) -> None:
         if not os.path.exists(self.config_path):
             return
         try:
@@ -1256,7 +1256,7 @@ class ModernApp(ctk.CTk):
         except Exception:
             self.default_output_dir = None
 
-    def save_config(self):
+    def save_config(self) -> None:
         data = {"default_output_dir": self.default_output_dir}
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
@@ -1264,7 +1264,7 @@ class ModernApp(ctk.CTk):
         except Exception:
             pass
 
-    def set_default_output_dir(self):
+    def set_default_output_dir(self) -> None:
         selected = filedialog.askdirectory()
         if selected:
             self.default_output_dir = selected
@@ -1273,17 +1273,17 @@ class ModernApp(ctk.CTk):
             if hasattr(self, "lbl_output_dir"):
                 self.lbl_output_dir.configure(text=self.get_output_dir_label_text())
 
-    def get_output_dir_label_text(self):
+    def get_output_dir_label_text(self) -> str:
         if self.default_output_dir:
             return f"Default output: {self.truncate_path(self.default_output_dir, 40)}"
         return "Default output: (project outputs)"
 
-    def truncate_path(self, path, max_len):
+    def truncate_path(self, path: str, max_len: int) -> str:
         if len(path) <= max_len:
             return path
         return "..." + path[-(max_len - 3) :]
 
-    def on_close(self):
+    def on_close(self) -> None:
         self._cancel_overlay_animation()
         self._cancel_success_render_jobs()
         if self.resize_job is not None:
@@ -1298,7 +1298,7 @@ class ModernApp(ctk.CTk):
         self.destroy()
 
     # --- Logic: Progress Bar Animation ---
-    def auto_increment_progress(self):
+    def auto_increment_progress(self) -> None:
         if not self.is_processing:
             return
         current_val = self.progress_bar.get()
@@ -1321,7 +1321,7 @@ class ModernApp(ctk.CTk):
         self.after(80, self.auto_increment_progress)
 
     # --- Logic: Model Loading & Switching ---
-    def change_model_scale(self, choice):
+    def change_model_scale(self, choice: str) -> None:
         """Handle scale change event from combobox"""
         self.scale_factor = 2 if choice == "x2" else 4
         self.status_label.configure(text=f"Switching to {choice} model...")
@@ -1330,7 +1330,7 @@ class ModernApp(ctk.CTk):
         self.progress_bar.set(0.5)
         threading.Thread(target=self.load_model, daemon=True).start()
 
-    def load_model(self):
+    def load_model(self) -> None:
         if not self._model_lock.acquire(blocking=False):
             return  # another load is already in progress
         try:
@@ -1397,7 +1397,7 @@ class ModernApp(ctk.CTk):
             )
             self._model_lock.release()
 
-    def load_input_image(self):
+    def load_input_image(self) -> None:
         path = filedialog.askopenfilename(
             filetypes=[("Image", "*.jpg *.png *.jpeg *.bmp")]
         )
@@ -1435,7 +1435,7 @@ class ModernApp(ctk.CTk):
             self.calculate_metrics()
             self.auto_tune_parameters()
 
-    def load_gt_image(self):
+    def load_gt_image(self) -> None:
         path = filedialog.askopenfilename(
             filetypes=[("Image", "*.jpg *.png *.jpeg *.bmp")]
         )
@@ -1452,7 +1452,7 @@ class ModernApp(ctk.CTk):
             self.calculate_metrics()
             messagebox.showinfo("Info", "Ground Truth loaded")
 
-    def read_image(self, path):
+    def read_image(self, path: str) -> np.ndarray:
         if not path:
             raise ValueError("Empty path")
         if not os.path.exists(path):
@@ -1470,7 +1470,7 @@ class ModernApp(ctk.CTk):
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
         return img
 
-    def prepare_display_image(self, img):
+    def prepare_display_image(self, img: np.ndarray) -> np.ndarray:
         """Normalize image to contiguous uint8 BGR for safe GUI rendering."""
         if img is None:
             raise ValueError("Empty image")
@@ -1499,7 +1499,7 @@ class ModernApp(ctk.CTk):
             arr = np.ascontiguousarray(arr)
         return arr
 
-    def bind_image_interactions(self):
+    def bind_image_interactions(self) -> None:
         widgets = (self.lbl_img_in, self.lbl_img_out)
         for widget in widgets:
             widget.bind("<MouseWheel>", self.on_zoom)
@@ -1512,13 +1512,13 @@ class ModernApp(ctk.CTk):
         self.lbl_img_out.bind("<Leave>", self.on_compare_leave)
         self.bind("<ButtonRelease-1>", self.on_compare_release)
 
-    def reset_view_state(self):
+    def reset_view_state(self) -> None:
         self.zoom_factor = 1.0
         self.view_center = [0.5, 0.5]
         self.pan_start = None
         self.compare_hold_active = False
 
-    def _cancel_after_job(self, job_id):
+    def _cancel_after_job(self, job_id: Optional[str]) -> None:
         if job_id is None:
             return None
         try:
@@ -1527,20 +1527,20 @@ class ModernApp(ctk.CTk):
             pass
         return None
 
-    def _run_debounced_render(self):
+    def _run_debounced_render(self) -> None:
         self.resize_job = None
         self.render_main_images()
 
-    def _run_resize_render(self, seq: int):
+    def _run_resize_render(self, seq: int) -> None:
         if seq != self._resize_seq:
             return
         self._run_debounced_render()
 
-    def render_main_images_stable(self):
+    def render_main_images_stable(self) -> None:
         self.resize_job = self._cancel_after_job(self.resize_job)
         self.resize_job = self.after_idle(self._run_debounced_render)
 
-    def on_display_resize(self, event):
+    def on_display_resize(self, event: Any) -> None:
         # Ignore resize events triggered by image updates
         if self._rendering_in_progress:
             return
@@ -1557,7 +1557,7 @@ class ModernApp(ctk.CTk):
         self.resize_job = self._cancel_after_job(self.resize_job)
         self.resize_job = self.after(170, lambda s=seq: self._run_resize_render(s))
 
-    def on_zoom(self, event):
+    def on_zoom(self, event: Any) -> None:
         if self.img_input is None or self.is_processing:
             return
         if event.delta > 0:
@@ -1569,12 +1569,12 @@ class ModernApp(ctk.CTk):
         self.zoom_factor = float(np.clip(zoom, 1.0, 6.0))
         self.render_main_images()
 
-    def on_pan_start(self, event):
+    def on_pan_start(self, event: Any) -> None:
         if self.img_input is None or self.is_processing:
             return
         self.pan_start = (event.x, event.y)
 
-    def on_pan_move(self, event):
+    def on_pan_move(self, event: Any) -> None:
         if self.img_input is None or self.pan_start is None or self.is_processing:
             return
         dx = event.x - self.pan_start[0]
@@ -1592,10 +1592,10 @@ class ModernApp(ctk.CTk):
         self.view_center[1] = float(np.clip(self.view_center[1], 0.0, 1.0))
         self.render_main_images()
 
-    def on_pan_end(self, event):
+    def on_pan_end(self, event: Any) -> None:
         self.pan_start = None
 
-    def on_compare_press(self, event):
+    def on_compare_press(self, event: Any) -> None:
         if self.img_input is None or self.img_output is None:
             return
         if self.is_processing:
@@ -1605,19 +1605,19 @@ class ModernApp(ctk.CTk):
         self.compare_hold_active = True
         self.render_main_images()
 
-    def on_compare_release(self, event):
+    def on_compare_release(self, event: Any) -> None:
         if not self.compare_hold_active:
             return
         self.compare_hold_active = False
         self.render_main_images()
 
-    def on_compare_leave(self, event):
+    def on_compare_leave(self, event: Any) -> None:
         if not self.compare_hold_active:
             return
         self.compare_hold_active = False
         self.render_main_images()
 
-    def calculate_view_window(self, bgr_img, widget_w, widget_h):
+    def calculate_view_window(self, bgr_img: np.ndarray, widget_w: int, widget_h: int) -> Tuple[int, int]:
         h_img, w_img = bgr_img.shape[:2]
         zoom = max(self.zoom_factor, 1e-3)
         view_w = max(1, int(w_img / zoom))
@@ -1632,7 +1632,7 @@ class ModernApp(ctk.CTk):
         view_h = max(1, min(view_h, h_img))
         return view_w, view_h
 
-    def _get_image_display_size(self, label_widget=None):
+    def _get_image_display_size(self, label_widget: Optional[Any] = None) -> Tuple[int, int]:
         """Return (width, height) available for an image panel."""
         if label_widget is not None and label_widget.winfo_exists():
             parent = label_widget.master
@@ -1863,7 +1863,7 @@ class ModernApp(ctk.CTk):
                 return False
         return False
 
-    def render_zoomed_image(self, bgr_img, label_widget):
+    def render_zoomed_image(self, bgr_img: np.ndarray, label_widget: Any) -> bool:
         if not label_widget.winfo_exists():
             return False
         try:
@@ -1912,14 +1912,14 @@ class ModernApp(ctk.CTk):
             logger.warning("render_zoomed_image failed: %s", exc)
             return False
 
-    def render_main_images(self):
+    def render_main_images(self) -> None:
         self._rendering_in_progress = True
         try:
             self._render_main_images_impl()
         finally:
             self._rendering_in_progress = False
 
-    def _render_main_images_impl(self):
+    def _render_main_images_impl(self) -> None:
         with self._state_lock:
             img_in = self.img_input
             img_out = self.img_output
@@ -2038,7 +2038,7 @@ class ModernApp(ctk.CTk):
         finally:
             self._rendering_in_progress = False
 
-    def refresh_output_after_success(self, run_id: Optional[int] = None):
+    def refresh_output_after_success(self, run_id: Optional[int] = None) -> None:
         """Render final output frame on UI thread after processing success."""
         if not self._is_run_active(run_id):
             return
@@ -2061,10 +2061,10 @@ class ModernApp(ctk.CTk):
         self._after_for_run(run_id, 0, self.update_resolution_labels)
         self._after_for_run(run_id, 0, self.calculate_metrics)
 
-    def force_output_refresh(self):
+    def force_output_refresh(self) -> None:
         self._render_output_frame_once(self._current_run_id, "force-refresh")
 
-    def show_image_file_ctk(self, path, label_widget):
+    def show_image_file_ctk(self, path: str, label_widget: Any) -> None:
         """Render an image file directly via PIL into a CTkLabel."""
         if not path or not os.path.exists(path):
             return False
@@ -2097,7 +2097,7 @@ class ModernApp(ctk.CTk):
             )
             return False
 
-    def render_output_from_file(self, path, run_id: Optional[int] = None):
+    def render_output_from_file(self, path: str, run_id: Optional[int] = None) -> None:
         """Reload output from disk and repaint output panel."""
         if not self._is_run_active(run_id):
             return
@@ -2122,7 +2122,7 @@ class ModernApp(ctk.CTk):
                 self.update_resolution_labels()
                 self.calculate_metrics()
 
-    def render_output_after_completion(self, path: str, run_id: Optional[int] = None):
+    def render_output_after_completion(self, path: str, run_id: Optional[int] = None) -> None:
         """Render final output with a light path first, then file fallback."""
         if not self._is_run_active(run_id):
             return
@@ -2135,7 +2135,7 @@ class ModernApp(ctk.CTk):
             return
         self.render_output_from_file(path, run_id)
 
-    def build_compare_image(self, lr_bgr, sr_bgr, split_ratio):
+    def build_compare_image(self, lr_bgr: np.ndarray, sr_bgr: np.ndarray, split_ratio: float) -> np.ndarray:
         if lr_bgr is None:
             return sr_bgr
         if sr_bgr is None:
@@ -2161,18 +2161,18 @@ class ModernApp(ctk.CTk):
                 combined[:, x1:x2] = np.clip(band, 0, 255).astype(np.uint8)
         return combined
 
-    def on_compare_mode_toggle(self):
+    def on_compare_mode_toggle(self) -> None:
         self.compare_hold_active = False
         self.update_compare_controls()
         self.render_main_images()
 
-    def on_compare_split_change(self, value):
+    def on_compare_split_change(self, value: float) -> None:
         percent = int(round(float(value) * 100))
         self.lbl_compare_split.configure(text=f"Split: {percent}%")
         if self.compare_mode.get():
             self.render_main_images()
 
-    def update_compare_controls(self):
+    def update_compare_controls(self) -> None:
         compare_enabled = self.compare_mode.get()
         if compare_enabled:
             self.lbl_compare_split.grid()
@@ -2185,17 +2185,17 @@ class ModernApp(ctk.CTk):
         else:
             self.slider_compare.configure(state="disabled")
 
-    def _cancel_overlay_animation(self):
+    def _cancel_overlay_animation(self) -> None:
         self.overlay_animation_job = self._cancel_after_job(self.overlay_animation_job)
 
-    def _cancel_success_render_jobs(self):
+    def _cancel_success_render_jobs(self) -> None:
         if not self.success_render_jobs:
             return
         for job_id in self.success_render_jobs:
             self._cancel_after_job(job_id)
         self.success_render_jobs = []
 
-    def show_output_overlay(self, text, animate=False):
+    def show_output_overlay(self, text: str, animate: bool = False) -> None:
         self._cancel_overlay_animation()
         self.overlay_base_text = text
         self.overlay_dot_count = 0
@@ -2211,7 +2211,7 @@ class ModernApp(ctk.CTk):
         if animate:
             self.animate_output_overlay()
 
-    def hide_output_overlay(self):
+    def hide_output_overlay(self) -> None:
         self._cancel_overlay_animation()
         try:
             self.output_overlay.place_forget()
@@ -2224,7 +2224,7 @@ class ModernApp(ctk.CTk):
         except TclError:
             return
 
-    def animate_output_overlay(self):
+    def animate_output_overlay(self) -> None:
         if not self.is_processing:
             self.overlay_animation_job = None
             return
@@ -2256,18 +2256,18 @@ class ModernApp(ctk.CTk):
 
         self._after_for_run(run_id, 0, update)
 
-    def start_elapsed_timer(self):
+    def start_elapsed_timer(self) -> None:
         self.processing_start_time = time.perf_counter()
         self.update_elapsed_time()
 
-    def update_elapsed_time(self):
+    def update_elapsed_time(self) -> None:
         if not self.is_processing or self.processing_start_time is None:
             return
         elapsed = time.perf_counter() - self.processing_start_time
         self.elapsed_label.configure(text=f"Elapsed: {elapsed:.1f}s")
         self.after(200, self.update_elapsed_time)
 
-    def set_run_button_processing(self, processing):
+    def set_run_button_processing(self, processing: bool) -> None:
         if processing:
             self.btn_run.configure(
                 state="disabled",
@@ -2283,7 +2283,7 @@ class ModernApp(ctk.CTk):
                 hover_color=self.btn_run_default_hover,
             )
 
-    def set_run_button_batch(self, processing):
+    def set_run_button_batch(self, processing: bool) -> None:
         if processing:
             self.btn_run.configure(
                 state="disabled",
@@ -2294,7 +2294,7 @@ class ModernApp(ctk.CTk):
         else:
             self.set_run_button_processing(False)
 
-    def update_action_buttons(self):
+    def update_action_buttons(self) -> None:
         if self.is_processing or self.is_batch_processing:
             cancel_state = "normal"
             batch_state = "disabled"
@@ -2312,14 +2312,14 @@ class ModernApp(ctk.CTk):
             self.btn_batch.configure(state=batch_state)
         self._action_button_state_cache = target_state
 
-    def get_batch_retry_limit(self):
+    def get_batch_retry_limit(self) -> int:
         try:
             value = int(self.batch_retry_max.get())
         except (TypeError, ValueError):
             value = DEFAULT_BATCH_RETRIES
         return max(0, min(value, 5))
 
-    def request_cancel(self):
+    def request_cancel(self) -> None:
         if not self.is_processing and not self.is_batch_processing:
             return
         self.cancel_requested = True
@@ -2328,7 +2328,7 @@ class ModernApp(ctk.CTk):
         self.status_label.configure(text="Cancelling after current step...")
         self.show_output_overlay("Cancelling", animate=True)
 
-    def show_image_ctk(self, cv_img, label_widget):
+    def show_image_ctk(self, cv_img: np.ndarray, label_widget: Any) -> None:
         try:
             cv_img = self.prepare_display_image(cv_img)
             img_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
@@ -2354,7 +2354,7 @@ class ModernApp(ctk.CTk):
         if not self._assign_image_to_label(im_pil, label_widget, new_w, new_h):
             raise TclError("set_label_image failed")
 
-    def show_image_preview(self, title, bgr_img, info_text, save_text, on_save):
+    def show_image_preview(self, title: str, bgr_img: np.ndarray, info_text: str, save_text: str, on_save: Callable[[], None]) -> None:
         preview = ctk.CTkToplevel(self)
         preview.title(title)
         preview.geometry("900x900")
@@ -2391,27 +2391,27 @@ class ModernApp(ctk.CTk):
         )
         btn_save.pack(pady=(0, 10))
 
-    def update_slider_label(self, label_widget, prefix, value):
+    def update_slider_label(self, label_widget: Any, prefix: str, value: float) -> None:
         label_widget.configure(text=f"{prefix}: {float(value):.2f}")
 
-    def on_face_blend_change(self, value):
+    def on_face_blend_change(self, value: float) -> None:
         self.update_slider_label(self.lbl_face_blend, "Face Blend", value)
 
-    def on_natural_blend_change(self, value):
+    def on_natural_blend_change(self, value: float) -> None:
         self.update_slider_label(self.lbl_natural_blend, "Natural Blend", value)
 
-    def on_texture_boost_change(self, value):
+    def on_texture_boost_change(self, value: float) -> None:
         self.update_slider_label(self.lbl_texture_boost, "Texture Boost", value)
 
-    def on_film_grain_change(self, value):
+    def on_film_grain_change(self, value: float) -> None:
         self.update_slider_label(self.lbl_film_grain, "Film Grain", value)
 
-    def get_texture_status_text(self):
+    def get_texture_status_text(self) -> str:
         if TEXTURE_ENABLED and TEXTURE_MODEL_ID:
             return "Texture gen: on"
         return "Texture gen: off (disabled)"
 
-    def detect_faces(self, gray_img):
+    def detect_faces(self, gray_img: np.ndarray) -> List[Tuple[int, int, int, int]]:
         if self._face_cascade is None:
             cascade_path = os.path.join(
                 cv2.data.haarcascades, "haarcascade_frontalface_default.xml"
@@ -2427,7 +2427,7 @@ class ModernApp(ctk.CTk):
         )
         return len(faces) > 0
 
-    def auto_tune_parameters(self):
+    def auto_tune_parameters(self) -> None:
         if self.img_input is None:
             return
         try:
@@ -2471,7 +2471,7 @@ class ModernApp(ctk.CTk):
         except Exception as e:
             self.status_label.configure(text=f"Auto tune failed: {e}")
 
-    def get_texture_pipeline(self):
+    def get_texture_pipeline(self) -> Dict[str, Any]:
         if not TEXTURE_ENABLED or not TEXTURE_MODEL_ID:
             return None
         if StableDiffusionImg2ImgPipeline is None:
@@ -2488,7 +2488,7 @@ class ModernApp(ctk.CTk):
                 self.texture_pipe.enable_attention_slicing()
         return self.texture_pipe
 
-    def apply_texture_generation(self, bgr_img):
+    def apply_texture_generation(self, bgr_img: np.ndarray) -> np.ndarray:
         if self.cancel_requested:
             raise UserCancelledError("Cancelled")
         pipe = self.get_texture_pipeline()
@@ -2507,7 +2507,7 @@ class ModernApp(ctk.CTk):
             raise UserCancelledError("Cancelled")
         return cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
 
-    def run_processing_thread(self):
+    def run_processing_thread(self) -> None:
         if self.is_processing:
             return
         if self.is_batch_processing:
@@ -2529,7 +2529,7 @@ class ModernApp(ctk.CTk):
         self.cancel_requested = False
         self.start_processing(batch_mode=False, on_complete=None)
 
-    def start_processing(self, batch_mode=False, on_complete=None):
+    def start_processing(self, batch_mode: bool = False, on_complete: Optional[Callable[[], None]] = None) -> None:
         self._current_run_id += 1
         ui_run_id = self._current_run_id
         self._cancel_success_render_jobs()
@@ -2574,7 +2574,7 @@ class ModernApp(ctk.CTk):
         ).start()
         return True
 
-    def _stage_scratch_repair(self, input_img, run_meta):
+    def _stage_scratch_repair(self, input_img: np.ndarray, run_meta: Dict[str, Any]) -> np.ndarray:
         """Scratch repair pre-processing stage. Returns processed input_img."""
         stage_start = time.perf_counter()
         if self.scratch_model is None:
@@ -2595,7 +2595,7 @@ class ModernApp(ctk.CTk):
         run_meta["scratch_repair"] = True
         return input_img
 
-    def _stage_face_enhance(self, input_img, sr_base, face_blend, ui_run_id, run_meta):
+    def _stage_face_enhance(self, input_img: np.ndarray, sr_base: np.ndarray, face_blend: float, ui_run_id: Optional[int], run_meta: Dict[str, Any]) -> np.ndarray:
         """Face enhancement stage. Returns (output, used_face_enhance)."""
         stage_start = time.perf_counter()
         output = sr_base
@@ -3020,7 +3020,7 @@ class ModernApp(ctk.CTk):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-    def update_resolution_labels(self):
+    def update_resolution_labels(self) -> None:
         if self.img_input is None:
             input_text = "Input: -- x --"
         else:
@@ -3036,7 +3036,7 @@ class ModernApp(ctk.CTk):
         self.lbl_resolution_out.configure(text=output_text)
         self.lbl_resolution_out_display.configure(text=output_text)
 
-    def set_metric_labels(self, psnr_label, ssim_label, psnr_value, ssim_value):
+    def set_metric_labels(self, psnr_label: str, ssim_label: str, psnr_value: Optional[float], ssim_value: Optional[float]) -> None:
         if psnr_value is None or ssim_value is None:
             neutral = ("gray20", "gray70")
             self.psnr_var.set("PSNR: --")
@@ -3049,7 +3049,7 @@ class ModernApp(ctk.CTk):
         psnr_label.configure(text_color="#2CC985")
         ssim_label.configure(text_color="#2CC985")
 
-    def calculate_metrics(self):
+    def calculate_metrics(self) -> None:
         with self._state_lock:
             img_out = self.img_output
         if psnr is None or ssim is None or self.img_gt is None or img_out is None:
@@ -3068,7 +3068,7 @@ class ModernApp(ctk.CTk):
             self.lbl_psnr_out, self.lbl_ssim_out, s_psnr_out, s_ssim_out
         )
 
-    def start_run_record(self, run_root=None, ui_run_id: Optional[int] = None):
+    def start_run_record(self, run_root: Optional[str] = None, ui_run_id: Optional[int] = None) -> str:
         run_id = uuid.uuid4().hex[:8]
         base_name = safe_basename(self.input_path)
         run_root = run_root or self.get_output_dir("")
@@ -3081,7 +3081,7 @@ class ModernApp(ctk.CTk):
         )
         return run_id, run_dir
 
-    def run_batch_folder(self):
+    def run_batch_folder(self) -> None:
         if self.is_processing or self.is_batch_processing:
             messagebox.showinfo("Info", "Processing is already running.")
             return
@@ -3133,7 +3133,7 @@ class ModernApp(ctk.CTk):
         self.hide_output_overlay()
         self.start_next_batch_item()
 
-    def start_next_batch_item(self):
+    def start_next_batch_item(self) -> None:
         if self.cancel_requested or self.batch_index >= self.batch_total:
             self.finish_batch()
             return
@@ -3174,7 +3174,7 @@ class ModernApp(ctk.CTk):
         self.calculate_metrics()
         self.start_processing(batch_mode=True, on_complete=self.on_batch_item_complete)
 
-    def on_batch_item_complete(self, success, cancelled, error_message):
+    def on_batch_item_complete(self, success: bool, cancelled: bool, error_message: Optional[str]) -> None:
         if cancelled:
             self.batch_cancelled = True
         if not success and error_message:
@@ -3193,7 +3193,7 @@ class ModernApp(ctk.CTk):
             # before advancing to the next input item.
             self.after(120, self.start_next_batch_item)
 
-    def finish_batch(self):
+    def finish_batch(self) -> None:
         total = self.batch_total
         done = min(self.batch_index, total)
         error_count = len(self.batch_errors)
@@ -3235,12 +3235,12 @@ class ModernApp(ctk.CTk):
             message = f"{status}. Completed {done}/{total}."
         messagebox.showinfo("Batch", message)
 
-    def write_run_log(self, run_dir, payload):
+    def write_run_log(self, run_dir: str, payload: Dict[str, Any]) -> None:
         log_path = os.path.join(run_dir, "run_log.json")
         write_json_file(log_path, payload)
         return log_path
 
-    def open_last_run_folder(self):
+    def open_last_run_folder(self) -> None:
         if not self.last_run_dir or not os.path.exists(self.last_run_dir):
             messagebox.showinfo("Info", "No run folder available yet.")
             return
@@ -3259,7 +3259,7 @@ class ModernApp(ctk.CTk):
         except Exception as exc:
             messagebox.showerror("Error", f"Open folder failed: {exc}")
 
-    def get_output_dir(self, subdir, prompt=False):
+    def get_output_dir(self, subdir: str, prompt: bool = False) -> str:
         selected = filedialog.askdirectory() if prompt else ""
         if selected:
             base_dir = selected
@@ -3271,7 +3271,7 @@ class ModernApp(ctk.CTk):
         ensure_dir(out_dir)
         return out_dir
 
-    def save_comparison(self):
+    def save_comparison(self) -> None:
         with self._state_lock:
             img_in = self.img_input
             img_out = self.img_output
@@ -3307,7 +3307,7 @@ class ModernApp(ctk.CTk):
             "Comparison Preview", preview, info_text, "Save Comparison", on_save
         )
 
-    def export_feature_maps(self):
+    def export_feature_maps(self) -> None:
         with self._state_lock:
             feature_maps_snap = list(self.feature_maps)
         if not feature_maps_snap:
@@ -3346,7 +3346,7 @@ class ModernApp(ctk.CTk):
             "Feature Preview", grids[0], info_text, "Save All", on_save
         )
 
-    def save_result(self):
+    def save_result(self) -> None:
         if self.img_output is None:
             return
 
