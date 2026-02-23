@@ -3,6 +3,10 @@
 Last update: 2026-02-23
 
 ## Recently Completed (2026-02-23)
+- 对 `download.py` 第二轮代码审查修复（1 HIGH + 3 MEDIUM）：
+  - [HIGH] 下载改用 `.tmp` 临时文件 + `os.replace` 原子重命名，捕获 `KeyboardInterrupt`。
+  - [MEDIUM] `CHUNK_SIZE` 添加类型标注；进度日志改为每 10% 输出一次；`__main__` 改用 `argparse`。
+
 - 对 `download.py` Python 代码审查全面修复（3 CRITICAL + 3 HIGH + 3 MEDIUM + 1 LOW）：
   - [CRITICAL] 修复除零风险、移除硬编码路径、HTTP→HTTPS。
   - [HIGH] 添加类型提示、错误处理+文件清理、timeout、`__main__` 保护。

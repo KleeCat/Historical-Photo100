@@ -1,5 +1,10 @@
 # Changelog
 
+- 2026-02-23: `download.py` 第二轮代码审查修复（1 HIGH + 3 MEDIUM）。
+  - [HIGH] 下载改用 `.tmp` 临时文件 + `os.replace` 原子重命名，捕获 `KeyboardInterrupt` 避免留下损坏文件。
+  - [MEDIUM] `CHUNK_SIZE` 添加 `int` 类型标注；新增 `PROGRESS_STEP` 常量，进度日志改为每 10% 输出一次。
+  - [MEDIUM] `__main__` 块改用 `argparse` 接受 `--url` 和 `--output` 参数，移除硬编码 URL。
+
 - 2026-02-23: `download.py` Python 代码审查全面修复（3 CRITICAL + 3 HIGH + 3 MEDIUM + 1 LOW）。
   - [CRITICAL] 修复除零风险：`Content-Length` 为 0 时不再触发 `ZeroDivisionError`。
   - [CRITICAL] 移除硬编码绝对路径，改为脚本目录相对路径。
