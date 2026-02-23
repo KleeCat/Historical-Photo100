@@ -1,5 +1,21 @@
 # Changelog
 
+- 2026-02-23: 第二轮代码审查修复 `(gui)super-resolution processing_server.py`（1 CRITICAL + 7 HIGH + 12 MEDIUM）。
+  - [CRITICAL] `__init__` 中添加 `_model_lock`/`_state_lock` 定义（之前引用但未初始化，运行时必崩）。
+  - [HIGH] `blend_images` 返回类型改为 `Optional[np.ndarray]`。
+  - [HIGH] `build_compare_image` 参数类型改为 `Optional[np.ndarray]`。
+  - [HIGH] `_apply_sd_pipeline` 补全 4 个缺失参数类型标注。
+  - [HIGH] 所有 `event` 参数类型从 `object` 改为 `tk.Event`（7 处）。
+  - [HIGH] `label_widget`/`on_save`/metric labels 参数类型从 `object` 改为具体类型。
+  - [HIGH] pipeline 返回类型从 `object` 改为 `Any`/`Optional[Any]`。
+  - [HIGH] `get_texture_pipeline`/`get_color_pipeline` 添加 `_model_lock` 线程安全保护。
+  - [MEDIUM] `read_image` 添加单通道和异常通道数处理。
+  - [MEDIUM] `save_image` 扩展名检查从 list 改为 set。
+  - [MEDIUM] `load_model`/`process_image` 中 lambda 异常捕获改为预先转字符串。
+  - [MEDIUM] `make_comparison_images`/`estimate_image_metrics`/`save_feature_grids`/`calculate_view_window` 返回类型精确化。
+  - [MEDIUM] `clean_state_dict` 改为字典推导式。
+  - 添加 `import tkinter as tk` 和扩展 typing 导入。
+
 - 2026-02-23: Thread safety and code review fixes for `(gui)super-resolution processing_server.py`.
   - [CRITICAL] Added `_state_lock` to protect `is_processing`, `img_input`, `img_output` shared state across threads.
   - [CRITICAL] Added `_model_lock` with non-blocking acquire to prevent concurrent `load_model` calls.

@@ -8,7 +8,8 @@ import threading
 import warnings
 import time
 from datetime import datetime
-from typing import Iterator, Optional
+import tkinter as tk
+from typing import Any, Callable, Iterator, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +186,7 @@ def safe_basename(path: str, fallback: str = "image") -> str:
 
 def save_image(path: str, bgr_img: np.ndarray) -> str:
     ext = os.path.splitext(path)[1].lower()
-    if ext not in [".png", ".jpg", ".jpeg", ".bmp"]:
+    if ext not in {".png", ".jpg", ".jpeg", ".bmp"}:
         ext = ".png"
         path = path + ext
     with suppress_stderr():
@@ -246,10 +247,7 @@ class ScratchUNet(nn.Module):
 
 
 def clean_state_dict(state_dict: dict) -> dict:
-    cleaned = {}
-    for key, value in state_dict.items():
-        cleaned[key.replace("module.", "")] = value
-    return cleaned
+    return {key.replace("module.", ""): value for key, value in state_dict.items()}
 
 
 def load_scratch_model(model_path: str, device: torch.device) -> Optional[ScratchUNet]:
@@ -297,7 +295,7 @@ def apply_scratch_repair(bgr_img: np.ndarray, model: Optional[nn.Module], device
     return cv2.inpaint(bgr_img, mask, inpaint_radius, cv2.INPAINT_TELEA)
 
 
-def blend_images(img_a: Optional[np.ndarray], img_b: Optional[np.ndarray], alpha: float) -> np.ndarray:
+def blend_images(img_a: Optional[np.ndarray], img_b: Optional[np.ndarray], alpha: float) -> Optional[np.ndarray]:
     if img_a is None:
         return img_b
     if img_b is None:
@@ -343,7 +341,7 @@ def clamp_value(value: float, min_value: float, max_value: float) -> float:
     return max(min_value, min(float(value), max_value))
 
 
-def estimate_image_metrics(bgr_img: np.ndarray) -> dict:
+def estimate_image_metrics(bgr_img: np.ndarray) -> dict[str, float]:
     gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
     lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
     blur = cv2.GaussianBlur(gray, (0, 0), 1.0)
@@ -371,7 +369,7 @@ def is_probably_gray(bgr_img: Optional[np.ndarray], threshold: float) -> bool:
     return mean_diff < float(threshold)
 
 
-def make_comparison_images(lr_bgr: np.ndarray, sr_bgr: np.ndarray, scale: int, base_name: str, out_dir: str) -> tuple:
+def make_comparison_images(lr_bgr: np.ndarray, sr_bgr: np.ndarray, scale: int, base_name: str, out_dir: str) -> tuple[str, str]:
     ensure_dir(out_dir)
     ts = timestamp_str()
     h, w = sr_bgr.shape[:2]
@@ -437,7 +435,7 @@ def tensor_to_grid_image(tensor: torch.Tensor, grid: int = 4, max_channels: int 
     return np.vstack(rows)
 
 
-def save_feature_grids(feature_maps: list, base_name: str, scale: int, out_dir: str) -> list:
+def save_feature_grids(feature_maps: list, base_name: str, scale: int, out_dir: str) -> list[str]:
     ensure_dir(out_dir)
     ts = timestamp_str()
     saved = []
@@ -458,6 +456,10 @@ class ModernApp(ctk.CTk):
         # Window setup
         self.title("Image Super-Resolution System (ESRGAN)")
         self.geometry(DEFAULT_WINDOW_SIZE)  # Increased height for new controls
+
+        # Thread safety locks
+        self._model_lock = threading.Lock()
+        self._state_lock = threading.Lock()
 
         # Core variables
         self.model_folder = os.environ.get(
@@ -869,8 +871,9 @@ class ModernApp(ctk.CTk):
             self.after(0, lambda: self.progress_bar.set(0))
         except Exception as e:
             logger.exception("Model loading failed")
+            error_msg = str(e)
             self.after(0, lambda: self.status_label.configure(text="Load failed"))
-            self.after(0, lambda: messagebox.showerror("Model Error", str(e)))
+            self.after(0, lambda msg=error_msg: messagebox.showerror("Model Error", msg))
         finally:
             self._model_lock.release()
 
@@ -917,6 +920,10 @@ class ModernApp(ctk.CTk):
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         elif img.shape[2] == 4:
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        elif img.shape[2] == 1:
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        elif img.shape[2] != 3:
+            raise ValueError(f"Unsupported channel count: {img.shape[2]}")
         return img
 
     def bind_image_interactions(self) -> None:
@@ -938,12 +945,12 @@ class ModernApp(ctk.CTk):
         self.pan_start = None
         self.compare_hold_active = False
 
-    def on_display_resize(self, event: object) -> None:
+    def on_display_resize(self, event: tk.Event) -> None:
         if self.resize_job is not None:
             self.after_cancel(self.resize_job)
         self.resize_job = self.after(ANIMATION_INTERVAL_MS, self.render_main_images)
 
-    def on_zoom(self, event: object) -> None:
+    def on_zoom(self, event: tk.Event) -> None:
         if self.img_input is None:
             return
         if event.delta > 0:
@@ -955,12 +962,12 @@ class ModernApp(ctk.CTk):
         self.zoom_factor = float(np.clip(zoom, 1.0, 6.0))
         self.render_main_images()
 
-    def on_pan_start(self, event: object) -> None:
+    def on_pan_start(self, event: tk.Event) -> None:
         if self.img_input is None:
             return
         self.pan_start = (event.x, event.y)
 
-    def on_pan_move(self, event: object) -> None:
+    def on_pan_move(self, event: tk.Event) -> None:
         if self.img_input is None or self.pan_start is None:
             return
         dx = event.x - self.pan_start[0]
@@ -978,10 +985,10 @@ class ModernApp(ctk.CTk):
         self.view_center[1] = float(np.clip(self.view_center[1], 0.0, 1.0))
         self.render_main_images()
 
-    def on_pan_end(self, event: object) -> None:
+    def on_pan_end(self, event: tk.Event) -> None:
         self.pan_start = None
 
-    def on_compare_press(self, event: object) -> None:
+    def on_compare_press(self, event: tk.Event) -> None:
         if self.img_input is None or self.img_output is None:
             return
         if self.is_processing:
@@ -997,13 +1004,13 @@ class ModernApp(ctk.CTk):
         self.compare_hold_active = False
         self.render_main_images()
 
-    def on_compare_leave(self, event: object) -> None:
+    def on_compare_leave(self, event: tk.Event) -> None:
         if not self.compare_hold_active:
             return
         self.compare_hold_active = False
         self.render_main_images()
 
-    def calculate_view_window(self, bgr_img: np.ndarray, widget_w: int, widget_h: int) -> tuple:
+    def calculate_view_window(self, bgr_img: np.ndarray, widget_w: int, widget_h: int) -> tuple[int, int]:
         h_img, w_img = bgr_img.shape[:2]
         zoom = max(self.zoom_factor, 1e-3)
         view_w = max(1, int(w_img / zoom))
@@ -1018,7 +1025,7 @@ class ModernApp(ctk.CTk):
         view_h = max(1, min(view_h, h_img))
         return view_w, view_h
 
-    def render_zoomed_image(self, bgr_img: np.ndarray, label_widget: object) -> bool:
+    def render_zoomed_image(self, bgr_img: np.ndarray, label_widget: ctk.CTkLabel) -> bool:
         if not label_widget.winfo_exists():
             return False
         widget_w = label_widget.winfo_width()
@@ -1087,7 +1094,7 @@ class ModernApp(ctk.CTk):
         except TclError:
             return
 
-    def build_compare_image(self, lr_bgr: np.ndarray, sr_bgr: np.ndarray, split_ratio: float) -> np.ndarray:
+    def build_compare_image(self, lr_bgr: Optional[np.ndarray], sr_bgr: Optional[np.ndarray], split_ratio: float) -> Optional[np.ndarray]:
         if lr_bgr is None:
             return sr_bgr
         if sr_bgr is None:
@@ -1183,7 +1190,7 @@ class ModernApp(ctk.CTk):
                 hover_color=self.btn_run_default_hover
             )
 
-    def show_image_ctk(self, cv_img: np.ndarray, label_widget: object) -> None:
+    def show_image_ctk(self, cv_img: np.ndarray, label_widget: ctk.CTkLabel) -> None:
         img_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
         im_pil = Image.fromarray(img_rgb)
 
@@ -1206,7 +1213,7 @@ class ModernApp(ctk.CTk):
         label_widget.configure(image=ctk_img, text="")
         label_widget.image = ctk_img
 
-    def show_image_preview(self, title: str, bgr_img: np.ndarray, info_text: Optional[str], save_text: str, on_save: object) -> None:
+    def show_image_preview(self, title: str, bgr_img: np.ndarray, info_text: Optional[str], save_text: str, on_save: Callable) -> None:
         preview = ctk.CTkToplevel(self)
         preview.title(title)
         preview.geometry("900x900")
@@ -1314,7 +1321,7 @@ class ModernApp(ctk.CTk):
         except Exception as e:
             self.status_label.configure(text=f"Auto tune failed: {e}")
 
-    def _load_sd_pipeline(self, model_id: str, label: str) -> object:
+    def _load_sd_pipeline(self, model_id: str, label: str) -> Any:
         if StableDiffusionImg2ImgPipeline is None:
             raise RuntimeError("diffusers not installed. Run: pip install diffusers transformers accelerate")
         logger.info("%s pipeline: loading", label)
@@ -1347,18 +1354,20 @@ class ModernApp(ctk.CTk):
         logger.info("%s pipeline: ready", label)
         return pipe
 
-    def get_texture_pipeline(self) -> object:
+    def get_texture_pipeline(self) -> Optional[Any]:
         if not TEXTURE_ENABLED or not TEXTURE_MODEL_ID:
             return None
-        if self.texture_pipe is None:
-            self.texture_pipe = self._load_sd_pipeline(TEXTURE_MODEL_ID, "Texture")
+        with self._model_lock:
+            if self.texture_pipe is None:
+                self.texture_pipe = self._load_sd_pipeline(TEXTURE_MODEL_ID, "Texture")
         return self.texture_pipe
 
-    def get_color_pipeline(self) -> object:
+    def get_color_pipeline(self) -> Optional[Any]:
         if not COLORIZE_ENABLED or not COLOR_MODEL_ID:
             return None
-        if self.color_pipe is None:
-            self.color_pipe = self._load_sd_pipeline(COLOR_MODEL_ID, "Color")
+        with self._model_lock:
+            if self.color_pipe is None:
+                self.color_pipe = self._load_sd_pipeline(COLOR_MODEL_ID, "Color")
         return self.color_pipe
 
     def get_scratch_model(self) -> Optional[ScratchUNet]:
@@ -1370,7 +1379,7 @@ class ModernApp(ctk.CTk):
                 logger.warning("Scratch model: load failed")
         return self.scratch_model
 
-    def _apply_sd_pipeline(self, bgr_img, pipe, prompt, strength,
+    def _apply_sd_pipeline(self, bgr_img: np.ndarray, pipe: Any, prompt: str, strength: float,
                            guidance: float, steps: int, max_dim: int, label: str) -> np.ndarray:
         height, width = bgr_img.shape[:2]
         resized_bgr = bgr_img
@@ -1539,7 +1548,8 @@ class ModernApp(ctk.CTk):
                 self.after(0, lambda: self.btn_features.configure(state="normal"))
 
         except Exception as e:
-            self.after(0, lambda: messagebox.showerror("Error", f"Processing failed: {str(e)}"))
+            error_msg = str(e)
+            self.after(0, lambda msg=error_msg: messagebox.showerror("Error", f"Processing failed: {msg}"))
             self.after(0, lambda: self.show_output_overlay("Processing failed", animate=False))
         finally:
             with self._state_lock:
@@ -1573,7 +1583,7 @@ class ModernApp(ctk.CTk):
         self.lbl_resolution_out.configure(text=output_text)
         self.lbl_resolution_out_display.configure(text=output_text)
 
-    def set_metric_labels(self, psnr_label: object, ssim_label: object, psnr_value: Optional[float], ssim_value: Optional[float]) -> None:
+    def set_metric_labels(self, psnr_label: ctk.CTkLabel, ssim_label: ctk.CTkLabel, psnr_value: Optional[float], ssim_value: Optional[float]) -> None:
         if psnr_value is None or ssim_value is None:
             neutral = ("gray20", "gray70")
             psnr_label.configure(text="PSNR: --", text_color=neutral)

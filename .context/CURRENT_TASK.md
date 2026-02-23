@@ -3,18 +3,14 @@
 Last update: 2026-02-23
 
 ## Recently Completed (2026-02-23)
-- 对 `(gui)super-resolution processing_server.py` 进行全面代码审查并修复（5 CRITICAL + 8 HIGH + 11 MEDIUM）：
-  - [CRITICAL] 添加 `_state_lock` 保护 `is_processing`/`img_input`/`img_output` 跨线程共享状态。
-  - [CRITICAL] 添加 `_model_lock`（非阻塞获取）防止 `load_model` 并发调用。
-  - [CRITICAL] `torch.load` 添加 `weights_only=True` 防止不安全反序列化。
-  - [CRITICAL] `read_image` 添加 `cv2.imdecode` 返回值 None 检查。
-  - [CRITICAL] 环境变量解析添加 `_safe_float`/`_safe_int` 安全转换。
-  - [HIGH] `load_model` 中 GUI 操作通过 `self.after()` 移到主线程。
-  - [HIGH] 异常静默吞没改为 `logger` 记录。
-  - [HIGH] 提取 `_load_sd_pipeline`/`_apply_sd_pipeline` 公共方法，消除约 80 行重复代码。
-  - [HIGH] 为全部 88+ 函数和方法添加类型提示。
-  - [HIGH] `print()` 全部替换为 `logging` 模块调用。
-  - [MEDIUM] 提取 13 个魔术数字为常量；修复导入顺序和 PEP 8 格式。
+- 对 `(gui)super-resolution processing_server.py` 进行第二轮代码审查并修复（1 CRITICAL + 7 HIGH + 12 MEDIUM）：
+  - [CRITICAL] `__init__` 中添加 `_model_lock`/`_state_lock` 初始化（回归缺陷修复）。
+  - [HIGH] 修正 `blend_images`/`build_compare_image` 返回和参数类型标注。
+  - [HIGH] `_apply_sd_pipeline` 补全缺失参数类型。
+  - [HIGH] 7 个事件处理函数 `event: object` → `event: tk.Event`。
+  - [HIGH] `label_widget`/`on_save`/metric labels 参数类型精确化。
+  - [HIGH] pipeline 返回类型 `object` → `Any`/`Optional[Any]`，添加 `_model_lock` 保护。
+  - [MEDIUM] `read_image` 增加单通道/异常通道处理；lambda 闭包变量预捕获；返回类型精确化；字典推导式优化。
 
 - 修复 `(gui)super-resolution processing.py` 中 6 处类型注解不一致。
 - 为 `(gui)super-resolution processing.py` 添加完整的类型提示（100+ 函数和方法）：
