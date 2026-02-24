@@ -914,10 +914,11 @@ class ModernApp(ctk.CTk):
             self._card_input,
             text="Load Ground Truth",
             command=self.load_gt_image,
-            fg_color=UI_COLOR_SECONDARY_BG,
+            fg_color="transparent",
             hover_color=UI_COLOR_SECONDARY_HOVER,
-            text_color=UI_COLOR_SECONDARY_TEXT,
-            border_width=0,
+            text_color=UI_COLOR_TEXT_PRIMARY,
+            border_width=1,
+            border_color=UI_COLOR_CARD_BORDER,
             height=36,
         )
         self.btn_gt.grid(row=cr + 1, column=0, padx=12, pady=(0, 10), sticky="ew")
