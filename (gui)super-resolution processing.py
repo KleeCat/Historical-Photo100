@@ -792,32 +792,28 @@ class ModernApp(ctk.CTk):
         self.progress_bar.set(0.5)
         threading.Thread(target=self.load_model, daemon=True).start()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
-        self._last_win_state = "normal"
-        self.after(200, self._poll_window_state)
+        self._was_iconic = False
+        self.bind("<Unmap>", self._on_unmap)
+        self.bind("<Map>", self._on_map)
 
-    def _poll_window_state(self) -> None:
-        try:
-            current = self.state()
-        except Exception:
-            return
-        if self._last_win_state == "iconic" and current == "normal":
-            self.after(150, self._force_ctk_redraw)
-        self._last_win_state = current
-        self.after(200, self._poll_window_state)
+    def _on_unmap(self, event: Any) -> None:
+        """窗口最小化时标记状态。"""
+        if event.widget is self:
+            self._was_iconic = True
+
+    def _on_map(self, event: Any) -> None:
+        """窗口恢复时立即重绘，消除黑块。"""
+        if event.widget is self and self._was_iconic:
+            self._was_iconic = False
+            self._force_ctk_redraw()
 
     def _force_ctk_redraw(self) -> None:
         """强制重绘所有 CTk 控件和 Canvas，解决最小化恢复后黑块问题。"""
-        start_time = time.time()
         try:
+            self.update_idletasks()
             AppearanceModeTracker.update_callbacks()
             self._update_all_scrollable_frames()
             self.update_idletasks()
-            self.after(50, self._update_all_scrollable_frames)
-
-            elapsed = (time.time() - start_time) * 1000
-            if elapsed > 100:
-                logger.warning("_force_ctk_redraw took %.1fms", elapsed)
-
         except Exception as e:
             logger.warning("Failed to force CTk redraw: %s", e)
 
