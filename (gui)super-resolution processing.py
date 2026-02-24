@@ -83,7 +83,7 @@ except ImportError:
 # --- Global Theme Settings ---
 with suppress_stderr():
     ctk.set_appearance_mode("System")
-    ctk.set_default_color_theme("blue")
+    ctk.set_default_color_theme("green")
 
 TEXTURE_MODEL_ID = os.environ.get("TEXTURE_MODEL_ID", "").strip()
 TEXTURE_PROMPT = os.environ.get(
@@ -139,7 +139,7 @@ UI_COLOR_SECONDARY_BG = ("#F5F5F5", "#1A1A1A")
 UI_COLOR_SECONDARY_HOVER = ("#EBEBEB", "#262626")
 UI_COLOR_SECONDARY_TEXT = ("#404040", "#D4D4D4")
 UI_COLOR_TEXT_PRIMARY = ("#171717", "#EDEDED")
-UI_COLOR_TEXT_MUTED = ("#A3A3A3", "#525252")
+UI_COLOR_TEXT_MUTED = ("#737373", "#6B6B6B")
 UI_COLOR_IMAGE_BG = ("#F0F0F0", "#0F0F0F")
 UI_COLOR_SWITCH_OFF = ("#D4D4D4", "#404040")
 UI_COLOR_SWITCH_ON = "#10B981"
@@ -168,7 +168,7 @@ class ToolTip:
         tw.wm_geometry(f"+{x}+{y}")
         label = tk.Label(
             tw, text=self.text, justify="left",
-            background="#333333", foreground="#EEEEEE",
+            background="#1A1A1A", foreground="#EDEDED",
             relief="solid", borderwidth=1,
             font=("", 10), padx=6, pady=3,
         )
@@ -1262,12 +1262,12 @@ class ModernApp(ctk.CTk):
         self.lbl_filename_out.grid(row=1, column=1, pady=(0, 2), sticky="n")
 
         self.output_overlay = ctk.CTkFrame(
-            self.frame_output, corner_radius=6, fg_color=("gray85", "#222222")
+            self.frame_output, corner_radius=8, fg_color=UI_COLOR_SECONDARY_BG
         )
         self.output_overlay_label = ctk.CTkLabel(
             self.output_overlay,
             text="Waiting for processing...",
-            text_color=("gray20", "gray80"),
+            text_color=UI_COLOR_TEXT_MUTED,
             font=ctk.CTkFont(size=14, weight="bold"),
             fg_color=self.output_overlay.cget("fg_color"),
         )
@@ -2443,8 +2443,8 @@ class ModernApp(ctk.CTk):
             self.btn_run.configure(
                 state="disabled",
                 text="Processing...",
-                fg_color=("gray70", "#444444"),
-                hover_color=("gray70", "#444444"),
+                fg_color=UI_COLOR_SECONDARY_BG,
+                hover_color=UI_COLOR_SECONDARY_BG,
             )
         else:
             self.btn_run.configure(
@@ -2459,8 +2459,8 @@ class ModernApp(ctk.CTk):
             self.btn_run.configure(
                 state="disabled",
                 text="Batch Running...",
-                fg_color=("gray70", "#444444"),
-                hover_color=("gray70", "#444444"),
+                fg_color=UI_COLOR_SECONDARY_BG,
+                hover_color=UI_COLOR_SECONDARY_BG,
             )
         else:
             self.set_run_button_processing(False)
@@ -3248,7 +3248,7 @@ class ModernApp(ctk.CTk):
         ssim_value: Optional[float],
     ) -> None:
         if psnr_value is None or ssim_value is None:
-            neutral = ("gray20", "gray70")
+            neutral = UI_COLOR_TEXT_MUTED
             self.psnr_var.set("PSNR: --")
             self.ssim_var.set("SSIM: --")
             psnr_label.configure(text_color=neutral)
@@ -3256,8 +3256,8 @@ class ModernApp(ctk.CTk):
             return
         self.psnr_var.set(f"PSNR: {psnr_value:.2f} dB")
         self.ssim_var.set(f"SSIM: {ssim_value:.4f}")
-        psnr_label.configure(text_color="#2CC985")
-        ssim_label.configure(text_color="#2CC985")
+        psnr_label.configure(text_color=UI_COLOR_PRIMARY)
+        ssim_label.configure(text_color=UI_COLOR_PRIMARY)
 
     def calculate_metrics(self) -> None:
         with self._state_lock:
