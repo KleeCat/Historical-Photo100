@@ -3,6 +3,10 @@
 Last update: 2026-02-24
 
 ## Recently Completed (2026-02-24)
+- `(gui)super-resolution processing.py` 代码审查修复第二轮（13 MEDIUM + 4 LOW）：
+  - [MEDIUM] 字典推导式、frozenset、导入位置、18 个 docstring、9 处长行签名、类型标注补全。
+  - [LOW] `_cancel_after_job` 简化 + 调用方适配；`on_save` 签名修正。
+
 - `(gui)super-resolution processing.py` UI 第四轮优化（专业配色方案 + 布局调整）：
   - 全局配色重构：引入 10+ 语义化颜色常量（BG/CARD/BLUE/SECONDARY/TEXT_PRIMARY/TEXT_MUTED/IMAGE_BG/SWITCH 等）。
   - 应用底色改为柔和灰蓝 `#F5F7FA`，卡片纯白 + 淡边框。

@@ -1,5 +1,14 @@
 # Changelog
 
+- 2026-02-24: `(gui)super-resolution processing.py` 代码审查修复第二轮（13 MEDIUM + 4 LOW）。
+  - [MEDIUM] `clean_state_dict` 改用字典推导式；`save_image` ext 白名单改 `frozenset`。
+  - [MEDIUM] `tkinter` 导入从 `ToolTip._show` 延迟导入移到文件顶部。
+  - [MEDIUM] 18 个公共函数添加 docstring。
+  - [MEDIUM] 9 处超长函数签名拆分为多行（PEP 8 行宽）。
+  - [MEDIUM] 补充类型标注：`_get_dpi_scale`、`_assign_image_to_label`、`_stage_face_enhance`。
+  - [LOW] `_cancel_after_job` 简化逻辑 + except 收窄为 `TclError/ValueError` + 调用方适配。
+  - [LOW] `show_image_preview` 的 `on_save` 签名修正为 `Callable[[Any], None]`。
+
 - 2026-02-24: `(gui)super-resolution processing.py` UI 第四轮优化（专业配色方案 + 布局调整）。
   - 全局配色重构：新增 `UI_COLOR_BG`(#F5F7FA)、`UI_COLOR_SECONDARY_BG/HOVER/TEXT`、`UI_COLOR_TEXT_PRIMARY/MUTED`、`UI_COLOR_IMAGE_BG`、`UI_COLOR_SWITCH_OFF/ON` 等语义化常量。
   - 核心按钮色：`UI_COLOR_PRIMARY` 从 #2CC985 改为 #10B981（翠绿），`UI_COLOR_BLUE` 从 #3B8ED0 改为 #1677FF（科技蓝）。

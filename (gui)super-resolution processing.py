@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+import tkinter as tk
 import uuid
 import warnings
 from datetime import datetime
@@ -159,7 +160,6 @@ class ToolTip:
     def _show(self, _event: Any = None) -> None:
         if self._tw or not self.text:
             return
-        import tkinter as tk
         x = self.widget.winfo_rootx() + 20
         y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
         self._tw = tw = tk.Toplevel(self.widget)
@@ -184,29 +184,37 @@ class UserCancelledError(Exception):
 
 
 def ensure_dir(path: str) -> str:
+    """Create directory if it does not exist and return the path."""
     os.makedirs(path, exist_ok=True)
     return path
 
 
 def write_json_file(path: str, payload: Dict[str, Any]) -> None:
+    """Write a dictionary as a JSON file, creating parent directories as needed."""
     ensure_dir(os.path.dirname(path))
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2)
 
 
 def timestamp_str() -> str:
+    """Return a timestamp string suitable for filenames."""
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 def safe_basename(path: Optional[str], fallback: str = "image") -> str:
+    """Return the stem of a file path, or *fallback* if path is empty."""
     if not path:
         return fallback
     return os.path.splitext(os.path.basename(path))[0]
 
 
+_SUPPORTED_SAVE_EXTS = frozenset({".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".webp"})
+
+
 def save_image(path: str, bgr_img: np.ndarray) -> str:
+    """Encode and save a BGR image to disk."""
     ext = os.path.splitext(path)[1].lower()
-    if ext not in [".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".webp"]:
+    if ext not in _SUPPORTED_SAVE_EXTS:
         ext = ".png"
         path = path + ext
     with suppress_stderr():
@@ -275,10 +283,8 @@ class ScratchUNet(nn.Module):
 
 
 def clean_state_dict(state_dict: Dict[str, Any]) -> Dict[str, Any]:
-    cleaned = {}
-    for key, value in state_dict.items():
-        cleaned[key.replace("module.", "")] = value
-    return cleaned
+    """Remove 'module.' prefix from state dict keys for DataParallel compatibility."""
+    return {key.replace("module.", ""): value for key, value in state_dict.items()}
 
 
 def load_scratch_model(model_path: str, device: torch.device) -> Optional[nn.Module]:
@@ -302,7 +308,13 @@ def load_scratch_model(model_path: str, device: torch.device) -> Optional[nn.Mod
     return model
 
 
-def predict_scratch_mask(bgr_img: np.ndarray, model: Optional[nn.Module], device: torch.device, threshold: float) -> Optional[np.ndarray]:
+def predict_scratch_mask(
+    bgr_img: np.ndarray,
+    model: Optional[nn.Module],
+    device: torch.device,
+    threshold: float,
+) -> Optional[np.ndarray]:
+    """Predict a binary scratch mask using the UNet model."""
     if model is None:
         return None
     gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
@@ -319,7 +331,14 @@ def predict_scratch_mask(bgr_img: np.ndarray, model: Optional[nn.Module], device
     return mask
 
 
-def apply_scratch_repair(bgr_img: np.ndarray, model: Optional[nn.Module], device: torch.device, threshold: float, inpaint_radius: int) -> np.ndarray:
+def apply_scratch_repair(
+    bgr_img: np.ndarray,
+    model: Optional[nn.Module],
+    device: torch.device,
+    threshold: float,
+    inpaint_radius: int,
+) -> np.ndarray:
+    """Detect scratches and inpaint them. Returns original if no model or no scratches."""
     if model is None:
         return bgr_img
     mask = predict_scratch_mask(bgr_img, model, device, threshold)
@@ -331,6 +350,7 @@ def apply_scratch_repair(bgr_img: np.ndarray, model: Optional[nn.Module], device
 def blend_images(
     img_a: Optional[np.ndarray], img_b: Optional[np.ndarray], alpha: float
 ) -> Optional[np.ndarray]:
+    """Alpha-blend two images. Returns the non-None image if one is None."""
     if img_a is None:
         return img_b
     if img_b is None:
@@ -349,6 +369,7 @@ def apply_unsharp_mask(
     radius: float = 1.5,
     blend_weight: float = 0.0,
 ) -> np.ndarray:
+    """Apply edge-aware unsharp mask to the Y channel in YCrCb space."""
     weight = float(np.clip(strength, 0.0, 1.0))
     if weight <= 0.0:
         return bgr_img
@@ -383,6 +404,7 @@ def apply_unsharp_mask(
 
 
 def apply_film_grain(bgr_img: np.ndarray, strength: float) -> np.ndarray:
+    """Add synthetic film grain noise to an image."""
     weight = float(np.clip(strength, 0.0, 1.0))
     if weight <= 0.0:
         return bgr_img
@@ -396,6 +418,7 @@ def apply_film_grain(bgr_img: np.ndarray, strength: float) -> np.ndarray:
 def blend_with_lr(
     sr_bgr: np.ndarray, lr_bgr: np.ndarray, strength: float
 ) -> np.ndarray:
+    """Blend SR output with upscaled LR using phase-correlation alignment."""
     weight = float(np.clip(strength, 0.0, 1.0))
     if weight <= 0.0:
         return sr_bgr
@@ -474,6 +497,7 @@ def suppress_edge_ringing(
     lr_bgr: Optional[np.ndarray],
     strength: float = 0.5,
 ) -> np.ndarray:
+    """Reduce halo/ringing artifacts near edges in the SR output."""
     amount = float(np.clip(strength, 0.0, 1.0))
     if amount <= 0.0:
         return sr_bgr
@@ -519,6 +543,7 @@ def suppress_edge_ringing(
 
 
 def clamp_value(value: float, min_value: float, max_value: float) -> float:
+    """Clamp a float value between min_value and max_value."""
     return max(min_value, min(float(value), max_value))
 
 
@@ -550,6 +575,7 @@ def auto_tile_size(img_h: int, img_w: int, scale: int) -> int:
 
 
 def estimate_image_metrics(bgr_img: np.ndarray) -> Dict[str, float]:
+    """Compute sharpness, noise, contrast, and edge density metrics."""
     gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
     lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
     blur = cv2.GaussianBlur(gray, (0, 0), 1.0)
@@ -565,7 +591,14 @@ def estimate_image_metrics(bgr_img: np.ndarray) -> Dict[str, float]:
     }
 
 
-def make_comparison_images(lr_bgr: np.ndarray, sr_bgr: np.ndarray, scale: int, base_name: str, out_dir: str) -> Tuple[str, str]:
+def make_comparison_images(
+    lr_bgr: np.ndarray,
+    sr_bgr: np.ndarray,
+    scale: int,
+    base_name: str,
+    out_dir: str,
+) -> Tuple[str, str]:
+    """Generate side-by-side and grid comparison images."""
     ensure_dir(out_dir)
     ts = timestamp_str()
     h, w = sr_bgr.shape[:2]
@@ -600,7 +633,10 @@ def make_comparison_images(lr_bgr: np.ndarray, sr_bgr: np.ndarray, scale: int, b
     return pair_path, grid_path
 
 
-def tensor_to_grid_image(tensor: torch.Tensor, grid: int = 4, max_channels: int = 16) -> Optional[np.ndarray]:
+def tensor_to_grid_image(
+    tensor: torch.Tensor, grid: int = 4, max_channels: int = 16,
+) -> Optional[np.ndarray]:
+    """Convert a feature tensor to a grid visualization image."""
     if not torch.is_tensor(tensor):
         return None
     t = tensor
@@ -631,7 +667,13 @@ def tensor_to_grid_image(tensor: torch.Tensor, grid: int = 4, max_channels: int 
     return np.vstack(rows)
 
 
-def save_feature_grids(feature_maps: List[Tuple[str, torch.Tensor]], base_name: str, scale: int, out_dir: str) -> List[str]:
+def save_feature_grids(
+    feature_maps: List[Tuple[str, torch.Tensor]],
+    base_name: str,
+    scale: int,
+    out_dir: str,
+) -> List[str]:
+    """Save feature map grid visualizations to disk."""
     ensure_dir(out_dir)
     ts = timestamp_str()
     saved = []
@@ -1616,13 +1658,11 @@ class ModernApp(ctk.CTk):
         self.compare_hold_active = False
 
     def _cancel_after_job(self, job_id: Optional[str]) -> None:
-        if job_id is None:
-            return None
-        try:
-            self.after_cancel(job_id)
-        except Exception:
-            pass
-        return None
+        if job_id is not None:
+            try:
+                self.after_cancel(job_id)
+            except (TclError, ValueError):
+                pass
 
     def _run_debounced_render(self) -> None:
         self.resize_job = None
@@ -1634,7 +1674,8 @@ class ModernApp(ctk.CTk):
         self._run_debounced_render()
 
     def render_main_images_stable(self) -> None:
-        self.resize_job = self._cancel_after_job(self.resize_job)
+        self._cancel_after_job(self.resize_job)
+        self.resize_job = None
         self.resize_job = self.after_idle(self._run_debounced_render)
 
     def on_display_resize(self, event: Any) -> None:
@@ -1651,7 +1692,8 @@ class ModernApp(ctk.CTk):
         self._last_resize_sizes[widget_id] = new_size
         self._resize_seq += 1
         seq = self._resize_seq
-        self.resize_job = self._cancel_after_job(self.resize_job)
+        self._cancel_after_job(self.resize_job)
+        self.resize_job = None
         self.resize_job = self.after(170, lambda s=seq: self._run_resize_render(s))
 
     def on_zoom(self, event: Any) -> None:
@@ -1898,13 +1940,15 @@ class ModernApp(ctk.CTk):
     def _recreate_input_label(self) -> "ctk.CTkLabel":
         return self._recreate_label("input")
 
-    def _get_dpi_scale(self, label_widget) -> float:
+    def _get_dpi_scale(self, label_widget: Any) -> float:
         try:
             return label_widget._get_widget_scaling()
         except Exception:
             return 1.0
 
-    def _assign_image_to_label(self, pil_img, label_widget, logical_w, logical_h) -> bool:
+    def _assign_image_to_label(
+        self, pil_img: Image.Image, label_widget: Any, logical_w: int, logical_h: int,
+    ) -> bool:
         """Create CTkImage from PIL image and assign to label. Returns success."""
         ctk_img = ctk.CTkImage(
             light_image=pil_img, dark_image=pil_img, size=(logical_w, logical_h)
@@ -2232,7 +2276,9 @@ class ModernApp(ctk.CTk):
             return
         self.render_output_from_file(path, run_id)
 
-    def build_compare_image(self, lr_bgr: np.ndarray, sr_bgr: np.ndarray, split_ratio: float) -> np.ndarray:
+    def build_compare_image(
+        self, lr_bgr: np.ndarray, sr_bgr: np.ndarray, split_ratio: float,
+    ) -> np.ndarray:
         if lr_bgr is None:
             return sr_bgr
         if sr_bgr is None:
@@ -2283,7 +2329,8 @@ class ModernApp(ctk.CTk):
             self.slider_compare.configure(state="disabled")
 
     def _cancel_overlay_animation(self) -> None:
-        self.overlay_animation_job = self._cancel_after_job(self.overlay_animation_job)
+        self._cancel_after_job(self.overlay_animation_job)
+        self.overlay_animation_job = None
 
     def _cancel_success_render_jobs(self) -> None:
         if not self.success_render_jobs:
@@ -2463,7 +2510,10 @@ class ModernApp(ctk.CTk):
         if not self._assign_image_to_label(im_pil, label_widget, new_w, new_h):
             raise TclError("set_label_image failed")
 
-    def show_image_preview(self, title: str, bgr_img: np.ndarray, info_text: str, save_text: str, on_save: Callable[[], None]) -> None:
+    def show_image_preview(
+        self, title: str, bgr_img: np.ndarray, info_text: str,
+        save_text: str, on_save: Callable[[Any], None],
+    ) -> None:
         preview = ctk.CTkToplevel(self)
         preview.title(title)
         preview.geometry("900x900")
@@ -2704,7 +2754,14 @@ class ModernApp(ctk.CTk):
         run_meta["scratch_repair"] = True
         return input_img
 
-    def _stage_face_enhance(self, input_img: np.ndarray, sr_base: np.ndarray, face_blend: float, ui_run_id: Optional[int], run_meta: Dict[str, Any]) -> Tuple[np.ndarray, bool]:
+    def _stage_face_enhance(
+        self,
+        input_img: np.ndarray,
+        sr_base: np.ndarray,
+        face_blend: float,
+        ui_run_id: Optional[int],
+        run_meta: Dict[str, Any],
+    ) -> Tuple[np.ndarray, bool]:
         """Face enhancement stage. Returns (output, used_face_enhance)."""
         stage_start = time.perf_counter()
         output = sr_base
@@ -3151,7 +3208,13 @@ class ModernApp(ctk.CTk):
         self.lbl_resolution_out.configure(text=output_text)
         self.lbl_resolution_out_display.configure(text=output_display)
 
-    def set_metric_labels(self, psnr_label: Any, ssim_label: Any, psnr_value: Optional[float], ssim_value: Optional[float]) -> None:
+    def set_metric_labels(
+        self,
+        psnr_label: Any,
+        ssim_label: Any,
+        psnr_value: Optional[float],
+        ssim_value: Optional[float],
+    ) -> None:
         if psnr_value is None or ssim_value is None:
             neutral = ("gray20", "gray70")
             self.psnr_var.set("PSNR: --")
@@ -3289,7 +3352,9 @@ class ModernApp(ctk.CTk):
         self.calculate_metrics()
         self.start_processing(batch_mode=True, on_complete=self.on_batch_item_complete)
 
-    def on_batch_item_complete(self, success: bool, cancelled: bool, error_message: Optional[str]) -> None:
+    def on_batch_item_complete(
+        self, success: bool, cancelled: bool, error_message: Optional[str],
+    ) -> None:
         if cancelled:
             self.batch_cancelled = True
         if not success and error_message:
