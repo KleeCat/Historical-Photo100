@@ -1,6 +1,28 @@
 # Current Task
 
-Last update: 2026-02-23
+Last update: 2026-02-24
+
+## Recently Completed (2026-02-24)
+- `(gui)super-resolution processing.py` UI 第四轮优化（专业配色方案 + 布局调整）：
+  - 全局配色重构：引入 10+ 语义化颜色常量（BG/CARD/BLUE/SECONDARY/TEXT_PRIMARY/TEXT_MUTED/IMAGE_BG/SWITCH 等）。
+  - 应用底色改为柔和灰蓝 `#F5F7FA`，卡片纯白 + 淡边框。
+  - 按钮层级梳理：Start Restoration 独占翠绿 `#10B981`；Open Image/Save Result 科技蓝 `#1677FF`；次级按钮去边框改浅灰填充。
+  - Switch 对比度：关闭态 `#D1D5DB`，开启态蓝色 `#1677FF`。
+  - 指标区移回左侧栏 Results 卡片，Compare 开关也移入 Results 卡片。
+  - 底部工具栏简化为 4 按钮等距排列（Comparison/Features/Open Folder/Save Result）。
+  - Results 卡片紧凑化：Resolution 单行左右分布（In/Out），PSNR/SSIM 单行左右分布，节省垂直空间。
+
+- `(gui)super-resolution processing.py` 代码审查修复（2 CRITICAL + 10 HIGH）：
+  - [CRITICAL] `detect_faces` 返回类型修正；环境变量解析添加安全防护。
+  - [HIGH] 10 处静默异常改为日志记录；类型签名修正；多余 return 移除；except 收窄。
+
+- `(gui)super-resolution processing.py` UI 第三轮优化（6 项视觉打磨）：
+  - 侧栏卡片化：Input/Settings/Actions 三区块用白色圆角卡片包裹，增强模块边界感。
+  - 输出路径：从截断 Label 改为只读 Entry + 文件夹图标按钮。
+  - 输出占位文字：右侧输出区加对称引导文案 "Output will appear here after processing"。
+  - 分析工具组：Comparison + Features + Compare 开关外围加浅底色框，形成视觉分组。
+  - Save Result 改蓝色：绿色独家保留给 Start Restoration。
+  - Switch 对比度：未激活态按钮颜色调浅（gray60/gray40），开启时用绿色 progress_color。
 
 ## Recently Completed (2026-02-23)
 - 对 `download.py` 第二轮代码审查修复（1 HIGH + 3 MEDIUM）：

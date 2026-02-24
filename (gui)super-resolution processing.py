@@ -89,13 +89,25 @@ TEXTURE_PROMPT = os.environ.get(
     "TEXTURE_PROMPT",
     "restored vintage photo, realistic skin texture, fabric detail, subtle film grain",
 )
-TEXTURE_STRENGTH = float(os.environ.get("TEXTURE_STRENGTH", "0.35"))
-TEXTURE_GUIDANCE = float(os.environ.get("TEXTURE_GUIDANCE", "5.0"))
-TEXTURE_STEPS = int(os.environ.get("TEXTURE_STEPS", "2"))
+def _safe_float(env_key: str, default: float) -> float:
+    try:
+        return float(os.environ.get(env_key, str(default)))
+    except (ValueError, TypeError):
+        return default
+
+def _safe_int(env_key: str, default: int) -> int:
+    try:
+        return int(os.environ.get(env_key, str(default)))
+    except (ValueError, TypeError):
+        return default
+
+TEXTURE_STRENGTH = _safe_float("TEXTURE_STRENGTH", 0.35)
+TEXTURE_GUIDANCE = _safe_float("TEXTURE_GUIDANCE", 5.0)
+TEXTURE_STEPS = _safe_int("TEXTURE_STEPS", 2)
 TEXTURE_ENABLED = False
 SCRATCH_MODEL_PATH = os.environ.get("SCRATCH_MODEL_PATH", "").strip()
-SCRATCH_MASK_THRESHOLD = float(os.environ.get("SCRATCH_MASK_THRESHOLD", "0.5"))
-SCRATCH_INPAINT_RADIUS = int(os.environ.get("SCRATCH_INPAINT_RADIUS", "3"))
+SCRATCH_MASK_THRESHOLD = _safe_float("SCRATCH_MASK_THRESHOLD", 0.5)
+SCRATCH_INPAINT_RADIUS = _safe_int("SCRATCH_INPAINT_RADIUS", 3)
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp")
 DEFAULT_BATCH_RETRIES = 1
@@ -108,14 +120,63 @@ UI_FONT_SECTION = ("", 14, "bold")
 UI_FONT_LABEL = ("", 12)
 UI_FONT_BUTTON_LARGE = ("", 16, "bold")
 UI_FONT_BUTTON_MEDIUM = ("", 14, "bold")
-UI_COLOR_SUCCESS = "#2CC985"
-UI_COLOR_SUCCESS_HOVER = "#229A66"
+UI_FONT_SECTION_HEADER = ("", 12, "bold")
+UI_COLOR_PRIMARY = "#10B981"
+UI_COLOR_PRIMARY_HOVER = "#059669"
 UI_COLOR_DANGER = "#D9534F"
 UI_COLOR_DANGER_HOVER = "#C9302C"
-UI_COLOR_INFO = "#3A7CA5"
-UI_COLOR_INFO_HOVER = "#2D5F7C"
-UI_COLOR_WARNING = "#E0A800"
-UI_COLOR_WARNING_HOVER = "#B38600"
+UI_COLOR_DANGER_MUTED = "#6B4C4A"
+UI_COLOR_DANGER_MUTED_HOVER = "#7D5553"
+UI_COLOR_SECTION_TEXT = ("#6B7280", "#9CA3AF")
+UI_COLOR_CARD_BG = ("#FFFFFF", "#2A2A2A")
+UI_COLOR_CARD_BORDER = ("#E5E7EB", "#3A3A3A")
+UI_COLOR_BLUE = "#1677FF"
+UI_COLOR_BLUE_HOVER = "#0958D9"
+UI_COLOR_BG = ("#F5F7FA", "#1A1A1A")
+UI_COLOR_SECONDARY_BG = ("#F3F4F6", "#333333")
+UI_COLOR_SECONDARY_HOVER = ("#E5E7EB", "#444444")
+UI_COLOR_SECONDARY_TEXT = ("#4B5563", "#D1D5DB")
+UI_COLOR_TEXT_PRIMARY = ("#1F2937", "#F3F4F6")
+UI_COLOR_TEXT_MUTED = ("#9CA3AF", "#6B7280")
+UI_COLOR_IMAGE_BG = ("#E5E7EB", "#1C1C1C")
+UI_COLOR_SWITCH_OFF = ("#D1D5DB", "#555555")
+UI_COLOR_SWITCH_ON = "#1677FF"
+
+
+class ToolTip:
+    """Simple hover tooltip for any widget."""
+
+    def __init__(self, widget: Any, text: str) -> None:
+        self.widget = widget
+        self.text = text
+        self._tw: Any = None
+        widget.bind("<Enter>", self._show)
+        widget.bind("<Leave>", self._hide)
+
+    def update_text(self, text: str) -> None:
+        self.text = text
+
+    def _show(self, _event: Any = None) -> None:
+        if self._tw or not self.text:
+            return
+        import tkinter as tk
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self._tw = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(
+            tw, text=self.text, justify="left",
+            background="#333333", foreground="#EEEEEE",
+            relief="solid", borderwidth=1,
+            font=("", 10), padx=6, pady=3,
+        )
+        label.pack()
+
+    def _hide(self, _event: Any = None) -> None:
+        if self._tw:
+            self._tw.destroy()
+            self._tw = None
 
 
 class UserCancelledError(Exception):
@@ -227,7 +288,8 @@ def load_scratch_model(model_path: str, device: torch.device) -> Optional[nn.Mod
         return None
     try:
         checkpoint = torch.load(model_path, map_location=device, weights_only=True)
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to load scratch model from %s: %s", model_path, e)
         return None
     if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
         state_dict = checkpoint["state_dict"]
@@ -376,7 +438,8 @@ def blend_with_lr(
             low_lr = cv2.GaussianBlur(
                 lr_aligned.astype(np.float32), (0, 0), sigmaX=sigma, sigmaY=sigma
             )
-    except Exception:
+    except Exception as e:
+        logger.debug("LR alignment failed, skipping blend: %s", e)
         return sr_bgr
     gated_weight = float(np.clip(gated_weight, 0.0, 0.05))
 
@@ -734,31 +797,49 @@ class ModernApp(ctk.CTk):
                     bbox = widget._parent_canvas.bbox("all")
                     if bbox is not None:
                         widget._parent_canvas.configure(scrollregion=bbox)
-                except Exception:
+                except (TclError, ValueError):
                     pass
 
             try:
                 for child in widget.winfo_children():
                     update_widget(child)
-            except Exception:
+            except TclError:
                 pass
 
         update_widget(self)
 
+    def _make_card(self, parent: Any, row: int, title: str, **grid_kw: Any) -> Tuple[Any, int]:
+        """Create a card frame with title inside the sidebar. Returns (card_frame, first_content_row)."""
+        card = ctk.CTkFrame(
+            parent, corner_radius=8,
+            fg_color=UI_COLOR_CARD_BG,
+            border_width=1, border_color=UI_COLOR_CARD_BORDER,
+        )
+        card.grid(row=row, column=0, padx=8, pady=(4, 2), sticky="ew", **grid_kw)
+        card.grid_columnconfigure(0, weight=1)
+        lbl = ctk.CTkLabel(
+            card, text=title,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=UI_COLOR_SECTION_TEXT,
+        )
+        lbl.grid(row=0, column=0, padx=12, pady=(8, 2), sticky="w")
+        return card, 1
+
     def setup_ui(self) -> None:
         # === 1. Sidebar (Left) ===
         self._sidebar_outer = ctk.CTkFrame(
-            self, width=UI_SIDEBAR_WIDTH + 16, corner_radius=0
+            self, width=UI_SIDEBAR_WIDTH + 16, corner_radius=0,
+            fg_color=UI_COLOR_BG,
         )
         self._sidebar_outer.grid(row=0, column=0, rowspan=4, sticky="nsew")
         self._sidebar_outer.grid_rowconfigure(0, weight=1)
         self._sidebar_outer.grid_columnconfigure(0, weight=1)
         self._sidebar_outer.grid_propagate(False)
-        self.sidebar = ctk.CTkScrollableFrame(
+        self.sidebar = ctk.CTkFrame(
             self._sidebar_outer,
             width=UI_SIDEBAR_WIDTH,
             corner_radius=0,
-            fg_color=self._sidebar_outer.cget("fg_color"),
+            fg_color=UI_COLOR_BG,
         )
         self.sidebar.grid(row=0, column=0, sticky="nsew")
         self.sidebar.grid_columnconfigure(0, weight=1)
@@ -768,156 +849,155 @@ class ModernApp(ctk.CTk):
             self.sidebar,
             text="Super Resolution",
             font=ctk.CTkFont(size=24, weight="bold"),
+            text_color=UI_COLOR_TEXT_PRIMARY,
         )
-        self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
+        self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 6))
 
-        # Controls
+        # === Card: Input ===
+        self._card_input, cr = self._make_card(self.sidebar, 1, "Input")
+
         self.btn_load = ctk.CTkButton(
-            self.sidebar, text="Open Image", command=self.load_input_image, height=38
+            self._card_input, text="Open Image", command=self.load_input_image, height=36,
+            fg_color=UI_COLOR_BLUE, hover_color=UI_COLOR_BLUE_HOVER,
         )
-        self.btn_load.grid(row=1, column=0, padx=20, pady=4)
+        self.btn_load.grid(row=cr, column=0, padx=12, pady=(4, 6), sticky="ew")
 
         self.btn_gt = ctk.CTkButton(
-            self.sidebar,
+            self._card_input,
             text="Load Ground Truth",
             command=self.load_gt_image,
-            fg_color="transparent",
-            border_width=2,
-            text_color=("gray10", "#DCE4EE"),
-            height=38,
+            fg_color=UI_COLOR_SECONDARY_BG,
+            hover_color=UI_COLOR_SECONDARY_HOVER,
+            text_color=UI_COLOR_SECONDARY_TEXT,
+            border_width=0,
+            height=36,
         )
-        self.btn_gt.grid(row=2, column=0, padx=20, pady=4)
+        self.btn_gt.grid(row=cr + 1, column=0, padx=12, pady=(0, 10), sticky="ew")
 
-        self.separator = ctk.CTkProgressBar(
-            self.sidebar, height=2, progress_color="gray"
-        )
-        self.separator.grid(row=3, column=0, padx=20, pady=6, sticky="ew")
-        self.separator.set(1)
-
-        # === New Scale Selector ===
+        # === Card: Settings ===
+        self._card_settings, cr = self._make_card(self.sidebar, 2, "Settings")
         ctk.CTkLabel(
-            self.sidebar,
+            self._card_settings,
             text="Upscale Factor:",
             font=ctk.CTkFont(size=12, weight="bold"),
-        ).grid(row=4, column=0, padx=20, pady=(8, 0), sticky="w")
+        ).grid(row=cr, column=0, padx=12, pady=(6, 0), sticky="w")
         self.scale_var = ctk.StringVar(value="x4")
         self.scale_combo = ctk.CTkComboBox(
-            self.sidebar,
+            self._card_settings,
             values=["x2", "x4"],
             variable=self.scale_var,
             command=self.change_model_scale,
         )
-        self.scale_combo.grid(row=5, column=0, padx=20, pady=(4, 6))
+        self.scale_combo.grid(row=cr + 1, column=0, padx=12, pady=(6, 8))
 
-        self.btn_output_dir = ctk.CTkButton(
-            self.sidebar,
-            text="Set Default Output Dir",
-            command=self.set_default_output_dir,
-            height=34,
-        )
-        self.btn_output_dir.grid(row=6, column=0, padx=20, pady=(6, 4))
-        self.lbl_output_dir = ctk.CTkLabel(
-            self.sidebar,
-            text=self.get_output_dir_label_text(),
+        # Output dir: Entry + folder button in a row frame
+        self._output_dir_row = ctk.CTkFrame(self._card_settings, fg_color="transparent")
+        self._output_dir_row.grid(row=cr + 2, column=0, padx=12, pady=(2, 8), sticky="ew")
+        self._output_dir_row.grid_columnconfigure(0, weight=1)
+        self.entry_output_dir = ctk.CTkEntry(
+            self._output_dir_row,
+            placeholder_text="Output directory...",
+            state="readonly",
+            height=30,
             font=ctk.CTkFont(size=11),
-            wraplength=200,
-            justify="left",
-            fg_color=self.sidebar.cget("fg_color"),
         )
-        self.lbl_output_dir.grid(row=7, column=0, padx=20, pady=(0, 6), sticky="w")
+        self.entry_output_dir.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        if self.default_output_dir:
+            self.entry_output_dir.configure(state="normal")
+            self.entry_output_dir.insert(0, self.default_output_dir)
+            self.entry_output_dir.configure(state="readonly")
+        self.btn_output_dir = ctk.CTkButton(
+            self._output_dir_row,
+            text="\U0001F4C1",
+            command=self.set_default_output_dir,
+            width=32, height=30,
+            fg_color=UI_COLOR_SECONDARY_BG,
+            hover_color=UI_COLOR_SECONDARY_HOVER,
+            text_color=UI_COLOR_SECONDARY_TEXT,
+            border_width=0,
+        )
+        self.btn_output_dir.grid(row=0, column=1)
 
         # Face Enhance Switch
         self.use_face_enhance = ctk.BooleanVar(value=False)
         self.switch_face = ctk.CTkSwitch(
-            self.sidebar, text="Face Enhancement", variable=self.use_face_enhance
+            self._card_settings, text="Face Enhancement", variable=self.use_face_enhance,
+            progress_color=UI_COLOR_SWITCH_ON,
+            button_color=UI_COLOR_SWITCH_OFF,
         )
-        self.switch_face.grid(row=8, column=0, padx=20, pady=4, sticky="w")
+        self.switch_face.grid(row=cr + 3, column=0, padx=12, pady=4, sticky="w")
 
         # Scratch Repair Switch
         self.use_scratch_repair = ctk.BooleanVar(value=False)
         self.switch_scratch = ctk.CTkSwitch(
-            self.sidebar, text="Scratch Repair", variable=self.use_scratch_repair
+            self._card_settings, text="Scratch Repair", variable=self.use_scratch_repair,
+            progress_color=UI_COLOR_SWITCH_ON,
+            button_color=UI_COLOR_SWITCH_OFF,
         )
-        self.switch_scratch.grid(row=9, column=0, padx=20, pady=4, sticky="w")
+        self.switch_scratch.grid(row=cr + 4, column=0, padx=12, pady=4, sticky="w")
 
         self.lbl_face_blend = ctk.CTkLabel(
-            self.sidebar, text=f"Face Blend: {self.face_blend.get():.2f}",
-            fg_color=self.sidebar.cget("fg_color"),
+            self._card_settings, text=f"Face Blend: {self.face_blend.get():.2f}",
+            fg_color=self._card_settings.cget("fg_color"),
         )
-        self.lbl_face_blend.grid(row=10, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_face_blend.grid(row=cr + 5, column=0, padx=12, pady=(0, 4), sticky="w")
         self.lbl_face_blend.grid_remove()
         self.slider_face_blend = ctk.CTkSlider(
-            self.sidebar,
-            from_=0.0,
-            to=1.0,
-            number_of_steps=20,
+            self._card_settings,
+            from_=0.0, to=1.0, number_of_steps=20,
             variable=self.face_blend,
             command=self.on_face_blend_change,
         )
-        self.slider_face_blend.grid(
-            row=11, column=0, padx=20, pady=(0, 10), sticky="ew"
-        )
+        self.slider_face_blend.grid(row=cr + 6, column=0, padx=12, pady=(0, 10), sticky="ew")
         self.slider_face_blend.grid_remove()
 
         self.lbl_natural_blend = ctk.CTkLabel(
-            self.sidebar, text=f"Natural Blend: {self.natural_blend.get():.2f}",
-            fg_color=self.sidebar.cget("fg_color"),
+            self._card_settings, text=f"Natural Blend: {self.natural_blend.get():.2f}",
+            fg_color=self._card_settings.cget("fg_color"),
         )
-        self.lbl_natural_blend.grid(row=12, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_natural_blend.grid(row=cr + 7, column=0, padx=12, pady=(0, 4), sticky="w")
         self.lbl_natural_blend.grid_remove()
         self.slider_natural_blend = ctk.CTkSlider(
-            self.sidebar,
-            from_=0.0,
-            to=0.20,
-            number_of_steps=10,
+            self._card_settings,
+            from_=0.0, to=0.20, number_of_steps=10,
             variable=self.natural_blend,
             command=self.on_natural_blend_change,
         )
-        self.slider_natural_blend.grid(
-            row=13, column=0, padx=20, pady=(0, 10), sticky="ew"
-        )
+        self.slider_natural_blend.grid(row=cr + 8, column=0, padx=12, pady=(0, 10), sticky="ew")
         self.slider_natural_blend.grid_remove()
 
         self.lbl_texture_boost = ctk.CTkLabel(
-            self.sidebar, text=f"Texture Boost: {self.texture_boost.get():.2f}",
-            fg_color=self.sidebar.cget("fg_color"),
+            self._card_settings, text=f"Texture Boost: {self.texture_boost.get():.2f}",
+            fg_color=self._card_settings.cget("fg_color"),
         )
-        self.lbl_texture_boost.grid(row=14, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_texture_boost.grid(row=cr + 9, column=0, padx=12, pady=(0, 4), sticky="w")
         self.lbl_texture_boost.grid_remove()
         self.slider_texture_boost = ctk.CTkSlider(
-            self.sidebar,
-            from_=0.0,
-            to=0.35,
-            number_of_steps=7,
+            self._card_settings,
+            from_=0.0, to=0.35, number_of_steps=7,
             variable=self.texture_boost,
             command=self.on_texture_boost_change,
         )
-        self.slider_texture_boost.grid(
-            row=15, column=0, padx=20, pady=(0, 10), sticky="ew"
-        )
+        self.slider_texture_boost.grid(row=cr + 10, column=0, padx=12, pady=(0, 10), sticky="ew")
         self.slider_texture_boost.grid_remove()
 
         self.lbl_film_grain = ctk.CTkLabel(
-            self.sidebar, text=f"Film Grain: {self.film_grain.get():.2f}",
-            fg_color=self.sidebar.cget("fg_color"),
+            self._card_settings, text=f"Film Grain: {self.film_grain.get():.2f}",
+            fg_color=self._card_settings.cget("fg_color"),
         )
-        self.lbl_film_grain.grid(row=16, column=0, padx=20, pady=(0, 4), sticky="w")
+        self.lbl_film_grain.grid(row=cr + 11, column=0, padx=12, pady=(0, 4), sticky="w")
         self.lbl_film_grain.grid_remove()
         self.slider_film_grain = ctk.CTkSlider(
-            self.sidebar,
-            from_=0.0,
-            to=0.5,
-            number_of_steps=10,
+            self._card_settings,
+            from_=0.0, to=0.5, number_of_steps=10,
             variable=self.film_grain,
             command=self.on_film_grain_change,
         )
-        self.slider_film_grain.grid(
-            row=17, column=0, padx=20, pady=(0, 10), sticky="ew"
-        )
+        self.slider_film_grain.grid(row=cr + 12, column=0, padx=12, pady=(0, 10), sticky="ew")
         self.slider_film_grain.grid_remove()
 
-        self.batch_retry_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        self.batch_retry_frame.grid(row=18, column=0, padx=20, pady=(0, 2), sticky="ew")
+        self.batch_retry_frame = ctk.CTkFrame(self._card_settings, fg_color="transparent")
+        self.batch_retry_frame.grid(row=cr + 13, column=0, padx=12, pady=(4, 10), sticky="ew")
         self.batch_retry_frame.grid_columnconfigure(1, weight=1)
         self.lbl_batch_retry = ctk.CTkLabel(
             self.batch_retry_frame, text="Batch Retries"
@@ -928,171 +1008,134 @@ class ModernApp(ctk.CTk):
         )
         self.entry_batch_retry.grid(row=0, column=1, sticky="e")
 
-        self.btn_run = ctk.CTkButton(
-            self.sidebar,
-            text="Start Restoration",
-            command=self.run_processing_thread,
-            fg_color="#2CC985",
-            hover_color="#229A66",
-            height=46,
-            font=ctk.CTkFont(size=16, weight="bold"),
-        )
-        self.btn_run.grid(row=20, column=0, padx=20, pady=4)
-        self.btn_run_default_fg = self.btn_run.cget("fg_color")
-        self.btn_run_default_hover = self.btn_run.cget("hover_color")
+        # === Card: Results (metrics) ===
+        self._card_results, cr = self._make_card(self.sidebar, 3, "Results")
 
-        self.btn_batch = ctk.CTkButton(
-            self.sidebar,
-            text="Run Folder (Batch)",
-            command=self.run_batch_folder,
-            height=36,
+        self.metrics_frame = ctk.CTkFrame(
+            self._card_results, fg_color=self._card_results.cget("fg_color")
         )
-        self.btn_batch.grid(row=21, column=0, padx=20, pady=4)
+        self.metrics_frame.grid(row=cr, column=0, padx=12, pady=(2, 6), sticky="ew")
+        self.metrics_frame.grid_columnconfigure(1, weight=1)
 
-        self.btn_cancel = ctk.CTkButton(
-            self.sidebar,
-            text="Cancel",
-            command=self.request_cancel,
-            fg_color="#D9534F",
-            hover_color="#C9302C",
-            height=32,
+        self.lbl_resolution_in = ctk.CTkLabel(
+            self.metrics_frame, text="In: -- x --", font=ctk.CTkFont(size=11),
+            fg_color=self.metrics_frame.cget("fg_color"),
         )
-        self.btn_cancel.grid(row=22, column=0, padx=20, pady=4)
-        self.btn_cancel.configure(
-            state="disabled", text_color_disabled=("gray30", "gray70")
+        self.lbl_resolution_in.grid(row=0, column=0, sticky="w")
+        self.lbl_resolution_out = ctk.CTkLabel(
+            self.metrics_frame, text="Out: -- x --", font=ctk.CTkFont(size=11),
+            fg_color=self.metrics_frame.cget("fg_color"),
         )
+        self.lbl_resolution_out.grid(row=0, column=1, sticky="e")
 
-        self.btn_open_run_dir = ctk.CTkButton(
-            self.sidebar,
-            text="Open Last Run Folder",
-            command=self.open_last_run_folder,
-            height=32,
+        self.lbl_metrics_after = ctk.CTkLabel(
+            self.metrics_frame, text="Output vs GT",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            fg_color=self.metrics_frame.cget("fg_color"),
         )
-        self.btn_open_run_dir.grid(row=23, column=0, padx=20, pady=4)
-        self.btn_open_run_dir.configure(
-            state="disabled", text_color_disabled=("gray30", "gray70")
+        self.lbl_metrics_after.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.psnr_var = ctk.StringVar(value="PSNR: --")
+        self.lbl_psnr_out = ctk.CTkLabel(
+            self.metrics_frame, textvariable=self.psnr_var,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=UI_COLOR_TEXT_PRIMARY,
+            fg_color=self.metrics_frame.cget("fg_color"),
         )
+        self.lbl_psnr_out.grid(row=2, column=0, sticky="w")
+        self.ssim_var = ctk.StringVar(value="SSIM: --")
+        self.lbl_ssim_out = ctk.CTkLabel(
+            self.metrics_frame, textvariable=self.ssim_var,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=UI_COLOR_TEXT_PRIMARY,
+            fg_color=self.metrics_frame.cget("fg_color"),
+        )
+        self.lbl_ssim_out.grid(row=2, column=1, sticky="e")
+        self.lbl_gt_hint = ctk.CTkLabel(
+            self.metrics_frame,
+            text="Load GT for metrics",
+            font=ctk.CTkFont(size=10),
+            text_color=UI_COLOR_TEXT_MUTED,
+            fg_color=self.metrics_frame.cget("fg_color"),
+        )
+        self.lbl_gt_hint.grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 0))
 
-        self.btn_compare = ctk.CTkButton(
-            self.sidebar,
-            text="Save Comparison",
-            command=self.save_comparison,
-            fg_color="#3A7CA5",
-            hover_color="#2D5F7C",
-            height=36,
-            font=ctk.CTkFont(size=14, weight="bold"),
+        # Compare switch + slider (inside Results card)
+        self._compare_frame = ctk.CTkFrame(
+            self._card_results, fg_color=self._card_results.cget("fg_color")
         )
-        self.btn_compare.grid(row=24, column=0, padx=20, pady=4)
-        self.btn_compare.configure(
-            state="disabled", text_color_disabled=("gray30", "gray70")
-        )
-
-        self.btn_features = ctk.CTkButton(
-            self.sidebar,
-            text="Export Features",
-            command=self.export_feature_maps,
-            fg_color="#E0A800",
-            hover_color="#B38600",
-            height=36,
-            font=ctk.CTkFont(size=14, weight="bold"),
-        )
-        self.btn_features.grid(row=25, column=0, padx=20, pady=4)
-        self.btn_features.configure(
-            state="disabled", text_color_disabled=("gray30", "gray70")
-        )
-
-        self.btn_save = ctk.CTkButton(
-            self.sidebar,
-            text="Save Result",
-            command=self.save_result,
-            state="disabled",
-            height=36,
-        )
-        self.btn_save.grid(row=26, column=0, padx=20, pady=4)
-        self.btn_save.configure(text_color_disabled=("gray30", "gray70"))
-
+        self._compare_frame.grid(row=cr + 1, column=0, padx=12, pady=(0, 10), sticky="w")
         self.switch_compare = ctk.CTkSwitch(
-            self.sidebar,
-            text="Compare Slider",
+            self._compare_frame, text="Compare",
             variable=self.compare_mode,
             command=self.on_compare_mode_toggle,
         )
-        self.switch_compare.grid(row=27, column=0, padx=20, pady=(4, 2), sticky="w")
-        self.lbl_compare_split = ctk.CTkLabel(self.sidebar, text="Split: 50%",
-                                              fg_color=self.sidebar.cget("fg_color"))
-        self.lbl_compare_split.grid(row=28, column=0, padx=20, pady=(0, 2), sticky="w")
+        self.switch_compare.grid(row=0, column=0, padx=(0, 4))
+        self.lbl_compare_split = ctk.CTkLabel(
+            self._compare_frame, text="50%",
+            fg_color=self._compare_frame.cget("fg_color"),
+        )
+        self.lbl_compare_split.grid(row=0, column=1, padx=(0, 3))
         self.slider_compare = ctk.CTkSlider(
-            self.sidebar,
-            from_=0.0,
-            to=1.0,
-            number_of_steps=20,
+            self._compare_frame,
+            from_=0.0, to=1.0, number_of_steps=20,
             variable=self.compare_split,
             command=self.on_compare_split_change,
+            width=80,
         )
-        self.slider_compare.grid(row=29, column=0, padx=20, pady=(0, 4), sticky="ew")
+        self.slider_compare.grid(row=0, column=2)
         self.slider_compare.configure(state="disabled")
         self.lbl_compare_split.grid_remove()
         self.slider_compare.grid_remove()
 
-        # Metrics Display
-        self.metrics_frame = ctk.CTkFrame(
-            self.sidebar, fg_color=self.sidebar.cget("fg_color")
-        )
-        self.metrics_frame.grid(row=19, column=0, padx=20, pady=(2, 4), sticky="nw")
-        self.metrics_frame.grid_rowconfigure(6, minsize=18)
+        # Spacer to push Actions to bottom
+        self.sidebar.grid_rowconfigure(4, weight=1)
 
-        self.lbl_resolution_title = ctk.CTkLabel(
-            self.metrics_frame,
-            text="Resolution",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color=self.metrics_frame.cget("fg_color"),
-        )
-        self.lbl_resolution_title.grid(row=0, column=0, sticky="w")
-        self.lbl_resolution_in = ctk.CTkLabel(
-            self.metrics_frame, text="Input: -- x --", font=ctk.CTkFont(size=15),
-            fg_color=self.metrics_frame.cget("fg_color"),
-        )
-        self.lbl_resolution_in.grid(row=1, column=0, sticky="w")
-        self.lbl_resolution_out = ctk.CTkLabel(
-            self.metrics_frame, text="Output: -- x --", font=ctk.CTkFont(size=15),
-            fg_color=self.metrics_frame.cget("fg_color"),
-        )
-        self.lbl_resolution_out.grid(row=2, column=0, sticky="w", pady=(0, 4))
-        self.lbl_resolution_title.grid_remove()
-        self.lbl_resolution_in.grid_remove()
-        self.lbl_resolution_out.grid_remove()
+        # === Card: Actions ===
+        self._card_actions, cr = self._make_card(self.sidebar, 5, "Actions")
 
-        self.lbl_metrics_after = ctk.CTkLabel(
-            self.metrics_frame,
-            text="Output vs GT",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color=self.metrics_frame.cget("fg_color"),
+        self.btn_run = ctk.CTkButton(
+            self._card_actions,
+            text="Start Restoration",
+            command=self.run_processing_thread,
+            fg_color=UI_COLOR_PRIMARY,
+            hover_color=UI_COLOR_PRIMARY_HOVER,
+            height=46,
+            font=ctk.CTkFont(size=16, weight="bold"),
         )
-        self.lbl_metrics_after.grid(row=3, column=0, sticky="w")
-        self.psnr_var = ctk.StringVar(value="PSNR: --")
-        self.lbl_psnr_out = ctk.CTkLabel(
-            self.metrics_frame, textvariable=self.psnr_var, font=ctk.CTkFont(size=15),
-            fg_color=self.metrics_frame.cget("fg_color"),
+        self.btn_run.grid(row=cr, column=0, padx=12, pady=4, sticky="ew")
+        self.btn_run_default_fg = self.btn_run.cget("fg_color")
+        self.btn_run_default_hover = self.btn_run.cget("hover_color")
+
+        self.btn_batch = ctk.CTkButton(
+            self._card_actions,
+            text="Run Folder (Batch)",
+            command=self.run_batch_folder,
+            fg_color=UI_COLOR_SECONDARY_BG,
+            hover_color=UI_COLOR_SECONDARY_HOVER,
+            text_color=UI_COLOR_SECONDARY_TEXT,
+            border_width=0,
+            height=36,
         )
-        self.lbl_psnr_out.grid(row=4, column=0, sticky="w")
-        self.ssim_var = ctk.StringVar(value="SSIM: --")
-        self.lbl_ssim_out = ctk.CTkLabel(
-            self.metrics_frame, textvariable=self.ssim_var, font=ctk.CTkFont(size=15),
-            fg_color=self.metrics_frame.cget("fg_color"),
+        self.btn_batch.grid(row=cr + 1, column=0, padx=12, pady=4, sticky="ew")
+
+        self.btn_cancel = ctk.CTkButton(
+            self._card_actions,
+            text="Cancel",
+            command=self.request_cancel,
+            fg_color=UI_COLOR_SECONDARY_BG,
+            hover_color=UI_COLOR_SECONDARY_HOVER,
+            text_color=UI_COLOR_SECONDARY_TEXT,
+            border_width=0,
+            height=36,
         )
-        self.lbl_ssim_out.grid(row=5, column=0, sticky="w")
-        self.lbl_gt_hint = ctk.CTkLabel(
-            self.metrics_frame,
-            text="Load Ground Truth to calculate metrics.",
-            font=ctk.CTkFont(size=11),
-            text_color=("gray40", "gray60"),
-            fg_color=self.metrics_frame.cget("fg_color"),
+        self.btn_cancel.grid(row=cr + 2, column=0, padx=12, pady=(4, 10), sticky="ew")
+        self.btn_cancel.configure(
+            state="disabled", text_color_disabled=UI_COLOR_TEXT_MUTED
         )
-        self.lbl_gt_hint.grid(row=6, column=0, sticky="w", pady=(2, 0))
 
         # === 2. Main Display Area (Right) ===
         self.display_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
-        self.display_frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
+        self.display_frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=(20, 5))
         self.display_frame.grid_columnconfigure(
             0, weight=1, uniform="images", minsize=320
         )
@@ -1108,38 +1151,44 @@ class ModernApp(ctk.CTk):
             self.display_frame,
             text="Original Input",
             font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=UI_COLOR_TEXT_PRIMARY,
         ).grid(row=0, column=0, pady=5)
         ctk.CTkLabel(
             self.display_frame,
             text="Super-Resolution Output",
             font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=UI_COLOR_TEXT_PRIMARY,
         ).grid(row=0, column=1, pady=5)
 
         # Image Containers
         self.frame_input = ctk.CTkFrame(
-            self.display_frame, fg_color=("gray85", "#1C1C1C")
+            self.display_frame, fg_color=UI_COLOR_IMAGE_BG
         )
         self.frame_input.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
 
         self.frame_output = ctk.CTkFrame(
-            self.display_frame, fg_color=("gray85", "#1C1C1C")
+            self.display_frame, fg_color=UI_COLOR_IMAGE_BG
         )
         self.frame_output.grid(row=2, column=1, sticky="nsew", padx=5, pady=5)
 
         # Image Labels
         self.lbl_img_in = ctk.CTkLabel(
             self.frame_input,
-            text="Waiting for input...",
+            text="Click 'Open Image' to load\nor drag an image here",
             corner_radius=6,
             anchor="center",
+            text_color=UI_COLOR_TEXT_MUTED,
+            font=ctk.CTkFont(size=13),
         )
         self.lbl_img_in.pack(expand=True, fill="both", padx=4, pady=4)
 
         self.lbl_img_out = ctk.CTkLabel(
             self.frame_output,
-            text="Waiting for processing...",
+            text="Output will appear here\nafter processing",
             corner_radius=6,
             anchor="center",
+            text_color=UI_COLOR_TEXT_MUTED,
+            font=ctk.CTkFont(size=13),
         )
         self.lbl_img_out.pack(expand=True, fill="both", padx=4, pady=4)
 
@@ -1148,7 +1197,7 @@ class ModernApp(ctk.CTk):
             self.display_frame,
             text="No file loaded",
             font=ctk.CTkFont(size=12),
-            text_color=("gray30", "gray70"),
+            text_color=UI_COLOR_TEXT_MUTED,
             height=20,
         )
         self.lbl_filename_in.grid(row=1, column=0, pady=(0, 2), sticky="n")
@@ -1157,7 +1206,7 @@ class ModernApp(ctk.CTk):
             self.display_frame,
             text="",
             font=ctk.CTkFont(size=12),
-            text_color=("gray30", "gray70"),
+            text_color=UI_COLOR_TEXT_MUTED,
             height=20,
         )
         self.lbl_filename_out.grid(row=1, column=1, pady=(0, 2), sticky="n")
@@ -1187,6 +1236,55 @@ class ModernApp(ctk.CTk):
         self.lbl_resolution_out_display.grid(row=3, column=1, pady=(0, 5))
 
         self.bind_image_interactions()
+
+        # === 2b. Results Toolbar (below images) — buttons only, evenly spaced ===
+        self.results_toolbar = ctk.CTkFrame(self, corner_radius=6)
+        self.results_toolbar.grid(row=1, column=1, sticky="ew", padx=20, pady=(0, 5))
+        for col in range(4):
+            self.results_toolbar.grid_columnconfigure(col, weight=1)
+
+        self.btn_compare = ctk.CTkButton(
+            self.results_toolbar, text="Comparison",
+            command=self.save_comparison,
+            fg_color=UI_COLOR_SECONDARY_BG, hover_color=UI_COLOR_SECONDARY_HOVER,
+            text_color=UI_COLOR_SECONDARY_TEXT, border_width=0, height=32,
+        )
+        self.btn_compare.grid(row=0, column=0, padx=6, pady=6, sticky="ew")
+        self.btn_compare.configure(
+            state="disabled", text_color_disabled=UI_COLOR_TEXT_MUTED
+        )
+
+        self.btn_features = ctk.CTkButton(
+            self.results_toolbar, text="Features",
+            command=self.export_feature_maps,
+            fg_color=UI_COLOR_SECONDARY_BG, hover_color=UI_COLOR_SECONDARY_HOVER,
+            text_color=UI_COLOR_SECONDARY_TEXT, border_width=0, height=32,
+        )
+        self.btn_features.grid(row=0, column=1, padx=6, pady=6, sticky="ew")
+        self.btn_features.configure(
+            state="disabled", text_color_disabled=UI_COLOR_TEXT_MUTED
+        )
+
+        self.btn_open_run_dir = ctk.CTkButton(
+            self.results_toolbar, text="Open Folder",
+            command=self.open_last_run_folder,
+            fg_color=UI_COLOR_SECONDARY_BG, hover_color=UI_COLOR_SECONDARY_HOVER,
+            text_color=UI_COLOR_SECONDARY_TEXT, border_width=0, height=32,
+        )
+        self.btn_open_run_dir.grid(row=0, column=2, padx=6, pady=6, sticky="ew")
+        self.btn_open_run_dir.configure(
+            state="disabled", text_color_disabled=UI_COLOR_TEXT_MUTED
+        )
+
+        self.btn_save = ctk.CTkButton(
+            self.results_toolbar, text="Save Result",
+            command=self.save_result,
+            fg_color=UI_COLOR_BLUE, hover_color=UI_COLOR_BLUE_HOVER,
+            state="disabled", height=32,
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        self.btn_save.grid(row=0, column=3, padx=6, pady=6, sticky="ew")
+        self.btn_save.configure(text_color_disabled=UI_COLOR_TEXT_MUTED)
 
         # === 3. Status Bar (Bottom) ===
         self.status_frame = ctk.CTkFrame(self, height=30, corner_radius=0)
@@ -1253,7 +1351,8 @@ class ModernApp(ctk.CTk):
             with open(self.config_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             self.default_output_dir = data.get("default_output_dir")
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to load config from %s: %s", self.config_path, e)
             self.default_output_dir = None
 
     def save_config(self) -> None:
@@ -1261,8 +1360,8 @@ class ModernApp(ctk.CTk):
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to save config: %s", e)
 
     def set_default_output_dir(self) -> None:
         selected = filedialog.askdirectory()
@@ -1270,13 +1369,11 @@ class ModernApp(ctk.CTk):
             self.default_output_dir = selected
             self.save_config()
             self.status_label.configure(text="Default output directory updated.")
-            if hasattr(self, "lbl_output_dir"):
-                self.lbl_output_dir.configure(text=self.get_output_dir_label_text())
-
-    def get_output_dir_label_text(self) -> str:
-        if self.default_output_dir:
-            return f"Default output: {self.truncate_path(self.default_output_dir, 40)}"
-        return "Default output: (project outputs)"
+            if hasattr(self, "entry_output_dir"):
+                self.entry_output_dir.configure(state="normal")
+                self.entry_output_dir.delete(0, "end")
+                self.entry_output_dir.insert(0, selected)
+                self.entry_output_dir.configure(state="readonly")
 
     def truncate_path(self, path: str, max_len: int) -> str:
         if len(path) <= max_len:
@@ -2168,7 +2265,7 @@ class ModernApp(ctk.CTk):
 
     def on_compare_split_change(self, value: float) -> None:
         percent = int(round(float(value) * 100))
-        self.lbl_compare_split.configure(text=f"Split: {percent}%")
+        self.lbl_compare_split.configure(text=f"{percent}%")
         if self.compare_mode.get():
             self.render_main_images()
 
@@ -2236,8 +2333,9 @@ class ModernApp(ctk.CTk):
         self.overlay_animation_job = self.after(500, self.animate_output_overlay)
 
     def report_progress(
-        self, value, status_text=None, overlay_text=None, run_id: Optional[int] = None
-    ):
+        self, value: float, status_text: Optional[str] = None,
+        overlay_text: Optional[str] = None, run_id: Optional[int] = None,
+    ) -> None:
         def update():
             if not self.is_processing:
                 return
@@ -2308,6 +2406,16 @@ class ModernApp(ctk.CTk):
 
         if self.btn_cancel.cget("state") != cancel_state:
             self.btn_cancel.configure(state=cancel_state)
+            if cancel_state == "normal":
+                self.btn_cancel.configure(
+                    fg_color=UI_COLOR_DANGER, hover_color=UI_COLOR_DANGER_HOVER,
+                    border_width=0, text_color="#FFFFFF",
+                )
+            else:
+                self.btn_cancel.configure(
+                    fg_color=UI_COLOR_SECONDARY_BG, border_width=0,
+                    text_color=UI_COLOR_SECONDARY_TEXT,
+                )
         if self.btn_batch.cget("state") != batch_state:
             self.btn_batch.configure(state=batch_state)
         self._action_button_state_cache = target_state
@@ -2333,7 +2441,8 @@ class ModernApp(ctk.CTk):
             cv_img = self.prepare_display_image(cv_img)
             img_rgb = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
             im_pil = Image.fromarray(img_rgb)
-        except Exception:
+        except Exception as e:
+            logger.warning("show_image_ctk preparation failed: %s", e)
             return
 
         w_widget, h_widget = self._get_image_display_size(label_widget)
@@ -2411,7 +2520,8 @@ class ModernApp(ctk.CTk):
             return "Texture gen: on"
         return "Texture gen: off (disabled)"
 
-    def detect_faces(self, gray_img: np.ndarray) -> List[Tuple[int, int, int, int]]:
+    def detect_faces(self, gray_img: np.ndarray) -> bool:
+        """Detect whether faces exist in the grayscale image."""
         if self._face_cascade is None:
             cascade_path = os.path.join(
                 cv2.data.haarcascades, "haarcascade_frontalface_default.xml"
@@ -2529,7 +2639,7 @@ class ModernApp(ctk.CTk):
         self.cancel_requested = False
         self.start_processing(batch_mode=False, on_complete=None)
 
-    def start_processing(self, batch_mode: bool = False, on_complete: Optional[Callable[[], None]] = None) -> None:
+    def start_processing(self, batch_mode: bool = False, on_complete: Optional[Callable[[bool, bool, Optional[str]], None]] = None) -> None:
         self._current_run_id += 1
         ui_run_id = self._current_run_id
         self._cancel_success_render_jobs()
@@ -2572,7 +2682,6 @@ class ModernApp(ctk.CTk):
             args=(batch_mode, on_complete, ui_run_id, run_options),
             daemon=True,
         ).start()
-        return True
 
     def _stage_scratch_repair(self, input_img: np.ndarray, run_meta: Dict[str, Any]) -> np.ndarray:
         """Scratch repair pre-processing stage. Returns processed input_img."""
@@ -2643,9 +2752,11 @@ class ModernApp(ctk.CTk):
         return output, used
 
     def _stage_blend_and_texture(
-        self, output, input_img, natural_blend, texture_boost, film_grain,
-        ui_run_id, run_meta, set_stage,
-    ):
+        self, output: np.ndarray, input_img: np.ndarray, natural_blend: float,
+        texture_boost: float, film_grain: float,
+        ui_run_id: Optional[int], run_meta: Dict[str, Any],
+        set_stage: Callable[[str, float, str, str], None],
+    ) -> np.ndarray:
         """Blend, texture, and finalize stage. Returns final output."""
         stage_start = time.perf_counter()
         if natural_blend <= 0.0 and texture_boost <= 0.0:
@@ -2703,11 +2814,11 @@ class ModernApp(ctk.CTk):
 
     def process_image(
         self,
-        batch_mode=False,
-        on_complete=None,
+        batch_mode: bool = False,
+        on_complete: Optional[Callable[[bool, bool, Optional[str]], None]] = None,
         ui_run_id: Optional[int] = None,
         run_options: Optional[Dict[str, Any]] = None,
-    ):
+    ) -> None:
         success = False
         cancelled = False
         error_message = None
@@ -3022,19 +3133,23 @@ class ModernApp(ctk.CTk):
 
     def update_resolution_labels(self) -> None:
         if self.img_input is None:
-            input_text = "Input: -- x --"
+            input_text = "In: -- x --"
+            input_display = "Input: -- x --"
         else:
             h, w = self.img_input.shape[:2]
-            input_text = f"Input: {w} x {h}"
+            input_text = f"In: {w} x {h}"
+            input_display = f"Input: {w} x {h}"
         self.lbl_resolution_in.configure(text=input_text)
-        self.lbl_resolution_in_display.configure(text=input_text)
+        self.lbl_resolution_in_display.configure(text=input_display)
         if self.img_output is None:
-            output_text = "Output: -- x --"
+            output_text = "Out: -- x --"
+            output_display = "Output: -- x --"
         else:
             h, w = self.img_output.shape[:2]
-            output_text = f"Output: {w} x {h}"
+            output_text = f"Out: {w} x {h}"
+            output_display = f"Output: {w} x {h}"
         self.lbl_resolution_out.configure(text=output_text)
-        self.lbl_resolution_out_display.configure(text=output_text)
+        self.lbl_resolution_out_display.configure(text=output_display)
 
     def set_metric_labels(self, psnr_label: Any, ssim_label: Any, psnr_value: Optional[float], ssim_value: Optional[float]) -> None:
         if psnr_value is None or ssim_value is None:

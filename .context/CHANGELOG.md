@@ -1,5 +1,58 @@
 # Changelog
 
+- 2026-02-24: `(gui)super-resolution processing.py` UI 第四轮优化（专业配色方案 + 布局调整）。
+  - 全局配色重构：新增 `UI_COLOR_BG`(#F5F7FA)、`UI_COLOR_SECONDARY_BG/HOVER/TEXT`、`UI_COLOR_TEXT_PRIMARY/MUTED`、`UI_COLOR_IMAGE_BG`、`UI_COLOR_SWITCH_OFF/ON` 等语义化常量。
+  - 核心按钮色：`UI_COLOR_PRIMARY` 从 #2CC985 改为 #10B981（翠绿），`UI_COLOR_BLUE` 从 #3B8ED0 改为 #1677FF（科技蓝）。
+  - 次级按钮：去掉 border_width=2 描边，改为 `UI_COLOR_SECONDARY_BG`(#F3F4F6) 浅灰填充 + `UI_COLOR_SECONDARY_TEXT`(#4B5563) 深灰文字。
+  - Switch：关闭态 `button_color=#D1D5DB`，开启态 `progress_color=#1677FF`。
+  - 图像容器底色改为 `UI_COLOR_IMAGE_BG`(#E5E7EB)；占位/文件名文字改为 `UI_COLOR_TEXT_MUTED`。
+  - 指标区从底部工具栏移回左侧栏 Results 卡片；Compare 开关也移入 Results 卡片。
+  - 底部工具栏简化为 4 列等距：Comparison | Features | Open Folder | Save Result。
+  - Results 卡片紧凑化：去掉 "Resolution" 标题，In/Out 单行左右分布，PSNR/SSIM 单行左右分布。
+  - `update_resolution_labels` 适配新格式（侧栏用 "In:/Out:"，图像下方保留 "Input:/Output:"）。
+  - Cancel 按钮动态样式适配新次级按钮风格。
+  - 清理废弃方法：`_add_section_header`、`get_output_dir_label_text`、`lbl_resolution_title`。
+
+- 2026-02-24: `(gui)super-resolution processing.py` 代码审查修复（2 CRITICAL + 10 HIGH）。
+  - [CRITICAL-1] `detect_faces` 返回类型签名从错误的 `List[Tuple]` 修正为 `bool`。
+  - [CRITICAL-2] 环境变量解析添加 `_safe_float`/`_safe_int` 防护，避免非法值导致启动崩溃。
+  - [HIGH-2/3] `save_config`/`load_config` 静默吞掉异常改为 `logger.warning`。
+  - [HIGH-4] `load_scratch_model` 的 `torch.load` 异常添加日志。
+  - [HIGH-5] `blend_with_lr` 中 phase correlation 异常添加 `logger.debug`。
+  - [HIGH-8] `start_processing` 移除多余的 `return True`。
+  - [HIGH-9] `_update_all_scrollable_frames` 中 `except Exception` 收窄为 `except TclError`。
+  - [HIGH-10] `on_complete` 回调类型签名修正为 `Callable[[bool, bool, Optional[str]], None]`。
+  - 补充类型标注：`process_image`、`_stage_blend_and_texture`、`report_progress`。
+  - `show_image_ctk` 异常添加日志。
+
+- 2026-02-24: `(gui)super-resolution processing.py` UI 第三轮优化（6 项视觉打磨）。
+  - 侧栏卡片化：`_make_card` 方法创建白色圆角卡片（border + corner_radius=8），替代旧的分割线 section header。
+  - 输出路径：`lbl_output_dir` 替换为只读 `CTkEntry` + 📁 按钮，`set_default_output_dir` 适配新组件。
+  - 输出占位文字：`lbl_img_out` 加引导文案 + 浅灰色，与输入区对称。
+  - 分析工具组：Comparison/Features/Compare 外围加 `_analysis_group` 浅底色框。
+  - Save Result 从绿色改为蓝色（`UI_COLOR_BLUE`），绿色独家保留给 Start Restoration。
+  - Switch 增加 `progress_color` 和 `button_color` 参数，提升开/关对比度。
+  - 新增常量：`UI_COLOR_CARD_BG`、`UI_COLOR_CARD_BORDER`、`UI_COLOR_BLUE`、`UI_COLOR_BLUE_HOVER`。
+  - 清理：移除 `_add_section_header`、`get_output_dir_label_text` 等废弃方法。
+
+- 2026-02-24: `(gui)super-resolution processing.py` 布局重构 — Results 区移至右侧工具栏。
+  - 左侧侧边栏从 CTkScrollableFrame 改为普通 CTkFrame（不再需要滚动）。
+  - 左侧仅保留 Input + Settings + Actions 三个 section。
+  - 新增右侧 results_toolbar（图像下方横向工具栏），包含：
+    - 左侧：Resolution + PSNR/SSIM 指标（双列紧凑布局）
+    - 中间：Open Folder / Comparison / Features / Save Result 四个按钮横排
+    - 右侧：Compare 开关 + 分割滑块
+  - 按钮文案精简（Open Last Run Folder → Open Folder 等）适配横向空间。
+
+- 2026-02-24: `(gui)super-resolution processing.py` GUI 界面优化（6 项视觉改进）。
+  - 统一色彩体系：删除 INFO/WARNING 色，仅保留 PRIMARY（绿色 CTA）和 DANGER（红色 Cancel），其余按钮改为 outline 样式。
+  - 逻辑分组：侧边栏新增 Input/Settings/Actions/Results 四个 section 标题 + 分割线。
+  - 按钮统一：次要按钮统一 height=36 + outline 样式 + sticky="ew" 对齐。
+  - 输出路径：去掉 wraplength 折行，改为单行省略 + ToolTip 悬停显示完整路径。
+  - 图像占位区：输入区引导文案改为 "Click 'Open Image' to load or drag image here"。
+  - PSNR/SSIM 指标：字号从 15 加大到 18 + bold，便于查看。
+  - 新增 ToolTip 辅助类和 `_add_section_header` 辅助方法。
+
 - 2026-02-23: `download.py` 第二轮代码审查修复（1 HIGH + 3 MEDIUM）。
   - [HIGH] 下载改用 `.tmp` 临时文件 + `os.replace` 原子重命名，捕获 `KeyboardInterrupt` 避免留下损坏文件。
   - [MEDIUM] `CHUNK_SIZE` 添加 `int` 类型标注；新增 `PROGRESS_STEP` 常量，进度日志改为每 10% 输出一次。
