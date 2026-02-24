@@ -3,6 +3,13 @@
 Last update: 2026-02-24
 
 ## Recently Completed (2026-02-24)
+- `(gui)super-resolution processing.py` 代码审查修复第三轮（2 CRITICAL + 5 HIGH）：
+  - [CRITICAL-1] GFPGAN 默认路径从远程 URL 改为本地 `~/.cache/gfpgan/`，缺失时抛 FileNotFoundError。
+  - [CRITICAL-2] `run_meta` 日志所有路径字段改为 `os.path.basename()`，不再泄露完整文件系统路径。
+  - [HIGH-4] `on_close` 异常从 `except Exception` 收窄为 `except (TclError, ValueError)`。
+  - [HIGH-5] 2 处 f-string 日志改为 lazy `%s`/`%.1f` 格式化。
+  - [HIGH-6] `_update_all_scrollable_frames` 递归添加 `_depth` 参数，上限 20 层。
+
 - `(gui)super-resolution processing.py` 代码审查修复第二轮（13 MEDIUM + 4 LOW）：
   - [MEDIUM] 字典推导式、frozenset、导入位置、18 个 docstring、9 处长行签名、类型标注补全。
   - [LOW] `_cancel_after_job` 简化 + 调用方适配；`on_save` 签名修正。

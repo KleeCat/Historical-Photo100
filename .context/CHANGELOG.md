@@ -1,5 +1,12 @@
 # Changelog
 
+- 2026-02-24: `(gui)super-resolution processing.py` 代码审查修复第三轮（2 CRITICAL + 5 HIGH）。
+  - [CRITICAL-1] GFPGAN 默认路径从远程 URL 改为本地 `~/.cache/gfpgan/GFPGANv1.3.pth`，缺失时抛 `FileNotFoundError`，消除供应链攻击风险。
+  - [CRITICAL-2] `run_meta` 日志中 `input_path`、`run_dir`、`output_path`、`gt_path`、`scratch_model`、`model_path`、`gfpgan_model_path`、`output_snapshot` 全部改为 `os.path.basename()`，不再泄露完整文件系统路径和用户名。
+  - [HIGH-4] `on_close` 中 `after_cancel` 异常从裸 `except Exception` 收窄为 `except (TclError, ValueError)`。
+  - [HIGH-5] `_force_ctk_redraw` 中 2 处 f-string 日志改为 lazy `%s`/`%.1f` 格式化，避免日志级别过滤时的无效字符串格式化开销。
+  - [HIGH-6] `_update_all_scrollable_frames` 内部 `update_widget` 递归添加 `_depth` 参数，超过 20 层自动终止，防止异常深层嵌套导致 `RecursionError`。
+
 - 2026-02-24: `(gui)super-resolution processing.py` 代码审查修复第二轮（13 MEDIUM + 4 LOW）。
   - [MEDIUM] `clean_state_dict` 改用字典推导式；`save_image` ext 白名单改 `frozenset`。
   - [MEDIUM] `tkinter` 导入从 `ToolTip._show` 延迟导入移到文件顶部。

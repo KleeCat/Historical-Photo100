@@ -815,14 +815,16 @@ class ModernApp(ctk.CTk):
 
             elapsed = (time.time() - start_time) * 1000
             if elapsed > 100:
-                logger.warning(f"_force_ctk_redraw took {elapsed:.1f}ms")
+                logger.warning("_force_ctk_redraw took %.1fms", elapsed)
 
         except Exception as e:
-            logger.warning(f"Failed to force CTk redraw: {e}")
+            logger.warning("Failed to force CTk redraw: %s", e)
 
     def _update_all_scrollable_frames(self) -> None:
         """递归更新所有 CTkScrollableFrame 的 Canvas 背景色和 scrollregion。"""
-        def update_widget(widget):
+        def update_widget(widget, _depth=0):
+            if _depth > 20:
+                return
             if hasattr(widget, '_parent_canvas') and hasattr(widget, '_parent_frame'):
                 try:
                     fg = widget._parent_frame.cget("fg_color")
@@ -844,7 +846,7 @@ class ModernApp(ctk.CTk):
 
             try:
                 for child in widget.winfo_children():
-                    update_widget(child)
+                    update_widget(child, _depth + 1)
             except TclError:
                 pass
 
@@ -1428,7 +1430,7 @@ class ModernApp(ctk.CTk):
         if self.resize_job is not None:
             try:
                 self.after_cancel(self.resize_job)
-            except Exception:
+            except (TclError, ValueError):
                 pass
             self.resize_job = None
         self.clear_feature_hooks()
@@ -2769,10 +2771,15 @@ class ModernApp(ctk.CTk):
         try:
             if GFPGANer is None:
                 raise ImportError("gfpgan not installed")
-            gfpgan_path = os.environ.get(
-                "GFPGAN_MODEL_PATH",
-                "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth",
+            _gfpgan_default = os.path.join(
+                os.path.expanduser("~"), ".cache", "gfpgan", "GFPGANv1.3.pth"
             )
+            gfpgan_path = os.environ.get("GFPGAN_MODEL_PATH", _gfpgan_default)
+            if not os.path.isfile(gfpgan_path):
+                raise FileNotFoundError(
+                    f"GFPGAN model not found: {gfpgan_path}\n"
+                    "Please download GFPGANv1.3.pth manually or set GFPGAN_MODEL_PATH."
+                )
             if (
                 self.face_enhancer is None
                 or self.face_enhancer_scale != self.scale_factor
@@ -2898,9 +2905,9 @@ class ModernApp(ctk.CTk):
         run_meta = {
             "run_id": run_record_id,
             "timestamp": timestamp_str(),
-            "input_path": self.input_path,
-            "run_dir": run_dir,
-            "output_path": run_output_path,
+            "input_path": os.path.basename(self.input_path) if self.input_path else None,
+            "run_dir": os.path.basename(run_dir) if run_dir else None,
+            "output_path": os.path.basename(run_output_path) if run_output_path else None,
             "scale_factor": self.scale_factor,
             "device": str(self.device),
             "face_enhance": face_enhance,
@@ -2914,17 +2921,15 @@ class ModernApp(ctk.CTk):
             "texture_strength": TEXTURE_STRENGTH,
             "texture_guidance": TEXTURE_GUIDANCE,
             "texture_steps": TEXTURE_STEPS,
-            "scratch_model": SCRATCH_MODEL_PATH,
-            "gt_path": self.gt_path,
-            "model_path": os.path.join(
-                self.model_folder,
+            "scratch_model": os.path.basename(SCRATCH_MODEL_PATH) if SCRATCH_MODEL_PATH else None,
+            "gt_path": os.path.basename(self.gt_path) if self.gt_path else None,
+            "model_path": (
                 "RealESRGAN_x2plus.pth"
                 if self.scale_factor == 2
-                else "RealESRGAN_x4plus.pth",
+                else "RealESRGAN_x4plus.pth"
             ),
-            "gfpgan_model_path": os.environ.get(
-                "GFPGAN_MODEL_PATH",
-                "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth",
+            "gfpgan_model_path": os.path.basename(
+                os.environ.get("GFPGAN_MODEL_PATH", "GFPGANv1.3.pth")
             ),
             "env": {
                 "torch_version": torch.__version__,
@@ -2935,7 +2940,7 @@ class ModernApp(ctk.CTk):
             "metrics": {},
             "output_files": {
                 "input_snapshot": None,
-                "output_snapshot": run_output_path,
+                "output_snapshot": os.path.basename(run_output_path) if run_output_path else None,
                 "comparison": None,
                 "grid": None,
                 "features": [],
