@@ -1,7 +1,18 @@
+"""RRDBNet architecture for ESRGAN/Real-ESRGAN (reference copy).
+
+NOTE: This is a local reference copy. The project runtime imports from
+``basicsr.archs.rrdbnet_arch``, not this file.
+
+Reference: Wang et al., "ESRGAN: Enhanced Super-Resolution Generative
+Adversarial Networks", ECCV 2018 Workshops.
+"""
 import functools
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+# Residual scaling factor from the ESRGAN paper (Sec. 3.2)
+RESIDUAL_SCALE = 0.2
 
 
 def make_layer(block, n_layers):
@@ -22,16 +33,13 @@ class ResidualDenseBlock_5C(nn.Module):
         self.conv5 = nn.Conv2d(nf + 4 * gc, nf, 3, 1, 1, bias=bias)
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 
-        # initialization
-        # mutil.initialize_weights([self.conv1, self.conv2, self.conv3, self.conv4, self.conv5], 0.1)
-
     def forward(self, x):
         x1 = self.lrelu(self.conv1(x))
         x2 = self.lrelu(self.conv2(torch.cat((x, x1), 1)))
         x3 = self.lrelu(self.conv3(torch.cat((x, x1, x2), 1)))
         x4 = self.lrelu(self.conv4(torch.cat((x, x1, x2, x3), 1)))
         x5 = self.conv5(torch.cat((x, x1, x2, x3, x4), 1))
-        return x5 * 0.2 + x
+        return x5 * RESIDUAL_SCALE + x
 
 
 class RRDB(nn.Module):
@@ -47,7 +55,7 @@ class RRDB(nn.Module):
         out = self.RDB1(x)
         out = self.RDB2(out)
         out = self.RDB3(out)
-        return out * 0.2 + x
+        return out * RESIDUAL_SCALE + x
 
 
 class RRDBNet(nn.Module):
@@ -58,7 +66,7 @@ class RRDBNet(nn.Module):
         self.conv_first = nn.Conv2d(in_nc, nf, 3, 1, 1, bias=True)
         self.RRDB_trunk = make_layer(RRDB_block_f, nb)
         self.trunk_conv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        #### upsampling
+        #### upsampling (2x nearest x2 = fixed 4x super-resolution)
         self.upconv1 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.upconv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         self.HRconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)

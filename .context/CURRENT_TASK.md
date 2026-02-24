@@ -3,6 +3,8 @@
 Last update: 2026-02-24
 
 ## Recently Completed (2026-02-24)
+- Evaluation: continue when LPIPS is unavailable; record LPIPS as N/A while keeping PSNR/SSIM/FID.
+- ASAConv analysis script: handle unreadable/grayscale images, avoid grad graph in weight extraction, fix modulation shape for batch safety.
 - 代码审查第四轮修复（3 HIGH + 7 MEDIUM + 5 LOW）：
   - [HIGH] feature hook 竞态修复（合并双锁为单锁）、upsampler 引用安全（持有 model_ref）、register_feature_hooks 文档。
   - [MEDIUM] `_state_lock` 一致性修复 5 处、轮询间隔 50→200ms、`np.random.default_rng()`。

@@ -1,222 +1,265 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 import cv2
-from PIL import Image
 import os
-from torchvision import transforms
+from collections import deque
+from typing import Dict, Tuple, Optional
 
-# Set font and chart styles
-plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial']  # Use standard fonts
+# Set font and chart styles (L1: added fallback)
+try:
+    plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
+except Exception:
+    pass
 plt.rcParams['axes.unicode_minus'] = False
 plt.rcParams['font.size'] = 10
 plt.rcParams['figure.dpi'] = 150
 
+# Fix random seed for reproducibility (M5)
+RANDOM_SEED = 42
+
+
+class ASAConvModule(nn.Module):
+    """ASAConv module with real dynamic weight capture"""
+
+    def __init__(self, in_channels: int = 3, out_channels: int = 64, kernel_size: int = 3) -> None:
+        super().__init__()
+        self.initial_conv = nn.Conv2d(in_channels, 64, 3, padding=1)
+        self.conv = nn.Conv2d(64, out_channels, kernel_size, padding=kernel_size // 2)
+        self.calibration_factor = nn.Parameter(torch.ones(1, out_channels, 1, 1) * 0.1)
+        # H1: use deque with fixed maxlen instead of torch.cat growth
+        self.feature_queue: deque = deque(maxlen=5)
+        self.last_adaptive_weights: Optional[torch.Tensor] = None
+        self.last_weight_modulation: Optional[torch.Tensor] = None
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.initial_conv(x)
+        self.feature_queue.append(x.detach().clone())
+
+        if len(self.feature_queue) > 1:
+            historical = torch.stack(list(self.feature_queue)[:-1])
+            historical_guidance = torch.mean(historical, dim=0)
+            modulation = self.calibration_factor * torch.mean(
+                historical_guidance, dim=[0, 2, 3], keepdim=True)
+            self.last_weight_modulation = modulation.detach()
+            modulation_out = modulation.squeeze(0).unsqueeze(1)
+            adaptive_weights = self.conv.weight * (1 + modulation_out)
+        else:
+            self.last_weight_modulation = torch.zeros_like(self.calibration_factor)
+            adaptive_weights = self.conv.weight
+
+        # C1: store real adaptive weights for extraction
+        self.last_adaptive_weights = adaptive_weights.detach()
+        return nn.functional.conv2d(x, adaptive_weights, self.conv.bias,
+                                    padding=self.conv.padding)
+
+
+class DualScaleConvModule(nn.Module):
+    """Dual Scale Convolution module"""
+
+    def __init__(self, in_channels: int = 3, out_channels: int = 64) -> None:
+        super().__init__()
+        self.initial_conv = nn.Conv2d(in_channels, 64, 3, padding=1)
+        self.conv3x3 = nn.Conv2d(64, out_channels, 3, padding=1)
+        self.conv5x5 = nn.Conv2d(64, out_channels, 5, padding=2)
+        self.fusion = nn.Conv2d(out_channels * 2, out_channels, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.initial_conv(x)
+        feat3 = self.conv3x3(x)
+        feat5 = self.conv5x5(x)
+        return self.fusion(torch.cat([feat3, feat5], dim=1))
+
 
 class ASAConvVisualizer:
-    def __init__(self, device='cuda' if torch.cuda.is_available() else 'cpu'):
+    def __init__(self, device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
+                 output_dir: str = 'outputs') -> None:
         self.device = device
+        self.output_dir = output_dir
+        os.makedirs(output_dir, exist_ok=True)
+        self.rng = np.random.default_rng(RANDOM_SEED)
         self.setup_models()
 
-    def setup_models(self):
-        """Initialize ASAConv and Dual Scale Convolution models"""
-
-        # ASAConv module definition
-        class ASAConvModule(nn.Module):
-            def __init__(self, in_channels=3, out_channels=64, kernel_size=3):
-                super().__init__()
-                self.initial_conv = nn.Conv2d(in_channels, 64, 3, padding=1)
-                self.conv = nn.Conv2d(64, out_channels, kernel_size, padding=kernel_size // 2)
-                self.calibration_factor = nn.Parameter(torch.ones(1, out_channels, 1, 1) * 0.1)
-                self.feature_queue = None
-                self.queue_size = 5
-
-            def forward(self, x):
-                x = self.initial_conv(x)
-
-                if self.feature_queue is None:
-                    self.feature_queue = x.unsqueeze(0)
-                else:
-                    self.feature_queue = torch.cat([self.feature_queue, x.unsqueeze(0)], dim=0)
-                    if self.feature_queue.size(0) > self.queue_size:
-                        self.feature_queue = self.feature_queue[-self.queue_size:]
-
-                if self.feature_queue.size(0) > 1:
-                    historical_guidance = torch.mean(self.feature_queue[:-1], dim=0)
-                    adaptive_weights = self.conv.weight * (1 + self.calibration_factor *
-                                                           torch.mean(historical_guidance, dim=[2, 3], keepdim=True))
-                else:
-                    adaptive_weights = self.conv.weight
-
-                return nn.functional.conv2d(x, adaptive_weights, self.conv.bias,
-                                            padding=self.conv.padding)
-
-        # Dual Scale Convolution module definition
-        class DualScaleConvModule(nn.Module):
-            def __init__(self, in_channels=3, out_channels=64):
-                super().__init__()
-                self.initial_conv = nn.Conv2d(in_channels, 64, 3, padding=1)
-                self.conv3x3 = nn.Conv2d(64, out_channels, 3, padding=1)
-                self.conv5x5 = nn.Conv2d(64, out_channels, 5, padding=2)
-                self.fusion = nn.Conv2d(out_channels * 2, out_channels, 1)
-
-            def forward(self, x):
-                x = self.initial_conv(x)
-                feat3 = self.conv3x3(x)
-                feat5 = self.conv5x5(x)
-                return self.fusion(torch.cat([feat3, feat5], dim=1))
-
+    def setup_models(self) -> None:
+        """Initialize models with reproducible random weights"""
+        torch.manual_seed(RANDOM_SEED)
         self.asaconv_model = ASAConvModule().to(self.device)
         self.dual_scale_model = DualScaleConvModule().to(self.device)
-        self.load_simulated_weights()
 
-    def load_simulated_weights(self):
-        """Load simulated pre-trained weights"""
-        print("Using simulated weights for visualization demonstration")
-
-    def extract_urban100_sample(self):
-        """Create test sample"""
-        sample_path = "urban100_sample.png"
-
+    def create_test_image(self) -> str:
+        """Create test sample image"""
+        sample_path = os.path.join(self.output_dir, "urban100_sample.png")
         if not os.path.exists(sample_path):
-            # Create more complex test image
             img = np.ones((256, 256, 3), dtype=np.uint8) * 128
-
-            # Add various features
-            img[:, 100:110, :] = 255  # White vertical line
-            img[:, 150:160, :] = 0  # Black vertical line
-            img[50:100, 50:100, :] = 200  # Bright block
-            img[150:200, 150:200, :] = 50  # Dark block
-
-            # Add texture regions
+            img[:, 100:110, :] = 255
+            img[:, 150:160, :] = 0
+            img[50:100, 50:100, :] = 200
+            img[150:200, 150:200, :] = 50
             for i in range(30, 80, 10):
                 for j in range(180, 230, 10):
-                    color = np.random.randint(0, 255, 3)
+                    color = self.rng.integers(0, 255, 3).astype(np.uint8)
                     img[i:i + 5, j:j + 5, :] = color
-
             cv2.imwrite(sample_path, img)
-
         return sample_path
 
-    def preprocess_image(self, image_path):
-        """Image preprocessing"""
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
-        ])
+    def preprocess_image(self, image_path: str) -> torch.Tensor:
+        """Image preprocessing using cv2 (M1: unified image library)"""
+        img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+        if img is None:
+            raise FileNotFoundError(f"Image not found or unreadable: {image_path}")
+        if img.ndim == 2:
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+        elif img.shape[2] == 1:
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+        elif img.shape[2] == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
+        elif img.shape[2] == 3:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        else:
+            raise ValueError(f"Unsupported image shape: {img.shape} for {image_path}")
+        img = img.astype(np.float32) / 255.0
+        img = (img - 0.5) / 0.5
+        tensor = torch.from_numpy(img.transpose(2, 0, 1)).unsqueeze(0)
+        return tensor.to(self.device)
 
-        img = Image.open(image_path).convert('RGB')
-        return transform(img).unsqueeze(0).to(self.device)
-
-    def extract_dynamic_weights(self, model, x):
-        """Extract dynamic weight distribution - simulate more realistic data"""
-        # Simulate ASAConv dynamic weight distribution
-        # In practice, these weights should be extracted from model forward pass
+    def extract_dynamic_weights(self, model: ASAConvModule,
+                                x: torch.Tensor) -> np.ndarray:
+        """C1 fix: extract real dynamic weights from ASAConv forward pass"""
+        model.feature_queue.clear()
         with torch.no_grad():
-            _ = model(x)
+            for _ in range(3):
+                model(x)
 
-        # Simulate more realistic weight distribution
-        # ASAConv should have higher weights in edge regions
+            if model.last_adaptive_weights is not None:
+                weights = model.last_adaptive_weights
+                channel_magnitude = torch.mean(torch.abs(weights), dim=[1, 2, 3])
+                if model.feature_queue:
+                    features = model.feature_queue[-1]
+                else:
+                    features = model.initial_conv(x)
+                weighted_features = features * channel_magnitude.view(1, -1, 1, 1)
+                spatial_weights = torch.mean(
+                    torch.abs(weighted_features), dim=1).squeeze()
+                spatial_weights = spatial_weights.cpu().numpy()
+                sw_min, sw_max = spatial_weights.min(), spatial_weights.max()
+                if sw_max > sw_min:
+                    spatial_weights = (spatial_weights - sw_min) / (sw_max - sw_min)
+                return spatial_weights
+
         h, w = x.shape[2], x.shape[3]
+        return np.zeros((h, w))
 
-        # Create simulated spatial weight map
-        spatial_weights = np.zeros((h, w))
-
-        # Simulate high weights in edge regions
-        spatial_weights[:, 95:115] = 0.8  # Around white line
-        spatial_weights[:, 145:165] = 0.9  # Around black line
-        spatial_weights[45:105, 45:105] = 0.6  # Bright block
-        spatial_weights[145:205, 145:205] = 0.4  # Dark block
-
-        # Add random variation
-        spatial_weights += np.random.normal(0, 0.1, (h, w))
-        spatial_weights = np.clip(spatial_weights, 0, 1)
-
-        return spatial_weights
-
-    def extract_fixed_weights(self, model):
+    def extract_fixed_weights(self, model: DualScaleConvModule
+                              ) -> Tuple[np.ndarray, np.ndarray]:
         """Extract fixed weights from dual scale convolution"""
-        weight_3x3 = torch.mean(model.conv3x3.weight, dim=[1, 2, 3]).cpu().detach().numpy()
-        weight_5x5 = torch.mean(model.conv5x5.weight, dim=[1, 2, 3]).cpu().detach().numpy()
+        weight_3x3 = torch.mean(
+            model.conv3x3.weight, dim=[1, 2, 3]).cpu().detach().numpy()
+        weight_5x5 = torch.mean(
+            model.conv5x5.weight, dim=[1, 2, 3]).cpu().detach().numpy()
         return weight_3x3, weight_5x5
 
-    def generate_heatmap(self, weights, original_img, title):
-        """Generate weight heatmap"""
+    def generate_heatmap(self, weights: np.ndarray,
+                         original_img: torch.Tensor) -> np.ndarray:
+        """Generate weight heatmap overlay"""
         h, w = original_img.shape[2], original_img.shape[3]
 
         if len(weights.shape) == 1:
-            # Channel-level weights
+            # H2 fix: map each channel to a unique spatial block
+            n_channels = len(weights)
+            grid_size = int(np.ceil(np.sqrt(n_channels)))
             heatmap = np.zeros((h, w))
+            region_h = h // grid_size
+            region_w = w // grid_size
             for i, weight in enumerate(weights):
-                region_h = h // 8
-                region_w = w // 8
-                for j in range(8):
-                    for k in range(8):
-                        start_h = j * region_h
-                        end_h = min((j + 1) * region_h, h)
-                        start_w = k * region_w
-                        end_w = min((k + 1) * region_w, w)
-                        heatmap[start_h:end_h, start_w:end_w] += weight * 0.1
+                row = i // grid_size
+                col = i % grid_size
+                if row < grid_size and col < grid_size:
+                    sh = row * region_h
+                    eh = min((row + 1) * region_h, h)
+                    sw = col * region_w
+                    ew = min((col + 1) * region_w, w)
+                    heatmap[sh:eh, sw:ew] = weight
         else:
-            # Spatial weight map
-            heatmap = cv2.resize(weights, (w, h))
+            # H4 fix: only resize if dimensions differ
+            if weights.shape[0] != h or weights.shape[1] != w:
+                heatmap = cv2.resize(weights.astype(np.float32), (w, h))
+            else:
+                heatmap = weights
 
-        # Normalize and apply color mapping
-        heatmap = (heatmap - np.min(heatmap)) / (np.max(heatmap) - np.min(heatmap) + 1e-8)
-        colored_heatmap = plt.cm.viridis(heatmap)[:, :, :3]  # Use viridis colormap
+        hm_min, hm_max = np.min(heatmap), np.max(heatmap)
+        if hm_max > hm_min:
+            heatmap = (heatmap - hm_min) / (hm_max - hm_min)
+        colored_heatmap = plt.cm.viridis(heatmap)[:, :, :3]
         colored_heatmap = (colored_heatmap * 255).astype(np.uint8)
 
-        # Overlay with original image
-        original_rgb = ((original_img.squeeze().cpu().numpy().transpose(1, 2, 0) * 0.5 + 0.5) * 255).astype(np.uint8)
+        original_rgb = ((original_img.squeeze().cpu().numpy().transpose(
+            1, 2, 0) * 0.5 + 0.5) * 255).astype(np.uint8)
         overlay = cv2.addWeighted(original_rgb, 0.6, colored_heatmap, 0.4, 0)
-
         return overlay
 
-    def analyze_region_differences(self, asaconv_weights, dual_scale_weights, original_img):
-        """Analyze region differences - generate more realistic simulated data"""
-        # Use more realistic simulated data
-        asaconv_edge = 0.5197  # Edge region weight
-        asaconv_flat = 0.5197  # Flat region weight
-        dual_scale_3x3 = 0.0001  # 3x3 convolution weight
-        dual_scale_5x5 = 0.0000  # 5x5 convolution weight
+    def detect_edge_mask(self, img_tensor: torch.Tensor) -> np.ndarray:
+        """Detect edge regions using Sobel operator for region analysis"""
+        gray = torch.mean(img_tensor.squeeze(), dim=0).cpu().numpy()
+        gray_uint8 = ((gray * 0.5 + 0.5) * 255).astype(np.uint8)
+        sobel_x = cv2.Sobel(gray_uint8, cv2.CV_64F, 1, 0, ksize=3)
+        sobel_y = cv2.Sobel(gray_uint8, cv2.CV_64F, 0, 1, ksize=3)
+        edge_magnitude = np.sqrt(sobel_x ** 2 + sobel_y ** 2)
+        threshold = np.percentile(edge_magnitude, 75)
+        return edge_magnitude > threshold
+
+    def analyze_region_differences(self, asaconv_weights: np.ndarray,
+                                   dual_scale_weights: Tuple[np.ndarray, np.ndarray],
+                                   original_img: torch.Tensor) -> Dict:
+        """C2 fix: compute real region differences from extracted data"""
+        edge_mask = self.detect_edge_mask(original_img)
+        flat_mask = ~edge_mask
+
+        asaconv_edge = float(np.mean(asaconv_weights[edge_mask])) if np.any(edge_mask) else 0.0
+        asaconv_flat = float(np.mean(asaconv_weights[flat_mask])) if np.any(flat_mask) else 0.0
+        adaptivity_ratio = asaconv_edge / asaconv_flat if asaconv_flat > 1e-8 else 0.0
+
+        w3x3, w5x5 = dual_scale_weights
+        mean_3x3 = float(np.mean(np.abs(w3x3)))
+        mean_5x5 = float(np.mean(np.abs(w5x5)))
+        scale_ratio = mean_5x5 / mean_3x3 if mean_3x3 > 1e-8 else 0.0
 
         return {
             'ASAConv': {
                 'edge_region': asaconv_edge,
                 'flat_region': asaconv_flat,
-                'adaptivity_ratio': 1.00  # Edge/flat ratio
+                'adaptivity_ratio': adaptivity_ratio
             },
             'DualScale': {
-                '3x3_kernel': dual_scale_3x3,
-                '5x5_kernel': dual_scale_5x5,
-                'scale_ratio': 0.18  # 5x5/3x3 ratio
+                '3x3_kernel': mean_3x3,
+                '5x5_kernel': mean_5x5,
+                'scale_ratio': scale_ratio
             }
         }
 
-    def visualize_comparison(self):
+    def visualize_comparison(self) -> Optional[Dict]:
         """Main visualization function"""
         try:
-            # Prepare data
-            sample_path = self.extract_urban100_sample()
+            sample_path = self.create_test_image()
             input_tensor = self.preprocess_image(sample_path)
-
             print(f"Input tensor shape: {input_tensor.shape}")
 
-            # Extract weights
-            asaconv_weights = self.extract_dynamic_weights(self.asaconv_model, input_tensor)
-            dual_scale_weights = self.extract_fixed_weights(self.dual_scale_model)
+            asaconv_weights = self.extract_dynamic_weights(
+                self.asaconv_model, input_tensor)
+            dual_scale_weights = self.extract_fixed_weights(
+                self.dual_scale_model)
 
-            # Generate heatmaps
-            asaconv_heatmap = self.generate_heatmap(asaconv_weights, input_tensor, "ASAConv Dynamic Weights")
-            dual_scale_heatmap = self.generate_heatmap(dual_scale_weights[0], input_tensor, "Dual Scale 3x3 Weights")
+            asaconv_heatmap = self.generate_heatmap(
+                asaconv_weights, input_tensor)
+            dual_scale_heatmap = self.generate_heatmap(
+                dual_scale_weights[0], input_tensor)
 
-            # Analyze region differences
-            region_analysis = self.analyze_region_differences(asaconv_weights, dual_scale_weights, input_tensor)
+            region_analysis = self.analyze_region_differences(
+                asaconv_weights, dual_scale_weights, input_tensor)
 
-            # Visualize results
-            self.plot_results(input_tensor, asaconv_heatmap, dual_scale_heatmap, region_analysis, sample_path)
-
+            self.plot_results(input_tensor, asaconv_heatmap,
+                              dual_scale_heatmap, region_analysis)
             return region_analysis
 
         except Exception as e:
@@ -225,142 +268,119 @@ class ASAConvVisualizer:
             traceback.print_exc()
             return None
 
-    def plot_results(self, original_img, asaconv_heatmap, dual_scale_heatmap, region_analysis, sample_path):
-        """Plot comparison results - optimized layout and display"""
-        # Create larger canvas
+    def plot_results(self, original_img: torch.Tensor,
+                     asaconv_heatmap: np.ndarray,
+                     dual_scale_heatmap: np.ndarray,
+                     region_analysis: Dict) -> None:
+        """Plot comparison results"""
         fig = plt.figure(figsize=(20, 12))
-
-        # Define subplot layout
         gs = plt.GridSpec(2, 3, figure=fig, hspace=0.3, wspace=0.3)
 
-        # First row: image comparison
         ax1 = fig.add_subplot(gs[0, 0])
         ax2 = fig.add_subplot(gs[0, 1])
         ax3 = fig.add_subplot(gs[0, 2])
-
-        # Second row: analysis charts
         ax4 = fig.add_subplot(gs[1, 0])
         ax5 = fig.add_subplot(gs[1, 1])
         ax6 = fig.add_subplot(gs[1, 2])
 
-        # Original image
-        original_rgb = ((original_img.squeeze().cpu().numpy().transpose(1, 2, 0) * 0.5 + 0.5) * 255).astype(np.uint8)
+        # Row 1: image comparison
+        original_rgb = ((original_img.squeeze().cpu().numpy().transpose(
+            1, 2, 0) * 0.5 + 0.5) * 255).astype(np.uint8)
         ax1.imshow(original_rgb)
-        ax1.set_title('Original Image\n(Urban100 Sample)', fontsize=12, fontweight='bold')
+        ax1.set_title('Original Image\n(Urban100 Sample)',
+                       fontsize=12, fontweight='bold')
         ax1.axis('off')
 
-        # ASAConv heatmap
         ax2.imshow(asaconv_heatmap)
-        ax2.set_title('ASAConv Dynamic Weights\n(Region-Adaptive Heatmap)', fontsize=12, fontweight='bold')
+        ax2.set_title('ASAConv Dynamic Weights\n(Region-Adaptive Heatmap)',
+                       fontsize=12, fontweight='bold')
         ax2.axis('off')
 
-        # Dual scale convolution heatmap
         ax3.imshow(dual_scale_heatmap)
-        ax3.set_title('Dual Scale 3x3 Weights\n(Fixed Weight Heatmap)', fontsize=12, fontweight='bold')
+        ax3.set_title('Dual Scale 3x3 Weights\n(Fixed Weight Heatmap)',
+                       fontsize=12, fontweight='bold')
         ax3.axis('off')
 
-        # Region weight comparison bar chart
-        categories = ['Edge Region', 'Flat Region']
-        asaconv_values = [region_analysis['ASAConv']['edge_region'],
-                          region_analysis['ASAConv']['flat_region']]
-        dual_scale_values = [region_analysis['DualScale']['3x3_kernel'],
-                             region_analysis['DualScale']['5x5_kernel']]
-
-        x = np.arange(len(categories))
-        width = 0.35
-
-        bars1 = ax4.bar(x - width / 2, asaconv_values, width, label='ASAConv', alpha=0.8, color='#ff7f0e')
-        bars2 = ax4.bar(x + width / 2, dual_scale_values, width, label='DualScale', alpha=0.8, color='#1f77b4')
-
+        # M4 fix: separate bar charts with correct semantic grouping
+        # ASAConv: edge vs flat region weights
+        categories_asa = ['Edge Region', 'Flat Region']
+        asa_values = [region_analysis['ASAConv']['edge_region'],
+                      region_analysis['ASAConv']['flat_region']]
+        bars1 = ax4.bar(categories_asa, asa_values, alpha=0.8,
+                        color=['#e74c3c', '#3498db'])
         ax4.set_xlabel('Region Type', fontsize=11)
         ax4.set_ylabel('Weight Mean', fontsize=11)
-        ax4.set_title('Region Weight Distribution Comparison', fontsize=12, fontweight='bold')
-        ax4.set_xticks(x)
-        ax4.set_xticklabels(categories)
-        ax4.legend(fontsize=10)
+        ax4.set_title('ASAConv: Edge vs Flat Region Weights',
+                       fontsize=12, fontweight='bold')
         ax4.grid(True, alpha=0.3)
-
-        # Add value labels on bars
         for bar in bars1:
             height = bar.get_height()
             ax4.text(bar.get_x() + bar.get_width() / 2., height,
                      f'{height:.4f}', ha='center', va='bottom', fontsize=9)
 
+        # DualScale: 3x3 vs 5x5 kernel weights
+        categories_ds = ['3x3 Kernel', '5x5 Kernel']
+        ds_values = [region_analysis['DualScale']['3x3_kernel'],
+                     region_analysis['DualScale']['5x5_kernel']]
+        bars2 = ax5.bar(categories_ds, ds_values, alpha=0.8,
+                        color=['#2ecc71', '#9b59b6'])
+        ax5.set_xlabel('Kernel Size', fontsize=11)
+        ax5.set_ylabel('Weight Mean (abs)', fontsize=11)
+        ax5.set_title('DualScale: Kernel Weight Distribution',
+                       fontsize=12, fontweight='bold')
+        ax5.grid(True, alpha=0.3)
         for bar in bars2:
             height = bar.get_height()
-            ax4.text(bar.get_x() + bar.get_width() / 2., height,
+            ax5.text(bar.get_x() + bar.get_width() / 2., height,
                      f'{height:.4f}', ha='center', va='bottom', fontsize=9)
 
-        # Adaptivity ratio comparison
-        adaptivity_metrics = [
-            region_analysis['ASAConv']['adaptivity_ratio'],
-            region_analysis['DualScale']['scale_ratio']
-        ]
-        metric_names = ['ASAConv\nEdge/Flat Ratio', 'DualScale\n5x5/3x3 Ratio']
-
-        bars = ax5.bar(metric_names, adaptivity_metrics, color=['#ff7f0e', '#1f77b4'], alpha=0.8)
-        ax5.set_ylabel('Ratio Value', fontsize=11)
-        ax5.set_title('Adaptive Capability Comparison', fontsize=12, fontweight='bold')
-        ax5.grid(True, alpha=0.3)
-
-        # Add value labels on bars
-        for bar in bars:
-            height = bar.get_height()
-            ax5.text(bar.get_x() + bar.get_width() / 2., height,
-                     f'{height:.2f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
-
-        # Text analysis summary
+        # Text analysis summary (L3 fix: removed misleading sigma notation)
         ax6.axis('off')
-        analysis_text = f"""
-        ASAConv Dynamic Routing Analysis Results:
-
-        • Edge Region Weight: {region_analysis['ASAConv']['edge_region']:.4f}
-        • Flat Region Weight: {region_analysis['ASAConv']['flat_region']:.4f}
-        • Adaptivity Ratio: {region_analysis['ASAConv']['adaptivity_ratio']:.2f}
-
-        Dual Scale Convolution Comparison:
-        • 3x3 Kernel Weight: {region_analysis['DualScale']['3x3_kernel']:.4f}
-        • 5x5 Kernel Weight: {region_analysis['DualScale']['5x5_kernel']:.4f}
-        • Scale Ratio: {region_analysis['DualScale']['scale_ratio']:.2f}
-
-        Key Findings:
-        ASAConv shows higher weight activation in edge regions,
-        demonstrating its adaptive capability for complex textures.
-        Dual Scale Convolution has relatively fixed weight distribution,
-        lacking spatial adaptability.
-
-        Parameter Details:
-        ASAConv Weights: 
-          σ₁ = {region_analysis['ASAConv']['edge_region']:.4f}
-          σ₂ = {region_analysis['ASAConv']['flat_region']:.4f}
-          σ₃ = {region_analysis['ASAConv']['adaptivity_ratio']:.2f}
-
-        DualScale Weights:
-          3x3 = {region_analysis['DualScale']['3x3_kernel']:.4f}
-          5x5 = {region_analysis['DualScale']['5x5_kernel']:.4f}
-          Ratio = {region_analysis['DualScale']['scale_ratio']:.2f}
-        """
+        ra = region_analysis
+        analysis_text = (
+            f"  ASAConv Dynamic Routing Analysis Results:\n\n"
+            f"  Edge Region Weight:   {ra['ASAConv']['edge_region']:.4f}\n"
+            f"  Flat Region Weight:   {ra['ASAConv']['flat_region']:.4f}\n"
+            f"  Adaptivity Ratio:     {ra['ASAConv']['adaptivity_ratio']:.2f}\n\n"
+            f"  Dual Scale Convolution Comparison:\n\n"
+            f"  3x3 Kernel Weight:    {ra['DualScale']['3x3_kernel']:.4f}\n"
+            f"  5x5 Kernel Weight:    {ra['DualScale']['5x5_kernel']:.4f}\n"
+            f"  Scale Ratio (5x5/3x3):{ra['DualScale']['scale_ratio']:.2f}\n\n"
+            f"  Key Findings:\n"
+            f"  ASAConv edge/flat ratio indicates spatial\n"
+            f"  adaptivity for complex texture regions.\n"
+            f"  DualScale uses fixed kernel weights without\n"
+            f"  spatial awareness."
+        )
         ax6.text(0.05, 0.95, analysis_text, transform=ax6.transAxes,
                  fontsize=10, verticalalignment='top', fontfamily='monospace',
-                 bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgray", alpha=0.5))
+                 bbox=dict(boxstyle="round,pad=0.3",
+                           facecolor="lightgray", alpha=0.5))
 
-        # Add overall title
-        plt.suptitle('ASAConv Module Dynamic Weight Analysis - Urban100 Dataset Sample',
+        plt.suptitle('ASAConv Module Dynamic Weight Analysis'
+                     ' - Urban100 Dataset Sample',
                      fontsize=16, fontweight='bold', y=0.98)
-
         plt.tight_layout()
-        plt.savefig('ASAConv_Dynamic_Routing_Analysis_English.png',
-                    dpi=300, bbox_inches='tight', facecolor='white')
-        plt.show()
+
+        # H3 fix: save to outputs/ directory
+        save_path = os.path.join(
+            self.output_dir, 'ASAConv_Dynamic_Routing_Analysis_English.png')
+        plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
+        print(f"Saved to {save_path}")
+
+        # L2 fix: only call plt.show() if GUI backend available
+        if matplotlib.get_backend().lower() not in ('agg', 'pdf', 'svg'):
+            plt.show()
+        else:
+            plt.close(fig)
 
 
 # Execute visualization analysis
 if __name__ == "__main__":
-    # Explicitly specify CPU for compatibility
     visualizer = ASAConvVisualizer(device='cpu')
     results = visualizer.visualize_comparison()
     if results:
         print("Dynamic routing visualization analysis completed!")
         print("Region difference analysis results:", results)
     else:
-        print("Error occurred during visualization analysis. Please check the error messages above.")
+        print("Error occurred during visualization analysis.")

@@ -1,5 +1,8 @@
 # Changelog
 
+- 2026-02-24: Evaluation continues when LPIPS is unavailable; LPIPS is optional (N/A) while PSNR/SSIM/FID still compute.
+- 2026-02-24: ASAConv analysis script hardening (image read/gray handling, no-grad weight extraction, safe modulation shape).
+
 - 2026-02-24: 代码审查第四轮修复（3 HIGH + 7 MEDIUM + 5 LOW）。
   - [HIGH-1] `register_feature_hooks` hook 竞态修复：合并两次 `_state_lock` 为单次，先处理 tensor 再持锁检查+append。
   - [HIGH-2] `upsampler` 引用安全：`enhance()` 期间额外持有 `model_ref` 防止 GC 回收。
