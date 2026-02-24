@@ -90,11 +90,14 @@ TEXTURE_PROMPT = os.environ.get(
     "TEXTURE_PROMPT",
     "restored vintage photo, realistic skin texture, fabric detail, subtle film grain",
 )
+
+
 def _safe_float(env_key: str, default: float) -> float:
     try:
         return float(os.environ.get(env_key, str(default)))
     except (ValueError, TypeError):
         return default
+
 
 def _safe_int(env_key: str, default: int) -> int:
     try:
@@ -410,7 +413,7 @@ def apply_film_grain(bgr_img: np.ndarray, strength: float) -> np.ndarray:
         return bgr_img
     h, w = bgr_img.shape[:2]
     sigma = 12.0 * weight
-    noise = np.random.normal(0.0, sigma, (h, w, 1)).astype(np.float32)
+    noise = np.random.default_rng().normal(0.0, sigma, (h, w, 1)).astype(np.float32)
     grain = bgr_img.astype(np.float32) + noise
     return np.clip(grain, 0, 255).astype(np.uint8)
 
@@ -792,7 +795,7 @@ class ModernApp(ctk.CTk):
         threading.Thread(target=self.load_model, daemon=True).start()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self._last_win_state = "normal"
-        self.after(50, self._poll_window_state)
+        self.after(200, self._poll_window_state)
 
     def _poll_window_state(self) -> None:
         try:
@@ -802,7 +805,7 @@ class ModernApp(ctk.CTk):
         if self._last_win_state == "iconic" and current == "normal":
             self.after(150, self._force_ctk_redraw)
         self._last_win_state = current
-        self.after(50, self._poll_window_state)
+        self.after(200, self._poll_window_state)
 
     def _force_ctk_redraw(self) -> None:
         """强制重绘所有 CTk 控件和 Canvas，解决最小化恢复后黑块问题。"""
@@ -824,6 +827,7 @@ class ModernApp(ctk.CTk):
         """递归更新所有 CTkScrollableFrame 的 Canvas 背景色和 scrollregion。"""
         def update_widget(widget, _depth=0):
             if _depth > 20:
+                logger.debug("_update_all_scrollable_frames: max depth exceeded for %s", widget)
                 return
             if hasattr(widget, '_parent_canvas') and hasattr(widget, '_parent_frame'):
                 try:
@@ -1357,15 +1361,17 @@ class ModernApp(ctk.CTk):
         self.hook_handles = []
 
     def register_feature_hooks(self) -> None:
+        """Register forward hooks on Conv2d layers to capture feature maps.
+
+        IMPORTANT: Caller must hold ``_model_lock`` when invoking this method,
+        because it iterates over ``self.model.named_modules()``.
+        """
         self.clear_feature_hooks()
         with self._state_lock:
             self.feature_maps = []
 
         def make_hook(name):
             def hook(module, input, output):
-                with self._state_lock:
-                    if len(self.feature_maps) >= self.max_feature_maps:
-                        return
                 tensor = output
                 if isinstance(tensor, (tuple, list)):
                     if not tensor:
@@ -1380,7 +1386,8 @@ class ModernApp(ctk.CTk):
                     return
                 detached = (name, tensor.detach().cpu())
                 with self._state_lock:
-                    self.feature_maps.append(detached)
+                    if len(self.feature_maps) < self.max_feature_maps:
+                        self.feature_maps.append(detached)
 
             return hook
 
@@ -1559,10 +1566,11 @@ class ModernApp(ctk.CTk):
             self.status_label.configure(text=status_text)
             self.lbl_filename_in.configure(text=f"Input: {os.path.basename(path)}")
             self.lbl_filename_out.configure(text="")
-            self.img_gt = None
+            with self._state_lock:
+                self.img_gt = None
+                self.img_output = None
+                self.feature_maps = []
             self.gt_path = None
-            self.img_output = None
-            self.feature_maps = []
             self.render_main_images_stable()
             self.update_compare_controls()
             self.show_output_overlay("Waiting for processing...", animate=False)
@@ -2998,8 +3006,10 @@ class ModernApp(ctk.CTk):
             with self._model_lock:
                 self.upsampler.tile = tile
                 upsampler_ref = self.upsampler
+                model_ref = self.model  # prevent GC during enhance
             run_meta["tile_size"] = tile
             sr_base, _ = upsampler_ref.enhance(input_img, outscale=self.scale_factor)
+            del model_ref  # release reference after enhance completes
             run_meta["timing"]["upscale"] = round(time.perf_counter() - stage_start, 3)
             output = sr_base
             check_cancel()
@@ -3027,7 +3037,7 @@ class ModernApp(ctk.CTk):
             with self._state_lock:
                 self.img_output = output
             success = True
-            save_image(run_output_path, self.img_output)
+            save_image(run_output_path, output)
             try:
                 # Reload from disk to ensure a stable uint8 BGR buffer for GUI.
                 stable_output = self.read_image(run_output_path)
@@ -3051,9 +3061,10 @@ class ModernApp(ctk.CTk):
             run_meta["input_snapshot"] = run_input_path
             run_meta["output_files"]["input_snapshot"] = run_input_path
             run_meta["output_files"]["output_snapshot"] = run_output_path
-            run_meta["output_files"]["features"] = [
-                name for name, _ in self.feature_maps
-            ]
+            with self._state_lock:
+                run_meta["output_files"]["features"] = [
+                    name for name, _ in self.feature_maps
+                ]
             run_meta["stage"] = "complete"
             run_meta["stage_at"] = timestamp_str()
 
@@ -3235,7 +3246,8 @@ class ModernApp(ctk.CTk):
     def calculate_metrics(self) -> None:
         with self._state_lock:
             img_out = self.img_output
-        if psnr is None or ssim is None or self.img_gt is None or img_out is None:
+            img_gt = self.img_gt
+        if psnr is None or ssim is None or img_gt is None or img_out is None:
             self.set_metric_labels(self.lbl_psnr_out, self.lbl_ssim_out, None, None)
             self.lbl_gt_hint.configure(text="Load Ground Truth to calculate metrics.")
             return
@@ -3243,7 +3255,7 @@ class ModernApp(ctk.CTk):
         self.lbl_gt_hint.configure(text="")
 
         h, w = img_out.shape[:2]
-        img_gt_out = cv2.resize(self.img_gt, (w, h))
+        img_gt_out = cv2.resize(img_gt, (w, h))
         s_psnr_out = psnr(img_gt_out, img_out, data_range=255)
         s_ssim_out = ssim(img_gt_out, img_out, data_range=255, channel_axis=2)
 
@@ -3348,8 +3360,8 @@ class ModernApp(ctk.CTk):
         with self._state_lock:
             self.img_input = img
             self.img_output = None
+            self.feature_maps = []
         self.lbl_filename_out.configure(text="")
-        self.feature_maps = []
         self.compare_hold_active = False
         self.reset_view_state()
         self.render_main_images()
@@ -3532,7 +3544,9 @@ class ModernApp(ctk.CTk):
         )
 
     def save_result(self) -> None:
-        if self.img_output is None:
+        with self._state_lock:
+            img_snapshot = self.img_output
+        if img_snapshot is None:
             return
 
         def on_save(preview_window):
@@ -3547,15 +3561,12 @@ class ModernApp(ctk.CTk):
                 ],
             )
             if path:
-                if self.img_output is not None:
-                    save_image(path, self.img_output)
-                    messagebox.showinfo("Saved", "Image saved successfully")
-                else:
-                    messagebox.showerror("Error", "No image to save")
+                save_image(path, img_snapshot)
+                messagebox.showinfo("Saved", "Image saved successfully")
                 preview_window.destroy()
 
         self.show_image_preview(
-            "Result Preview", self.img_output, None, "Save As", on_save
+            "Result Preview", img_snapshot, None, "Save As", on_save
         )
 
 

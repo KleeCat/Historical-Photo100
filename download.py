@@ -41,13 +41,17 @@ def download_large_file(url: str, filename: str) -> None:
                                 logger.info("Progress: %d%%", percent)
                                 last_reported = percent
                         else:
-                            logger.info("Downloaded: %d bytes", downloaded)
+                            if downloaded - last_reported >= 1_048_576:  # 每 1MB 输出一次
+                                logger.info("Downloaded: %d bytes", downloaded)
+                                last_reported = downloaded
 
         os.replace(tmp_path, filename)
-    except (requests.RequestException, KeyboardInterrupt):
+    except (requests.RequestException, KeyboardInterrupt, OSError):
         logger.error("Download failed for %s", url)
-        if os.path.exists(tmp_path):
+        try:
             os.remove(tmp_path)
+        except OSError:
+            pass
         raise
 
 

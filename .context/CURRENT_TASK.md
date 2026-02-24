@@ -3,6 +3,11 @@
 Last update: 2026-02-24
 
 ## Recently Completed (2026-02-24)
+- 代码审查第四轮修复（3 HIGH + 7 MEDIUM + 5 LOW）：
+  - [HIGH] feature hook 竞态修复（合并双锁为单锁）、upsampler 引用安全（持有 model_ref）、register_feature_hooks 文档。
+  - [MEDIUM] `_state_lock` 一致性修复 5 处、轮询间隔 50→200ms、`np.random.default_rng()`。
+  - [LOW] `calculate_metrics` img_gt 持锁、递归超限日志、PEP 8 空行、download.py OSError+TOCTOU+日志节流。
+
 - `(gui)super-resolution processing.py` 代码审查修复第三轮（2 CRITICAL + 5 HIGH）：
   - [CRITICAL-1] GFPGAN 默认路径从远程 URL 改为本地 `~/.cache/gfpgan/`，缺失时抛 FileNotFoundError。
   - [CRITICAL-2] `run_meta` 日志所有路径字段改为 `os.path.basename()`，不再泄露完整文件系统路径。

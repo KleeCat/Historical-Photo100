@@ -1,5 +1,17 @@
 # Changelog
 
+- 2026-02-24: 代码审查第四轮修复（3 HIGH + 7 MEDIUM + 5 LOW）。
+  - [HIGH-1] `register_feature_hooks` hook 竞态修复：合并两次 `_state_lock` 为单次，先处理 tensor 再持锁检查+append。
+  - [HIGH-2] `upsampler` 引用安全：`enhance()` 期间额外持有 `model_ref` 防止 GC 回收。
+  - [HIGH-3] `register_feature_hooks` 添加 docstring 说明调用者须持有 `_model_lock`。
+  - [MEDIUM] `_state_lock` 一致性修复 5 处：`load_input_image`、`start_next_batch_item`、`save_image` 局部变量、`feature_maps` 导出、`save_result` 快照。
+  - [MEDIUM] `_poll_window_state` 轮询间隔从 50ms 调整为 200ms。
+  - [MEDIUM] `apply_film_grain` 改用 `np.random.default_rng()` 替代全局随机状态。
+  - [LOW] `calculate_metrics` 中 `img_gt` 改为持锁读取。
+  - [LOW] `_update_all_scrollable_frames` 递归超限添加 `logger.debug`。
+  - [LOW] `_safe_float`/`_safe_int` 前添加 PEP 8 空行。
+  - [LOW] `download.py`：异常捕获添加 `OSError`，TOCTOU 修复，无 content-length 日志节流。
+
 - 2026-02-24: `(gui)super-resolution processing.py` 代码审查修复第三轮（2 CRITICAL + 5 HIGH）。
   - [CRITICAL-1] GFPGAN 默认路径从远程 URL 改为本地 `~/.cache/gfpgan/GFPGANv1.3.pth`，缺失时抛 `FileNotFoundError`，消除供应链攻击风险。
   - [CRITICAL-2] `run_meta` 日志中 `input_path`、`run_dir`、`output_path`、`gt_path`、`scratch_model`、`model_path`、`gfpgan_model_path`、`output_snapshot` 全部改为 `os.path.basename()`，不再泄露完整文件系统路径和用户名。
