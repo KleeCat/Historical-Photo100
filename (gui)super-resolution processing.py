@@ -127,24 +127,22 @@ UI_FONT_BUTTON_MEDIUM = ("", 14, "bold")
 UI_FONT_SECTION_HEADER = ("", 12, "bold")
 UI_COLOR_PRIMARY = "#10B981"
 UI_COLOR_PRIMARY_HOVER = "#059669"
-UI_COLOR_DANGER = "#D9534F"
-UI_COLOR_DANGER_HOVER = "#C9302C"
+UI_COLOR_DANGER = "#EF4444"
+UI_COLOR_DANGER_HOVER = "#DC2626"
 UI_COLOR_DANGER_MUTED = "#6B4C4A"
 UI_COLOR_DANGER_MUTED_HOVER = "#7D5553"
-UI_COLOR_SECTION_TEXT = ("#6B7280", "#9CA3AF")
-UI_COLOR_CARD_BG = ("#FFFFFF", "#2A2A2A")
-UI_COLOR_CARD_BORDER = ("#E5E7EB", "#3A3A3A")
-UI_COLOR_BLUE = "#1677FF"
-UI_COLOR_BLUE_HOVER = "#0958D9"
-UI_COLOR_BG = ("#F5F7FA", "#1A1A1A")
-UI_COLOR_SECONDARY_BG = ("#F3F4F6", "#333333")
-UI_COLOR_SECONDARY_HOVER = ("#E5E7EB", "#444444")
-UI_COLOR_SECONDARY_TEXT = ("#4B5563", "#D1D5DB")
-UI_COLOR_TEXT_PRIMARY = ("#1F2937", "#F3F4F6")
-UI_COLOR_TEXT_MUTED = ("#9CA3AF", "#6B7280")
-UI_COLOR_IMAGE_BG = ("#E5E7EB", "#1C1C1C")
-UI_COLOR_SWITCH_OFF = ("#D1D5DB", "#555555")
-UI_COLOR_SWITCH_ON = "#1677FF"
+UI_COLOR_SECTION_TEXT = ("#737373", "#737373")
+UI_COLOR_CARD_BG = ("#FFFFFF", "#141414")
+UI_COLOR_CARD_BORDER = ("#E5E5E5", "#262626")
+UI_COLOR_BG = ("#FAFAFA", "#0A0A0A")
+UI_COLOR_SECONDARY_BG = ("#F5F5F5", "#1A1A1A")
+UI_COLOR_SECONDARY_HOVER = ("#EBEBEB", "#262626")
+UI_COLOR_SECONDARY_TEXT = ("#404040", "#D4D4D4")
+UI_COLOR_TEXT_PRIMARY = ("#171717", "#EDEDED")
+UI_COLOR_TEXT_MUTED = ("#A3A3A3", "#525252")
+UI_COLOR_IMAGE_BG = ("#F0F0F0", "#0F0F0F")
+UI_COLOR_SWITCH_OFF = ("#D4D4D4", "#404040")
+UI_COLOR_SWITCH_ON = "#10B981"
 
 
 class ToolTip:
@@ -906,7 +904,8 @@ class ModernApp(ctk.CTk):
 
         self.btn_load = ctk.CTkButton(
             self._card_input, text="Open Image", command=self.load_input_image, height=36,
-            fg_color=UI_COLOR_BLUE, hover_color=UI_COLOR_BLUE_HOVER,
+            fg_color=UI_COLOR_SECONDARY_BG, hover_color=UI_COLOR_SECONDARY_HOVER,
+            text_color=UI_COLOR_SECONDARY_TEXT,
         )
         self.btn_load.grid(row=cr, column=0, padx=12, pady=(4, 6), sticky="ew")
 
@@ -1328,8 +1327,8 @@ class ModernApp(ctk.CTk):
         self.btn_save = ctk.CTkButton(
             self.results_toolbar, text="Save Result",
             command=self.save_result,
-            fg_color=UI_COLOR_BLUE, hover_color=UI_COLOR_BLUE_HOVER,
-            state="disabled", height=32,
+            fg_color=UI_COLOR_SECONDARY_BG, hover_color=UI_COLOR_SECONDARY_HOVER,
+            text_color=UI_COLOR_SECONDARY_TEXT, state="disabled", height=32,
             font=ctk.CTkFont(size=13, weight="bold"),
         )
         self.btn_save.grid(row=0, column=3, padx=6, pady=6, sticky="ew")
