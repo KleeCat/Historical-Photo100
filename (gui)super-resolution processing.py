@@ -162,7 +162,7 @@ class ToolTip:
         if self._tw or not self.text:
             return
         x = self.widget.winfo_rootx() + 20
-        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        y = self.widget.winfo_rooty() - 30
         self._tw = tw = tk.Toplevel(self.widget)
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
@@ -1348,7 +1348,7 @@ class ModernApp(ctk.CTk):
         self.progress_bar = ctk.CTkProgressBar(
             self.status_frame, width=300, height=4, mode="determinate",
             progress_color=UI_COLOR_PRIMARY,
-            fg_color=UI_COLOR_SECONDARY_BG,
+            fg_color=UI_COLOR_CARD_BORDER,
             corner_radius=2,
         )
         self.progress_bar.pack(side="right", padx=20, pady=5)
