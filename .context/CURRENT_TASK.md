@@ -3,6 +3,14 @@
 Last update: 2026-02-24
 
 ## Recently Completed (2026-02-24)
+- UI 美化第五轮 — 极简科技风（分支 `ui/beautify-round5`）：
+  - 配色重构：去掉蓝色，绿色唯一强调 + 黑白灰调色板。
+  - 进度条细线化 4px + 绿色填充。
+  - 图像面板 8px 圆角 + 1px 边框。
+  - 状态栏统一背景 + 次级文字色。
+  - 侧栏紧凑化，卡片标题 bold + #737373。
+  - 9 个按钮添加 Tooltip。
+
 - Evaluation: continue when LPIPS is unavailable; record LPIPS as N/A while keeping PSNR/SSIM/FID.
 - ASAConv analysis script: handle unreadable/grayscale images, avoid grad graph in weight extraction, fix modulation shape for batch safety.
 - 代码审查第四轮修复（3 HIGH + 7 MEDIUM + 5 LOW）：
