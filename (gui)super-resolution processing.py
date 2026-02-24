@@ -83,7 +83,7 @@ except ImportError:
 # --- Global Theme Settings ---
 with suppress_stderr():
     ctk.set_appearance_mode("System")
-    ctk.set_default_color_theme("blue")
+    ctk.set_default_color_theme("green")
 
 TEXTURE_MODEL_ID = os.environ.get("TEXTURE_MODEL_ID", "").strip()
 TEXTURE_PROMPT = os.environ.get(
@@ -127,24 +127,22 @@ UI_FONT_BUTTON_MEDIUM = ("", 14, "bold")
 UI_FONT_SECTION_HEADER = ("", 12, "bold")
 UI_COLOR_PRIMARY = "#10B981"
 UI_COLOR_PRIMARY_HOVER = "#059669"
-UI_COLOR_DANGER = "#D9534F"
-UI_COLOR_DANGER_HOVER = "#C9302C"
+UI_COLOR_DANGER = "#EF4444"
+UI_COLOR_DANGER_HOVER = "#DC2626"
 UI_COLOR_DANGER_MUTED = "#6B4C4A"
 UI_COLOR_DANGER_MUTED_HOVER = "#7D5553"
-UI_COLOR_SECTION_TEXT = ("#6B7280", "#9CA3AF")
-UI_COLOR_CARD_BG = ("#FFFFFF", "#2A2A2A")
-UI_COLOR_CARD_BORDER = ("#E5E7EB", "#3A3A3A")
-UI_COLOR_BLUE = "#1677FF"
-UI_COLOR_BLUE_HOVER = "#0958D9"
-UI_COLOR_BG = ("#F5F7FA", "#1A1A1A")
-UI_COLOR_SECONDARY_BG = ("#F3F4F6", "#333333")
-UI_COLOR_SECONDARY_HOVER = ("#E5E7EB", "#444444")
-UI_COLOR_SECONDARY_TEXT = ("#4B5563", "#D1D5DB")
-UI_COLOR_TEXT_PRIMARY = ("#1F2937", "#F3F4F6")
-UI_COLOR_TEXT_MUTED = ("#9CA3AF", "#6B7280")
-UI_COLOR_IMAGE_BG = ("#E5E7EB", "#1C1C1C")
-UI_COLOR_SWITCH_OFF = ("#D1D5DB", "#555555")
-UI_COLOR_SWITCH_ON = "#1677FF"
+UI_COLOR_SECTION_TEXT = ("#737373", "#737373")
+UI_COLOR_CARD_BG = ("#FFFFFF", "#141414")
+UI_COLOR_CARD_BORDER = ("#E5E5E5", "#262626")
+UI_COLOR_BG = ("#FAFAFA", "#0A0A0A")
+UI_COLOR_SECONDARY_BG = ("#F5F5F5", "#1A1A1A")
+UI_COLOR_SECONDARY_HOVER = ("#EBEBEB", "#262626")
+UI_COLOR_SECONDARY_TEXT = ("#404040", "#D4D4D4")
+UI_COLOR_TEXT_PRIMARY = ("#171717", "#EDEDED")
+UI_COLOR_TEXT_MUTED = ("#737373", "#6B6B6B")
+UI_COLOR_IMAGE_BG = ("#F0F0F0", "#0F0F0F")
+UI_COLOR_SWITCH_OFF = ("#D4D4D4", "#404040")
+UI_COLOR_SWITCH_ON = "#10B981"
 
 
 class ToolTip:
@@ -164,13 +162,13 @@ class ToolTip:
         if self._tw or not self.text:
             return
         x = self.widget.winfo_rootx() + 20
-        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        y = self.widget.winfo_rooty() - 30
         self._tw = tw = tk.Toplevel(self.widget)
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
         label = tk.Label(
             tw, text=self.text, justify="left",
-            background="#333333", foreground="#EEEEEE",
+            background="#1A1A1A", foreground="#EDEDED",
             relief="solid", borderwidth=1,
             font=("", 10), padx=6, pady=3,
         )
@@ -899,14 +897,15 @@ class ModernApp(ctk.CTk):
             font=ctk.CTkFont(size=24, weight="bold"),
             text_color=UI_COLOR_TEXT_PRIMARY,
         )
-        self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 6))
+        self.logo_label.grid(row=0, column=0, padx=20, pady=(16, 4))
 
         # === Card: Input ===
         self._card_input, cr = self._make_card(self.sidebar, 1, "Input")
 
         self.btn_load = ctk.CTkButton(
             self._card_input, text="Open Image", command=self.load_input_image, height=36,
-            fg_color=UI_COLOR_BLUE, hover_color=UI_COLOR_BLUE_HOVER,
+            fg_color=UI_COLOR_SECONDARY_BG, hover_color=UI_COLOR_SECONDARY_HOVER,
+            text_color=UI_COLOR_SECONDARY_TEXT,
         )
         self.btn_load.grid(row=cr, column=0, padx=12, pady=(4, 6), sticky="ew")
 
@@ -1177,7 +1176,7 @@ class ModernApp(ctk.CTk):
             border_width=0,
             height=36,
         )
-        self.btn_cancel.grid(row=cr + 2, column=0, padx=12, pady=(4, 10), sticky="ew")
+        self.btn_cancel.grid(row=cr + 2, column=0, padx=12, pady=(4, 8), sticky="ew")
         self.btn_cancel.configure(
             state="disabled", text_color_disabled=UI_COLOR_TEXT_MUTED
         )
@@ -1211,12 +1210,14 @@ class ModernApp(ctk.CTk):
 
         # Image Containers
         self.frame_input = ctk.CTkFrame(
-            self.display_frame, fg_color=UI_COLOR_IMAGE_BG
+            self.display_frame, fg_color=UI_COLOR_IMAGE_BG,
+            corner_radius=8, border_width=1, border_color=UI_COLOR_CARD_BORDER,
         )
         self.frame_input.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
 
         self.frame_output = ctk.CTkFrame(
-            self.display_frame, fg_color=UI_COLOR_IMAGE_BG
+            self.display_frame, fg_color=UI_COLOR_IMAGE_BG,
+            corner_radius=8, border_width=1, border_color=UI_COLOR_CARD_BORDER,
         )
         self.frame_output.grid(row=2, column=1, sticky="nsew", padx=5, pady=5)
 
@@ -1261,12 +1262,12 @@ class ModernApp(ctk.CTk):
         self.lbl_filename_out.grid(row=1, column=1, pady=(0, 2), sticky="n")
 
         self.output_overlay = ctk.CTkFrame(
-            self.frame_output, corner_radius=6, fg_color=("gray85", "#222222")
+            self.frame_output, corner_radius=8, fg_color=UI_COLOR_SECONDARY_BG
         )
         self.output_overlay_label = ctk.CTkLabel(
             self.output_overlay,
             text="Waiting for processing...",
-            text_color=("gray20", "gray80"),
+            text_color=UI_COLOR_TEXT_MUTED,
             font=ctk.CTkFont(size=14, weight="bold"),
             fg_color=self.output_overlay.cget("fg_color"),
         )
@@ -1287,7 +1288,7 @@ class ModernApp(ctk.CTk):
         self.bind_image_interactions()
 
         # === 2b. Results Toolbar (below images) — buttons only, evenly spaced ===
-        self.results_toolbar = ctk.CTkFrame(self, corner_radius=6)
+        self.results_toolbar = ctk.CTkFrame(self, corner_radius=8)
         self.results_toolbar.grid(row=1, column=1, sticky="ew", padx=20, pady=(0, 5))
         for col in range(4):
             self.results_toolbar.grid_columnconfigure(col, weight=1)
@@ -1328,32 +1329,46 @@ class ModernApp(ctk.CTk):
         self.btn_save = ctk.CTkButton(
             self.results_toolbar, text="Save Result",
             command=self.save_result,
-            fg_color=UI_COLOR_BLUE, hover_color=UI_COLOR_BLUE_HOVER,
-            state="disabled", height=32,
+            fg_color=UI_COLOR_SECONDARY_BG, hover_color=UI_COLOR_SECONDARY_HOVER,
+            text_color=UI_COLOR_SECONDARY_TEXT, state="disabled", height=32,
             font=ctk.CTkFont(size=13, weight="bold"),
         )
         self.btn_save.grid(row=0, column=3, padx=6, pady=6, sticky="ew")
         self.btn_save.configure(text_color_disabled=UI_COLOR_TEXT_MUTED)
 
         # === 3. Status Bar (Bottom) ===
-        self.status_frame = ctk.CTkFrame(self, height=30, corner_radius=0)
+        self.status_frame = ctk.CTkFrame(self, height=30, corner_radius=0, fg_color=UI_COLOR_BG)
         self.status_frame.grid(row=2, column=1, sticky="ew")
 
         self.status_label = ctk.CTkLabel(self.status_frame, text="Ready", padx=10, width=400, anchor="w",
-                                         fg_color=self.status_frame.cget("fg_color"))
+                                         fg_color=UI_COLOR_BG, text_color=UI_COLOR_TEXT_MUTED)
         self.status_label.pack(side="left")
 
         # Determinate Progress Bar
         self.progress_bar = ctk.CTkProgressBar(
-            self.status_frame, width=300, mode="determinate"
+            self.status_frame, width=300, height=4, mode="determinate",
+            progress_color=UI_COLOR_PRIMARY,
+            fg_color=UI_COLOR_CARD_BORDER,
+            corner_radius=2,
         )
         self.progress_bar.pack(side="right", padx=20, pady=5)
         self.elapsed_label = ctk.CTkLabel(
             self.status_frame, text="Elapsed: --", padx=10,
-            fg_color=self.status_frame.cget("fg_color"),
+            fg_color=UI_COLOR_BG, text_color=UI_COLOR_TEXT_MUTED,
         )
         self.elapsed_label.pack(side="right")
         self.progress_bar.set(0)
+
+        # --- Tooltips ---
+        ToolTip(self.btn_load, "Open an image file for super-resolution")
+        ToolTip(self.btn_gt, "Load ground truth image for quality metrics")
+        ToolTip(self.btn_run, "Start the super-resolution process")
+        ToolTip(self.btn_batch, "Process all images in a folder")
+        ToolTip(self.btn_cancel, "Cancel the current operation")
+        ToolTip(self.btn_compare, "Save side-by-side comparison image")
+        ToolTip(self.btn_features, "Export feature map visualizations")
+        ToolTip(self.btn_open_run_dir, "Open the output folder in file explorer")
+        ToolTip(self.btn_save, "Save the processed result to disk")
 
     # --- Feature Extraction Hooks ---
     def clear_feature_hooks(self) -> None:
@@ -2428,8 +2443,8 @@ class ModernApp(ctk.CTk):
             self.btn_run.configure(
                 state="disabled",
                 text="Processing...",
-                fg_color=("gray70", "#444444"),
-                hover_color=("gray70", "#444444"),
+                fg_color=UI_COLOR_SECONDARY_BG,
+                hover_color=UI_COLOR_SECONDARY_BG,
             )
         else:
             self.btn_run.configure(
@@ -2444,8 +2459,8 @@ class ModernApp(ctk.CTk):
             self.btn_run.configure(
                 state="disabled",
                 text="Batch Running...",
-                fg_color=("gray70", "#444444"),
-                hover_color=("gray70", "#444444"),
+                fg_color=UI_COLOR_SECONDARY_BG,
+                hover_color=UI_COLOR_SECONDARY_BG,
             )
         else:
             self.set_run_button_processing(False)
@@ -3233,7 +3248,7 @@ class ModernApp(ctk.CTk):
         ssim_value: Optional[float],
     ) -> None:
         if psnr_value is None or ssim_value is None:
-            neutral = ("gray20", "gray70")
+            neutral = UI_COLOR_TEXT_MUTED
             self.psnr_var.set("PSNR: --")
             self.ssim_var.set("SSIM: --")
             psnr_label.configure(text_color=neutral)
@@ -3241,8 +3256,8 @@ class ModernApp(ctk.CTk):
             return
         self.psnr_var.set(f"PSNR: {psnr_value:.2f} dB")
         self.ssim_var.set(f"SSIM: {ssim_value:.4f}")
-        psnr_label.configure(text_color="#2CC985")
-        ssim_label.configure(text_color="#2CC985")
+        psnr_label.configure(text_color=UI_COLOR_PRIMARY)
+        ssim_label.configure(text_color=UI_COLOR_PRIMARY)
 
     def calculate_metrics(self) -> None:
         with self._state_lock:

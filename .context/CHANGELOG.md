@@ -1,5 +1,17 @@
 # Changelog
 
+- 2026-02-24: UI 美化第五轮 — 极简科技风 (Linear/Vercel 风格)。
+  - 配色重构：去掉蓝色强调色，全局改为绿色唯一强调 + 黑白灰。
+  - 颜色常量全部更新为新调色板（#FAFAFA/#0A0A0A 背景、#171717/#EDEDED 文字等）。
+  - Open Image / Save Result 按钮从蓝色改为灰色次级风格。
+  - Switch 开启态从蓝色改为绿色 #10B981。
+  - 进度条细线化：height 4px + 绿色填充 + 圆角 2px。
+  - 图像面板添加 8px 圆角 + 1px 极简边框。
+  - 工具栏圆角统一为 8px。
+  - 状态栏背景与主背景统一，文字改为次级色。
+  - 侧栏标题区紧凑化，卡片标题保留 bold 但用 #737373 次级色。
+  - 为 9 个操作按钮添加 Tooltip 悬浮提示。
+
 - 2026-02-24: Evaluation continues when LPIPS is unavailable; LPIPS is optional (N/A) while PSNR/SSIM/FID still compute.
 - 2026-02-24: ASAConv analysis script hardening (image read/gray handling, no-grad weight extraction, safe modulation shape).
 
