@@ -897,7 +897,7 @@ class ModernApp(ctk.CTk):
             font=ctk.CTkFont(size=24, weight="bold"),
             text_color=UI_COLOR_TEXT_PRIMARY,
         )
-        self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 6))
+        self.logo_label.grid(row=0, column=0, padx=20, pady=(16, 4))
 
         # === Card: Input ===
         self._card_input, cr = self._make_card(self.sidebar, 1, "Input")
@@ -1176,7 +1176,7 @@ class ModernApp(ctk.CTk):
             border_width=0,
             height=36,
         )
-        self.btn_cancel.grid(row=cr + 2, column=0, padx=12, pady=(4, 10), sticky="ew")
+        self.btn_cancel.grid(row=cr + 2, column=0, padx=12, pady=(4, 8), sticky="ew")
         self.btn_cancel.configure(
             state="disabled", text_color_disabled=UI_COLOR_TEXT_MUTED
         )
@@ -1210,12 +1210,14 @@ class ModernApp(ctk.CTk):
 
         # Image Containers
         self.frame_input = ctk.CTkFrame(
-            self.display_frame, fg_color=UI_COLOR_IMAGE_BG
+            self.display_frame, fg_color=UI_COLOR_IMAGE_BG,
+            corner_radius=8, border_width=1, border_color=UI_COLOR_CARD_BORDER,
         )
         self.frame_input.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
 
         self.frame_output = ctk.CTkFrame(
-            self.display_frame, fg_color=UI_COLOR_IMAGE_BG
+            self.display_frame, fg_color=UI_COLOR_IMAGE_BG,
+            corner_radius=8, border_width=1, border_color=UI_COLOR_CARD_BORDER,
         )
         self.frame_output.grid(row=2, column=1, sticky="nsew", padx=5, pady=5)
 
@@ -1286,7 +1288,7 @@ class ModernApp(ctk.CTk):
         self.bind_image_interactions()
 
         # === 2b. Results Toolbar (below images) — buttons only, evenly spaced ===
-        self.results_toolbar = ctk.CTkFrame(self, corner_radius=6)
+        self.results_toolbar = ctk.CTkFrame(self, corner_radius=8)
         self.results_toolbar.grid(row=1, column=1, sticky="ew", padx=20, pady=(0, 5))
         for col in range(4):
             self.results_toolbar.grid_columnconfigure(col, weight=1)
@@ -1335,24 +1337,38 @@ class ModernApp(ctk.CTk):
         self.btn_save.configure(text_color_disabled=UI_COLOR_TEXT_MUTED)
 
         # === 3. Status Bar (Bottom) ===
-        self.status_frame = ctk.CTkFrame(self, height=30, corner_radius=0)
+        self.status_frame = ctk.CTkFrame(self, height=30, corner_radius=0, fg_color=UI_COLOR_BG)
         self.status_frame.grid(row=2, column=1, sticky="ew")
 
         self.status_label = ctk.CTkLabel(self.status_frame, text="Ready", padx=10, width=400, anchor="w",
-                                         fg_color=self.status_frame.cget("fg_color"))
+                                         fg_color=UI_COLOR_BG, text_color=UI_COLOR_TEXT_MUTED)
         self.status_label.pack(side="left")
 
         # Determinate Progress Bar
         self.progress_bar = ctk.CTkProgressBar(
-            self.status_frame, width=300, mode="determinate"
+            self.status_frame, width=300, height=4, mode="determinate",
+            progress_color=UI_COLOR_PRIMARY,
+            fg_color=UI_COLOR_SECONDARY_BG,
+            corner_radius=2,
         )
         self.progress_bar.pack(side="right", padx=20, pady=5)
         self.elapsed_label = ctk.CTkLabel(
             self.status_frame, text="Elapsed: --", padx=10,
-            fg_color=self.status_frame.cget("fg_color"),
+            fg_color=UI_COLOR_BG, text_color=UI_COLOR_TEXT_MUTED,
         )
         self.elapsed_label.pack(side="right")
         self.progress_bar.set(0)
+
+        # --- Tooltips ---
+        ToolTip(self.btn_load, "Open an image file for super-resolution")
+        ToolTip(self.btn_gt, "Load ground truth image for quality metrics")
+        ToolTip(self.btn_run, "Start the super-resolution process")
+        ToolTip(self.btn_batch, "Process all images in a folder")
+        ToolTip(self.btn_cancel, "Cancel the current operation")
+        ToolTip(self.btn_compare, "Save side-by-side comparison image")
+        ToolTip(self.btn_features, "Export feature map visualizations")
+        ToolTip(self.btn_open_run_dir, "Open the output folder in file explorer")
+        ToolTip(self.btn_save, "Save the processed result to disk")
 
     # --- Feature Extraction Hooks ---
     def clear_feature_hooks(self) -> None:
