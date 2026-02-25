@@ -21,8 +21,8 @@ UI_COLOR_SWITCH_OFF = ("#D4D4D4", "#404040")
 UI_COLOR_SWITCH_ON = "#10B981"
 
 # --- 尺寸常量 ---
-UI_SIDEBAR_WIDTH = 240
-UI_WINDOW_WIDTH = 1300
+UI_SIDEBAR_WIDTH = 280
+UI_WINDOW_WIDTH = 1340
 UI_WINDOW_HEIGHT = 900
 
 
@@ -156,15 +156,6 @@ def generate_stylesheet(dark: bool = False) -> str:
     QCheckBox {{
         color: {text_primary};
         spacing: 6px;
-    }}
-    QCheckBox::indicator {{
-        width: 36px;
-        height: 20px;
-        border-radius: 10px;
-        background-color: {switch_off};
-    }}
-    QCheckBox::indicator:checked {{
-        background-color: {UI_COLOR_PRIMARY};
     }}
     QToolTip {{
         background-color: #1A1A1A;
