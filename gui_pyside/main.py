@@ -125,7 +125,8 @@ class MainWindow(QMainWindow):
 
         # Restore dark mode toggle state
         if self._dark_mode:
-            self.sidebar.chk_dark_mode.setChecked(True)
+            self.sidebar.set_dark_mode(True)
+            self.sidebar.refresh_icons()
 
     def _connect_signals(self) -> None:
         sb = self.sidebar
@@ -262,8 +263,11 @@ class MainWindow(QMainWindow):
     def _toggle_dark_mode(self, dark: bool) -> None:
         self._dark_mode = dark
         set_dark_mode(dark)
-        self.setStyleSheet(generate_stylesheet(dark=dark))
         clear_icon_cache()
+        self.setStyleSheet(generate_stylesheet(dark=dark))
+        self.sidebar.set_dark_mode(dark)
+        self.sidebar.refresh_icons()
+        self.display.refresh_icons()
         self.display.update_overlay_color(dark)
         self._save_config()
 

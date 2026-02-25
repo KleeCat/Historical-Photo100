@@ -99,6 +99,9 @@ def generate_stylesheet(dark: bool = False) -> str:
     QScrollArea#sidebar > QWidget {{
         background-color: {sidebar_bg};
     }}
+    QWidget#sidebarContainer {{
+        background-color: {sidebar_bg};
+    }}
 
     /* === 卡片 === */
     QFrame#card {{

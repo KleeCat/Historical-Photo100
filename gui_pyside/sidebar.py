@@ -84,11 +84,16 @@ class SidebarWidget(QScrollArea):
         lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
         title_row.addWidget(lbl, stretch=1)
 
-        self.chk_dark_mode = ToggleSwitch("")
-        self.chk_dark_mode.toggled.connect(self.dark_mode_toggled)
-        title_row.addWidget(self.chk_dark_mode)
+        self.btn_dark_mode = QPushButton()
+        self.btn_dark_mode.setIcon(load_icon("moon", size=16))
+        self.btn_dark_mode.setFixedSize(32, 32)
+        self.btn_dark_mode.setStyleSheet("border: none; background: transparent; padding: 0px;")
+        self.btn_dark_mode.setToolTip("Toggle dark mode")
+        self.btn_dark_mode.clicked.connect(self._on_dark_mode_clicked)
+        title_row.addWidget(self.btn_dark_mode)
 
         self._layout.addLayout(title_row)
+        self._is_dark = False
 
     # --- Input Card ---
     def _build_input_card(self) -> None:
@@ -419,3 +424,22 @@ class SidebarWidget(QScrollArea):
         # Scroll to end so the most useful part (folder name) is visible
         self.entry_output_dir.setCursorPosition(len(path))
         self.entry_output_dir.setReadOnly(True)
+
+    def _on_dark_mode_clicked(self) -> None:
+        self._is_dark = not self._is_dark
+        self.dark_mode_toggled.emit(self._is_dark)
+
+    def set_dark_mode(self, dark: bool) -> None:
+        """从外部设置暗色模式状态（如从 config 恢复）。"""
+        self._is_dark = dark
+
+    def refresh_icons(self) -> None:
+        """主题切换后重新加载所有图标。"""
+        icon_name = "sun" if self._is_dark else "moon"
+        self.btn_dark_mode.setIcon(load_icon(icon_name, size=16))
+        self.btn_open.setIcon(load_icon("folder-open"))
+        self.btn_gt.setIcon(load_icon("ruler"))
+        self.btn_output_dir.setIcon(load_icon("folder", size=14))
+        self.btn_start.setIcon(load_icon("play", "#FFFFFF"))
+        self.btn_batch.setIcon(load_icon("folders"))
+        self.btn_cancel.setIcon(load_icon("x"))
