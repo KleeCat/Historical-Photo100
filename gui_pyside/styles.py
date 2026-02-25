@@ -174,7 +174,6 @@ def generate_stylesheet(dark: bool = False) -> str:
         font-weight: 600;
     }}
     QPushButton#saveBtn:hover {{
-        opacity: 0.85;
         background-color: {secondary_text};
     }}
 
