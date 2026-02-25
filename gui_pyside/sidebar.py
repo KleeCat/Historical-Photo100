@@ -54,7 +54,8 @@ class SidebarWidget(QScrollArea):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setFixedWidth(UI_SIDEBAR_WIDTH + 16)
+        self.setMinimumWidth(UI_SIDEBAR_WIDTH)
+        self.setMaximumWidth(UI_SIDEBAR_WIDTH + 60)
         self.setWidgetResizable(True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 

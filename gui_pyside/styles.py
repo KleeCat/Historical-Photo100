@@ -204,9 +204,9 @@ class ToggleSwitch(QWidget):
         super().__init__(parent)
         self._checked = checked
         self._thumb_pos = 1.0 if checked else 0.0
-        self._track_w = 36
-        self._track_h = 20
-        self._thumb_r = 8
+        self._track_w = 44
+        self._track_h = 24
+        self._thumb_r = 10
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -276,7 +276,7 @@ class _ToggleTrack(QWidget):
 
         w, h = self.width(), self.height()
         r = h / 2.0
-        thumb_r = 8
+        thumb_r = 10
         margin = 2
         pos = self._switch._thumb_pos  # 0.0 ~ 1.0
 
