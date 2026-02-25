@@ -60,7 +60,7 @@ class SidebarWidget(QScrollArea):
 
         container = QWidget()
         self._layout = QVBoxLayout(container)
-        self._layout.setContentsMargins(8, 8, 8, 8)
+        self._layout.setContentsMargins(4, 8, 4, 8)
         self._layout.setSpacing(8)
         self.setWidget(container)
 

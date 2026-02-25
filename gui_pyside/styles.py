@@ -48,17 +48,22 @@ def generate_stylesheet(dark: bool = False) -> str:
     switch_off = c(UI_COLOR_SWITCH_OFF, dark)
 
     return f"""
-    QMainWindow, QWidget {{
+    QMainWindow {{
         background-color: {bg};
+    }}
+    * {{
         color: {text_primary};
         font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
         font-size: 12px;
+    }}
+    QWidget#centralWidget, QScrollArea, QFrame {{
+        background-color: {bg};
     }}
     QFrame#card {{
         background-color: {card_bg};
         border: 1px solid {card_border};
         border-radius: 8px;
-        padding: 8px;
+        padding: 4px;
     }}
     QLabel {{
         color: {text_primary};
@@ -269,6 +274,8 @@ class _ToggleTrack(QWidget):
     def __init__(self, switch: ToggleSwitch) -> None:
         super().__init__(switch)
         self._switch = switch
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        self.setStyleSheet("background: transparent;")
 
     def paintEvent(self, event) -> None:
         p = QPainter(self)
