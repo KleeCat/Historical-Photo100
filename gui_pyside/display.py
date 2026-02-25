@@ -4,7 +4,7 @@ ImagePanel(QGraphicsView) — 单个图像面板，内置缩放/平移。
 ImageDisplayWidget(QWidget) — 双面板容器 + 工具栏。
 """
 import numpy as np
-from PySide6.QtCore import Qt, Signal, QRectF, QEvent
+from PySide6.QtCore import Qt, Signal, QRectF
 from PySide6.QtGui import QPixmap, QWheelEvent, QMouseEvent, QPainter
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -159,16 +159,19 @@ class ImageDisplayWidget(QWidget):
         panels_row.addWidget(self.panel_output, stretch=1)
         layout.addLayout(panels_row, stretch=1)
 
-        # Output overlay
-        self._overlay = QLabel("Waiting for processing...", self.panel_output.viewport())
+        # Output overlay — use a layout on viewport for auto-centering
+        viewport = self.panel_output.viewport()
+        overlay_layout = QVBoxLayout(viewport)
+        overlay_layout.setContentsMargins(0, 0, 0, 0)
+        self._overlay = QLabel("Waiting for processing...")
         self._overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._overlay.setStyleSheet(
-            f"background-color: {UI_COLOR_SECONDARY_BG[0]}; "
+            f"background-color: transparent; "
             f"color: {UI_COLOR_TEXT_MUTED[0]}; "
-            f"font-size: 14px; font-weight: bold; border-radius: 8px;"
+            f"font-size: 14px; font-weight: bold;"
         )
         self._overlay.setVisible(True)
-        self.panel_output.viewport().installEventFilter(self)
+        overlay_layout.addWidget(self._overlay)
 
         # Resolution labels
         res_row = QHBoxLayout()
@@ -239,15 +242,6 @@ class ImageDisplayWidget(QWidget):
     def _sync_input_zoom(self, zoom: float, cx: float, cy: float) -> None:
         self.panel_input.sync_transform(zoom, cx, cy)
 
-    def eventFilter(self, obj, event):
-        if obj is self.panel_output.viewport() and event.type() == QEvent.Type.Resize:
-            self._update_overlay_geometry()
-        return super().eventFilter(obj, event)
-
-    def _update_overlay_geometry(self) -> None:
-        if self._overlay.isVisible():
-            self._overlay.setGeometry(self.panel_output.viewport().rect())
-
     # --- Public API ---
 
     def show_input(self, img_bgr: np.ndarray, filename: str = "") -> None:
@@ -273,7 +267,6 @@ class ImageDisplayWidget(QWidget):
     def show_overlay(self, text: str = "Waiting for processing...") -> None:
         self._overlay.setText(text)
         self._overlay.setVisible(True)
-        self._update_overlay_geometry()
 
     def hide_overlay(self) -> None:
         self._overlay.setVisible(False)
