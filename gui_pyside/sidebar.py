@@ -340,6 +340,8 @@ class SidebarWidget(QScrollArea):
         else:
             self.btn_start.setText("Start Restoration")
             self.btn_start.setIcon(load_icon("play", "#FFFFFF"))
+            self.btn_cancel.setText("Cancel")
+            self.btn_cancel.setIcon(load_icon("x"))
 
     def set_batch_state(self, running: bool) -> None:
         """切换批处理状态。"""
@@ -349,6 +351,11 @@ class SidebarWidget(QScrollArea):
         if running:
             self.btn_start.setText("Batch Processing...")
             self.btn_start.setIcon(QIcon())
+        else:
+            self.btn_start.setText("Start Restoration")
+            self.btn_start.setIcon(load_icon("play", "#FFFFFF"))
+            self.btn_cancel.setText("Cancel")
+            self.btn_cancel.setIcon(load_icon("x"))
 
     def set_cancel_state(self) -> None:
         """显示取消中状态。"""

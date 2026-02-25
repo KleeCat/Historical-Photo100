@@ -141,6 +141,7 @@ def generate_stylesheet(dark: bool = False) -> str:
     QPushButton#primary {{
         background-color: {UI_COLOR_PRIMARY};
         color: white;
+        border: none;
         font-size: 14px;
         font-weight: 700;
         border-radius: 10px;
@@ -154,6 +155,7 @@ def generate_stylesheet(dark: bool = False) -> str:
     QPushButton#danger {{
         background-color: {UI_COLOR_DANGER};
         color: white;
+        border: none;
     }}
     QPushButton#danger:hover {{
         background-color: {UI_COLOR_DANGER_HOVER};
