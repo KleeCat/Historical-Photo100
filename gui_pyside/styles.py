@@ -8,35 +8,51 @@ UI_COLOR_DANGER = "#EF4444"
 UI_COLOR_DANGER_HOVER = "#DC2626"
 UI_COLOR_DANGER_MUTED = "#6B4C4A"
 UI_COLOR_DANGER_MUTED_HOVER = "#7D5553"
-UI_COLOR_SECTION_TEXT = ("#737373", "#737373")
-UI_COLOR_CARD_BG = ("#FFFFFF", "#1C1C1E")
-UI_COLOR_CARD_BORDER = ("#E8E8ED", "#38383A")
-UI_COLOR_CARD_SHADOW = ("#D1D1D6", "#000000")
-UI_COLOR_BG = ("#F2F2F7", "#000000")
-UI_COLOR_SIDEBAR_BG = ("#EBEBF0", "#1C1C1E")
-UI_COLOR_SECONDARY_BG = ("#E5E5EA", "#2C2C2E")
-UI_COLOR_SECONDARY_HOVER = ("#D1D1D6", "#3A3A3C")
-UI_COLOR_SECONDARY_PRESSED = ("#C7C7CC", "#48484A")
-UI_COLOR_SECONDARY_TEXT = ("#3A3A3C", "#D1D1D6")
-UI_COLOR_TEXT_PRIMARY = ("#1C1C1E", "#F2F2F7")
-UI_COLOR_TEXT_MUTED = ("#8E8E93", "#8E8E93")
-UI_COLOR_IMAGE_BG = ("#E5E5EA", "#1C1C1E")
-UI_COLOR_SWITCH_OFF = ("#D1D1D6", "#48484A")
+UI_COLOR_SECTION_TEXT = ("#737373", "#A1A1AA")
+UI_COLOR_CARD_BG = ("#FFFFFF", "#171717")
+UI_COLOR_CARD_BORDER = ("#E8E8ED", "#262626")
+UI_COLOR_CARD_SHADOW = ("#D1D1D6", "#0A0A0A")
+UI_COLOR_BG = ("#F2F2F7", "#0A0A0A")
+UI_COLOR_SIDEBAR_BG = ("#EBEBF0", "#171717")
+UI_COLOR_SECONDARY_BG = ("#E5E5EA", "#1E1E1E")
+UI_COLOR_SECONDARY_HOVER = ("#D1D1D6", "#2A2A2A")
+UI_COLOR_SECONDARY_PRESSED = ("#C7C7CC", "#333333")
+UI_COLOR_SECONDARY_TEXT = ("#3A3A3C", "#EDEDED")
+UI_COLOR_TEXT_PRIMARY = ("#1C1C1E", "#EDEDED")
+UI_COLOR_TEXT_MUTED = ("#8E8E93", "#A1A1AA")
+UI_COLOR_IMAGE_BG = ("#E5E5EA", "#0A0A0A")
+UI_COLOR_SWITCH_OFF = ("#D1D1D6", "#333333")
 UI_COLOR_SWITCH_ON = "#10B981"
-UI_COLOR_SEPARATOR = ("#C6C6C8", "#38383A")
+UI_COLOR_SEPARATOR = ("#C6C6C8", "#262626")
 UI_COLOR_INPUT_FOCUS = "#10B981"
-UI_COLOR_BTN_BORDER = ("#E5E5EA", "#38383A")
-UI_COLOR_SAVE_BG = ("#1C1C1E", "#F2F2F7")
-UI_COLOR_SAVE_TEXT = ("#FFFFFF", "#1C1C1E")
+UI_COLOR_BTN_BORDER = ("#E5E5EA", "#262626")
+UI_COLOR_SAVE_BG = ("#1C1C1E", "#FFFFFF")
+UI_COLOR_SAVE_TEXT = ("#FFFFFF", "#171717")
 
 # --- 尺寸常量 ---
 UI_SIDEBAR_WIDTH = 300
 UI_WINDOW_WIDTH = 1400
 UI_WINDOW_HEIGHT = 920
 
+# --- 全局暗色模式状态 ---
+_dark_mode = False
 
-def c(color_tuple, dark=False):
+
+def set_dark_mode(dark: bool) -> None:
+    """设置全局暗色模式状态。"""
+    global _dark_mode
+    _dark_mode = dark
+
+
+def is_dark_mode() -> bool:
+    """获取当前暗色模式状态。"""
+    return _dark_mode
+
+
+def c(color_tuple, dark=None):
     """从 (light, dark) 元组中选择颜色。"""
+    if dark is None:
+        dark = _dark_mode
     if isinstance(color_tuple, tuple):
         return color_tuple[1] if dark else color_tuple[0]
     return color_tuple
@@ -83,6 +99,9 @@ def generate_stylesheet(dark: bool = False) -> str:
         border-right: 1px solid {separator};
     }}
     QScrollArea#sidebar > QWidget {{
+        background-color: {sidebar_bg};
+    }}
+    QWidget#sidebarContainer {{
         background-color: {sidebar_bg};
     }}
 
@@ -429,10 +448,7 @@ class _ToggleTrack(QWidget):
         if self._switch._checked or pos > 0.5:
             track_color = QColor(UI_COLOR_PRIMARY)
         else:
-            off_color = UI_COLOR_SWITCH_OFF
-            if isinstance(off_color, tuple):
-                off_color = off_color[0]
-            track_color = QColor(off_color)
+            track_color = QColor(c(UI_COLOR_SWITCH_OFF, _dark_mode))
 
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(track_color)

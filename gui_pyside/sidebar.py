@@ -52,6 +52,7 @@ class SidebarWidget(QScrollArea):
     start_clicked = Signal()
     batch_clicked = Signal()
     cancel_clicked = Signal()
+    dark_mode_toggled = Signal(bool)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -76,11 +77,23 @@ class SidebarWidget(QScrollArea):
 
     # --- Title ---
     def _build_title(self) -> None:
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(4, 0, 0, 2)
         lbl = QLabel("Super Resolution")
         lbl.setObjectName("title")
         lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        lbl.setContentsMargins(4, 0, 0, 2)
-        self._layout.addWidget(lbl)
+        title_row.addWidget(lbl, stretch=1)
+
+        self.btn_dark_mode = QPushButton()
+        self.btn_dark_mode.setIcon(load_icon("moon", size=16))
+        self.btn_dark_mode.setFixedSize(32, 32)
+        self.btn_dark_mode.setStyleSheet("border: none; background: transparent; padding: 0px;")
+        self.btn_dark_mode.setToolTip("Toggle dark mode")
+        self.btn_dark_mode.clicked.connect(self._on_dark_mode_clicked)
+        title_row.addWidget(self.btn_dark_mode)
+
+        self._layout.addLayout(title_row)
+        self._is_dark = False
 
     # --- Input Card ---
     def _build_input_card(self) -> None:
@@ -411,3 +424,22 @@ class SidebarWidget(QScrollArea):
         # Scroll to end so the most useful part (folder name) is visible
         self.entry_output_dir.setCursorPosition(len(path))
         self.entry_output_dir.setReadOnly(True)
+
+    def _on_dark_mode_clicked(self) -> None:
+        self._is_dark = not self._is_dark
+        self.dark_mode_toggled.emit(self._is_dark)
+
+    def set_dark_mode(self, dark: bool) -> None:
+        """从外部设置暗色模式状态（如从 config 恢复）。"""
+        self._is_dark = dark
+
+    def refresh_icons(self) -> None:
+        """主题切换后重新加载所有图标。"""
+        icon_name = "sun" if self._is_dark else "moon"
+        self.btn_dark_mode.setIcon(load_icon(icon_name, size=16))
+        self.btn_open.setIcon(load_icon("folder-open"))
+        self.btn_gt.setIcon(load_icon("ruler"))
+        self.btn_output_dir.setIcon(load_icon("folder", size=14))
+        self.btn_start.setIcon(load_icon("play", "#FFFFFF"))
+        self.btn_batch.setIcon(load_icon("folders"))
+        self.btn_cancel.setIcon(load_icon("x"))

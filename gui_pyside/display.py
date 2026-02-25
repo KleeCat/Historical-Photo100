@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from .icon_helper import load_icon
-from .styles import UI_COLOR_TEXT_MUTED, UI_COLOR_SECONDARY_BG
+from .styles import UI_COLOR_TEXT_MUTED, UI_COLOR_SECONDARY_BG, c, is_dark_mode
 from .utils import numpy_to_qpixmap
 
 
@@ -167,7 +167,7 @@ class ImageDisplayWidget(QWidget):
         self._overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._overlay.setStyleSheet(
             f"background-color: transparent; "
-            f"color: {UI_COLOR_TEXT_MUTED[0]}; "
+            f"color: {c(UI_COLOR_TEXT_MUTED)}; "
             f"font-size: 14px; font-weight: bold;"
         )
         self._overlay.setVisible(False)
@@ -303,6 +303,22 @@ class ImageDisplayWidget(QWidget):
         self._compare_split = value
         if self._compare_mode:
             self._update_compare_view()
+
+    def update_overlay_color(self, dark: bool) -> None:
+        color = c(UI_COLOR_TEXT_MUTED, dark)
+        self._overlay.setStyleSheet(
+            f"background-color: transparent; "
+            f"color: {color}; "
+            f"font-size: 14px; font-weight: bold;"
+        )
+
+    def refresh_icons(self) -> None:
+        """主题切换后重新加载所有工具栏图标。"""
+        self.btn_compare.setIcon(load_icon("columns-2", size=14))
+        self.btn_features.setIcon(load_icon("brain", size=14))
+        self.btn_open_folder.setIcon(load_icon("folder-open", size=14))
+        save_icon_color = "#171717" if is_dark_mode() else "#FFFFFF"
+        self.btn_save.setIcon(load_icon("save", save_icon_color, size=14))
 
     def _update_compare_view(self) -> None:
         """Update split-view clipping on the output panel."""

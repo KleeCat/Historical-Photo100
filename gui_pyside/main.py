@@ -26,7 +26,8 @@ from .processing import (
 )
 from .sidebar import SidebarWidget
 from .statusbar import StatusBarWidget
-from .styles import generate_stylesheet, UI_WINDOW_WIDTH, UI_WINDOW_HEIGHT
+from .styles import generate_stylesheet, UI_WINDOW_WIDTH, UI_WINDOW_HEIGHT, c, UI_COLOR_TEXT_PRIMARY, set_dark_mode
+from .icon_helper import clear_cache as clear_icon_cache
 from .utils import (
     ensure_dir, read_image, save_image, safe_basename, timestamp_str,
     write_json_file,
@@ -76,12 +77,14 @@ class MainWindow(QMainWindow):
         self._natural_blend = 0.0
         self._texture_boost = 0.08
         self._film_grain = 0.0
+        self._dark_mode = False
+
+        # Load config (may set _dark_mode)
+        self._load_config()
+        set_dark_mode(self._dark_mode)
 
         # Apply stylesheet
-        self.setStyleSheet(generate_stylesheet(dark=False))
-
-        # Load config
-        self._load_config()
+        self.setStyleSheet(generate_stylesheet(dark=self._dark_mode))
 
         # Build UI
         self._build_ui()
@@ -120,6 +123,13 @@ class MainWindow(QMainWindow):
         if self.default_output_dir:
             self.sidebar.set_output_dir_text(self.default_output_dir)
 
+        # Restore dark mode toggle state
+        if self._dark_mode:
+            self.sidebar.set_dark_mode(True)
+            self.sidebar.refresh_icons()
+            self.display.refresh_icons()
+            self.display.update_overlay_color(True)
+
     def _connect_signals(self) -> None:
         sb = self.sidebar
         sb.open_image_clicked.connect(self.open_image)
@@ -137,6 +147,7 @@ class MainWindow(QMainWindow):
         sb.start_clicked.connect(self.start_processing)
         sb.batch_clicked.connect(self.run_batch)
         sb.cancel_clicked.connect(self._cancel_processing)
+        sb.dark_mode_toggled.connect(self._toggle_dark_mode)
 
         dp = self.display
         dp.comparison_clicked.connect(self.save_comparison)
@@ -153,13 +164,17 @@ class MainWindow(QMainWindow):
             with open(self.config_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             self.default_output_dir = data.get("default_output_dir")
+            self._dark_mode = data.get("dark_mode", False)
         except Exception as e:
             logger.warning("Failed to load config: %s", e)
 
     def _save_config(self) -> None:
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
-                json.dump({"default_output_dir": self.default_output_dir}, f, indent=2)
+                json.dump({
+                    "default_output_dir": self.default_output_dir,
+                    "dark_mode": self._dark_mode,
+                }, f, indent=2)
         except Exception as e:
             logger.warning("Failed to save config: %s", e)
 
@@ -246,6 +261,17 @@ class MainWindow(QMainWindow):
 
     def _on_face_enhance_toggled(self, checked: bool) -> None:
         self._face_enhance = checked
+
+    def _toggle_dark_mode(self, dark: bool) -> None:
+        self._dark_mode = dark
+        set_dark_mode(dark)
+        clear_icon_cache()
+        self.setStyleSheet(generate_stylesheet(dark=dark))
+        self.sidebar.set_dark_mode(dark)
+        self.sidebar.refresh_icons()
+        self.display.refresh_icons()
+        self.display.update_overlay_color(dark)
+        self._save_config()
 
     # --- Processing ---
 

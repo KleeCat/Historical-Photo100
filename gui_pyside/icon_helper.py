@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, QByteArray
 from PySide6.QtGui import QIcon, QPixmap, QPainter
 from PySide6.QtSvg import QSvgRenderer
 
-from .styles import UI_COLOR_TEXT_PRIMARY
+from .styles import UI_COLOR_TEXT_PRIMARY, is_dark_mode
 
 _ICONS_DIR = Path(__file__).parent / "icons"
 _cache: dict[tuple[str, str, int], QIcon] = {}
@@ -25,7 +25,7 @@ def load_icon(name: str, color: str | None = None, size: int = 16) -> QIcon:
         size: 输出像素尺寸
     """
     if color is None:
-        color = UI_COLOR_TEXT_PRIMARY[0]
+        color = UI_COLOR_TEXT_PRIMARY[1] if is_dark_mode() else UI_COLOR_TEXT_PRIMARY[0]
 
     key = (name, color, size)
     if key in _cache:
@@ -48,11 +48,6 @@ def load_icon(name: str, color: str | None = None, size: int = 16) -> QIcon:
     icon = QIcon(pixmap)
     _cache[key] = icon
     return icon
-
-
-def load_icon_dark(name: str, size: int = 16) -> QIcon:
-    """加载暗色模式图标（使用暗色文字色）。"""
-    return load_icon(name, UI_COLOR_TEXT_PRIMARY[1], size)
 
 
 def clear_cache() -> None:
