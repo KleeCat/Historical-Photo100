@@ -52,6 +52,7 @@ class SidebarWidget(QScrollArea):
     start_clicked = Signal()
     batch_clicked = Signal()
     cancel_clicked = Signal()
+    dark_mode_toggled = Signal(bool)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -76,11 +77,18 @@ class SidebarWidget(QScrollArea):
 
     # --- Title ---
     def _build_title(self) -> None:
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(4, 0, 0, 2)
         lbl = QLabel("Super Resolution")
         lbl.setObjectName("title")
         lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        lbl.setContentsMargins(4, 0, 0, 2)
-        self._layout.addWidget(lbl)
+        title_row.addWidget(lbl, stretch=1)
+
+        self.chk_dark_mode = ToggleSwitch("")
+        self.chk_dark_mode.toggled.connect(self.dark_mode_toggled)
+        title_row.addWidget(self.chk_dark_mode)
+
+        self._layout.addLayout(title_row)
 
     # --- Input Card ---
     def _build_input_card(self) -> None:

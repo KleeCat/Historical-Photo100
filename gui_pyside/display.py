@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from .icon_helper import load_icon
-from .styles import UI_COLOR_TEXT_MUTED, UI_COLOR_SECONDARY_BG
+from .styles import UI_COLOR_TEXT_MUTED, UI_COLOR_SECONDARY_BG, c
 from .utils import numpy_to_qpixmap
 
 
@@ -167,7 +167,7 @@ class ImageDisplayWidget(QWidget):
         self._overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._overlay.setStyleSheet(
             f"background-color: transparent; "
-            f"color: {UI_COLOR_TEXT_MUTED[0]}; "
+            f"color: {c(UI_COLOR_TEXT_MUTED)}; "
             f"font-size: 14px; font-weight: bold;"
         )
         self._overlay.setVisible(False)
@@ -303,6 +303,14 @@ class ImageDisplayWidget(QWidget):
         self._compare_split = value
         if self._compare_mode:
             self._update_compare_view()
+
+    def update_overlay_color(self, dark: bool) -> None:
+        color = c(UI_COLOR_TEXT_MUTED, dark)
+        self._overlay.setStyleSheet(
+            f"background-color: transparent; "
+            f"color: {color}; "
+            f"font-size: 14px; font-weight: bold;"
+        )
 
     def _update_compare_view(self) -> None:
         """Update split-view clipping on the output panel."""
