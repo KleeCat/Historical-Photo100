@@ -7,6 +7,7 @@ Last update: 2026-02-25
   - Lucide SVG 图标替换所有彩色 Emoji（11 个 SVG + icon_helper.py）。
   - 底部工具栏去容器化 + Save 按钮深灰样式。
   - Toggle 缩小 44×24、按钮加边框、卡片间距增加。
+  - 修复 overlay 居中 + overlay/placeholder 联动可见性。
 
 - Apple 风格 UI 全面优化（分支 `feat/apple-style-ui`，PR #4）：
   - QSS 重写：12px 圆角卡片 + 阴影、侧栏独立背景 + 分割线、hover/pressed 状态。
