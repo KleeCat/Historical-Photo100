@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QFrame, QSizePolicy,
 )
 
-from .styles import UI_COLOR_TEXT_MUTED, UI_COLOR_SECONDARY_BG
+from .styles import UI_COLOR_TEXT_MUTED, UI_COLOR_SECONDARY_BG, UI_COLOR_CARD_BORDER
 from .utils import numpy_to_qpixmap
 
 
@@ -21,12 +21,22 @@ class ImagePanel(QGraphicsView):
 
     zoom_changed = Signal(float, float, float)  # (zoom_factor, cx, cy)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, placeholder_text: str = "", parent=None) -> None:
         super().__init__(parent)
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self._pixmap_item: QGraphicsPixmapItem | None = None
         self._zoom = 1.0
+
+        # Placeholder
+        self._placeholder = QLabel(self)
+        self._placeholder.setObjectName("panelPlaceholder")
+        self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._placeholder.setText(placeholder_text)
+        self._placeholder.setStyleSheet(
+            "background: transparent; color: #8E8E93; font-size: 14px;"
+        )
+        self._placeholder.setVisible(True)
 
         # Rendering
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
@@ -43,7 +53,9 @@ class ImagePanel(QGraphicsView):
         self._scene.clear()
         self._pixmap_item = None
         if img_bgr is None:
+            self._placeholder.setVisible(True)
             return
+        self._placeholder.setVisible(False)
         pixmap = numpy_to_qpixmap(img_bgr)
         self._pixmap_item = self._scene.addPixmap(pixmap)
         self._scene.setSceneRect(QRectF(pixmap.rect()))
@@ -54,7 +66,9 @@ class ImagePanel(QGraphicsView):
         self._scene.clear()
         self._pixmap_item = None
         if pixmap is None or pixmap.isNull():
+            self._placeholder.setVisible(True)
             return
+        self._placeholder.setVisible(False)
         self._pixmap_item = self._scene.addPixmap(pixmap)
         self._scene.setSceneRect(QRectF(pixmap.rect()))
         self.fit_in_view()
@@ -67,6 +81,7 @@ class ImagePanel(QGraphicsView):
     def clear_image(self) -> None:
         self._scene.clear()
         self._pixmap_item = None
+        self._placeholder.setVisible(True)
 
     def has_image(self) -> bool:
         return self._pixmap_item is not None
@@ -92,6 +107,7 @@ class ImagePanel(QGraphicsView):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        self._placeholder.setGeometry(self.rect())
         if self._pixmap_item is not None and self._zoom <= 1.0:
             self.fit_in_view()
 
@@ -139,8 +155,8 @@ class ImageDisplayWidget(QWidget):
         panels_row = QHBoxLayout()
         panels_row.setSpacing(10)
 
-        self.panel_input = ImagePanel()
-        self.panel_output = ImagePanel()
+        self.panel_input = ImagePanel("\U0001F5BC  Open an image to begin")
+        self.panel_output = ImagePanel("\u2728  Output will appear here")
         panels_row.addWidget(self.panel_input, stretch=1)
         panels_row.addWidget(self.panel_output, stretch=1)
         layout.addLayout(panels_row, stretch=1)
@@ -171,25 +187,29 @@ class ImageDisplayWidget(QWidget):
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(6, 6, 6, 6)
 
-        self.btn_compare = QPushButton("Comparison")
+        self.btn_compare = QPushButton("\u2194  Comparison")
+        self.btn_compare.setObjectName("toolbarBtn")
         self.btn_compare.setToolTip("Save side-by-side comparison image")
         self.btn_compare.setEnabled(False)
         self.btn_compare.clicked.connect(self.comparison_clicked)
 
-        self.btn_features = QPushButton("Features")
+        self.btn_features = QPushButton("\U0001F9E0  Features")
+        self.btn_features.setObjectName("toolbarBtn")
         self.btn_features.setToolTip("Export feature map visualizations")
         self.btn_features.setEnabled(False)
         self.btn_features.clicked.connect(self.features_clicked)
 
-        self.btn_open_folder = QPushButton("Open Folder")
+        self.btn_open_folder = QPushButton("\U0001F4C2  Open Folder")
+        self.btn_open_folder.setObjectName("toolbarBtn")
         self.btn_open_folder.setToolTip("Open the output folder in file explorer")
         self.btn_open_folder.setEnabled(False)
         self.btn_open_folder.clicked.connect(self.open_folder_clicked)
 
-        self.btn_save = QPushButton("Save Result")
+        self.btn_save = QPushButton("\U0001F4BE  Save Result")
+        self.btn_save.setObjectName("toolbarBtn")
         self.btn_save.setToolTip("Save the processed result to disk")
         self.btn_save.setEnabled(False)
-        self.btn_save.setStyleSheet("font-weight: bold; font-size: 13px;")
+        self.btn_save.setStyleSheet("font-weight: 700; font-size: 13px;")
         self.btn_save.clicked.connect(self.save_clicked)
 
         for btn in (self.btn_compare, self.btn_features, self.btn_open_folder, self.btn_save):

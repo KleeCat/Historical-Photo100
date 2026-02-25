@@ -105,8 +105,8 @@ class MainWindow(QMainWindow):
 
         # Right side: display + statusbar
         right = QVBoxLayout()
-        right.setContentsMargins(20, 10, 20, 5)
-        right.setSpacing(5)
+        right.setContentsMargins(16, 12, 16, 8)
+        right.setSpacing(8)
 
         self.display = ImageDisplayWidget()
         right.addWidget(self.display, stretch=1)
