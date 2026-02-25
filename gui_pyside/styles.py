@@ -195,3 +195,119 @@ def generate_stylesheet(dark: bool = False) -> str:
         border-radius: 8px;
     }}
     """
+
+
+# --- ToggleSwitch 自定义控件 ---
+
+from PySide6.QtCore import Qt, Signal, QPropertyAnimation, Property, QEasingCurve, QRectF
+from PySide6.QtGui import QPainter, QColor, QPen
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QSizePolicy
+
+
+class ToggleSwitch(QWidget):
+    """iOS 风格的 toggle 开关按钮。"""
+
+    toggled = Signal(bool)
+
+    def __init__(self, text: str = "", checked: bool = False, parent=None) -> None:
+        super().__init__(parent)
+        self._checked = checked
+        self._thumb_pos = 1.0 if checked else 0.0
+        self._track_w = 36
+        self._track_h = 20
+        self._thumb_r = 8
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        # Track area (painted manually)
+        self._track = _ToggleTrack(self)
+        self._track.setFixedSize(self._track_w, self._track_h)
+        self._track.clicked.connect(self.toggle)
+        layout.addWidget(self._track)
+
+        if text:
+            self._label = QLabel(text)
+            self._label.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._label.mousePressEvent = lambda e: self.toggle()
+            layout.addWidget(self._label)
+
+        layout.addStretch()
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        # Animation
+        self._anim = QPropertyAnimation(self, b"thumb_pos")
+        self._anim.setDuration(150)
+        self._anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+    def isChecked(self) -> bool:
+        return self._checked
+
+    def setChecked(self, val: bool) -> None:
+        if val == self._checked:
+            return
+        self._checked = val
+        self._animate(val)
+        self.toggled.emit(val)
+
+    def toggle(self) -> None:
+        self.setChecked(not self._checked)
+
+    def _get_thumb_pos(self) -> float:
+        return self._thumb_pos
+
+    def _set_thumb_pos(self, val: float) -> None:
+        self._thumb_pos = val
+        self._track.update()
+
+    thumb_pos = Property(float, _get_thumb_pos, _set_thumb_pos)
+
+    def _animate(self, on: bool) -> None:
+        self._anim.stop()
+        self._anim.setStartValue(self._thumb_pos)
+        self._anim.setEndValue(1.0 if on else 0.0)
+        self._anim.start()
+
+
+class _ToggleTrack(QWidget):
+    """ToggleSwitch 的轨道绘制区域。"""
+
+    clicked = Signal()
+
+    def __init__(self, switch: ToggleSwitch) -> None:
+        super().__init__(switch)
+        self._switch = switch
+
+    def paintEvent(self, event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        w, h = self.width(), self.height()
+        r = h / 2.0
+        thumb_r = 8
+        margin = 2
+        pos = self._switch._thumb_pos  # 0.0 ~ 1.0
+
+        # Track
+        if self._switch._checked or pos > 0.5:
+            track_color = QColor(UI_COLOR_PRIMARY)
+        else:
+            off_color = UI_COLOR_SWITCH_OFF
+            if isinstance(off_color, tuple):
+                off_color = off_color[0]
+            track_color = QColor(off_color)
+
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(track_color)
+        p.drawRoundedRect(QRectF(0, 0, w, h), r, r)
+
+        # Thumb
+        thumb_x = margin + pos * (w - 2 * margin - 2 * thumb_r) + thumb_r
+        thumb_y = h / 2.0
+        p.setBrush(QColor("white"))
+        p.drawEllipse(QRectF(thumb_x - thumb_r, thumb_y - thumb_r, thumb_r * 2, thumb_r * 2))
+        p.end()
+
+    def mousePressEvent(self, event) -> None:
+        self.clicked.emit()

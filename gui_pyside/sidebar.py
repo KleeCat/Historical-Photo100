@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 
 from .styles import (
     UI_SIDEBAR_WIDTH, UI_COLOR_PRIMARY, UI_COLOR_PRIMARY_HOVER,
-    UI_COLOR_DANGER, UI_COLOR_SECONDARY_BG,
+    UI_COLOR_DANGER, UI_COLOR_SECONDARY_BG, ToggleSwitch,
 )
 
 
@@ -123,12 +123,12 @@ class SidebarWidget(QScrollArea):
         lay.addLayout(dir_row)
 
         # Face Enhancement toggle
-        self.chk_face = QCheckBox("Face Enhancement")
+        self.chk_face = ToggleSwitch("Face Enhancement")
         self.chk_face.toggled.connect(self._on_face_toggled)
         lay.addWidget(self.chk_face)
 
         # Scratch Repair toggle
-        self.chk_scratch = QCheckBox("Scratch Repair")
+        self.chk_scratch = ToggleSwitch("Scratch Repair")
         self.chk_scratch.toggled.connect(self.scratch_repair_toggled)
         lay.addWidget(self.chk_scratch)
 
@@ -219,7 +219,7 @@ class SidebarWidget(QScrollArea):
 
         # Compare controls
         compare_row = QHBoxLayout()
-        self.chk_compare = QCheckBox("Compare")
+        self.chk_compare = ToggleSwitch("Compare")
         self.chk_compare.toggled.connect(self._on_compare_toggled)
         compare_row.addWidget(self.chk_compare)
 
