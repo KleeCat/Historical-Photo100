@@ -4,7 +4,7 @@ ImagePanel(QGraphicsView) — 单个图像面板，内置缩放/平移。
 ImageDisplayWidget(QWidget) — 双面板容器 + 工具栏。
 """
 import numpy as np
-from PySide6.QtCore import Qt, Signal, QRectF
+from PySide6.QtCore import Qt, Signal, QRectF, QEvent
 from PySide6.QtGui import QPixmap, QWheelEvent, QMouseEvent, QPainter
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -160,7 +160,7 @@ class ImageDisplayWidget(QWidget):
         layout.addLayout(panels_row, stretch=1)
 
         # Output overlay
-        self._overlay = QLabel("Waiting for processing...", self.panel_output)
+        self._overlay = QLabel("Waiting for processing...", self.panel_output.viewport())
         self._overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._overlay.setStyleSheet(
             f"background-color: {UI_COLOR_SECONDARY_BG[0]}; "
@@ -168,6 +168,7 @@ class ImageDisplayWidget(QWidget):
             f"font-size: 14px; font-weight: bold; border-radius: 8px;"
         )
         self._overlay.setVisible(True)
+        self.panel_output.viewport().installEventFilter(self)
 
         # Resolution labels
         res_row = QHBoxLayout()
@@ -238,13 +239,14 @@ class ImageDisplayWidget(QWidget):
     def _sync_input_zoom(self, zoom: float, cx: float, cy: float) -> None:
         self.panel_input.sync_transform(zoom, cx, cy)
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._update_overlay_geometry()
+    def eventFilter(self, obj, event):
+        if obj is self.panel_output.viewport() and event.type() == QEvent.Type.Resize:
+            self._update_overlay_geometry()
+        return super().eventFilter(obj, event)
 
     def _update_overlay_geometry(self) -> None:
         if self._overlay.isVisible():
-            self._overlay.setGeometry(self.panel_output.rect())
+            self._overlay.setGeometry(self.panel_output.viewport().rect())
 
     # --- Public API ---
 
