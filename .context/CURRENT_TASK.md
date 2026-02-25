@@ -1,9 +1,14 @@
 # Current Task
 
-Last update: 2026-02-24
+Last update: 2026-02-25
 
 ## Recently Completed (2026-02-25)
-- PySide6 GUI 迁移（分支 `feat/pyside6-migration`）：
+- Apple 风格 UI 全面优化（分支 `feat/apple-style-ui`，PR #4）：
+  - QSS 重写：12px 圆角卡片 + 阴影、侧栏独立背景 + 分割线、hover/pressed 状态。
+  - 滑块白色 handle + hover 高亮、进度条 6px、输入框 focus 绿色边框。
+  - 空面板占位图标 + 提示文字、按钮 emoji 图标、SpinBox 箭头优化。
+
+- PySide6 GUI 迁移（分支 `feat/pyside6-migration`，PR #3，已合并）：
   - 12 模块拆分到 `gui_pyside/`：styles, utils, processing, models, metrics, workers, statusbar, sidebar, display, dialogs, main。
   - QThread + Signal/Slot 替代 threading + queue。
   - QGraphicsView 硬件加速图像显示。

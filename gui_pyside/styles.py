@@ -1,29 +1,35 @@
-"""颜色常量和 QSS 样式表生成。"""
+"""颜色常量和 QSS 样式表生成。Apple 风格。"""
 
 # --- 颜色常量 ---
 UI_COLOR_PRIMARY = "#10B981"
 UI_COLOR_PRIMARY_HOVER = "#059669"
+UI_COLOR_PRIMARY_PRESSED = "#047857"
 UI_COLOR_DANGER = "#EF4444"
 UI_COLOR_DANGER_HOVER = "#DC2626"
 UI_COLOR_DANGER_MUTED = "#6B4C4A"
 UI_COLOR_DANGER_MUTED_HOVER = "#7D5553"
 UI_COLOR_SECTION_TEXT = ("#737373", "#737373")
-UI_COLOR_CARD_BG = ("#FFFFFF", "#141414")
-UI_COLOR_CARD_BORDER = ("#E5E5E5", "#262626")
-UI_COLOR_BG = ("#FAFAFA", "#0A0A0A")
-UI_COLOR_SECONDARY_BG = ("#F5F5F5", "#1A1A1A")
-UI_COLOR_SECONDARY_HOVER = ("#EBEBEB", "#262626")
-UI_COLOR_SECONDARY_TEXT = ("#404040", "#D4D4D4")
-UI_COLOR_TEXT_PRIMARY = ("#171717", "#EDEDED")
-UI_COLOR_TEXT_MUTED = ("#737373", "#6B6B6B")
-UI_COLOR_IMAGE_BG = ("#F0F0F0", "#0F0F0F")
-UI_COLOR_SWITCH_OFF = ("#D4D4D4", "#404040")
+UI_COLOR_CARD_BG = ("#FFFFFF", "#1C1C1E")
+UI_COLOR_CARD_BORDER = ("#E8E8ED", "#38383A")
+UI_COLOR_CARD_SHADOW = ("#D1D1D6", "#000000")
+UI_COLOR_BG = ("#F2F2F7", "#000000")
+UI_COLOR_SIDEBAR_BG = ("#EBEBF0", "#1C1C1E")
+UI_COLOR_SECONDARY_BG = ("#E5E5EA", "#2C2C2E")
+UI_COLOR_SECONDARY_HOVER = ("#D1D1D6", "#3A3A3C")
+UI_COLOR_SECONDARY_PRESSED = ("#C7C7CC", "#48484A")
+UI_COLOR_SECONDARY_TEXT = ("#3A3A3C", "#D1D1D6")
+UI_COLOR_TEXT_PRIMARY = ("#1C1C1E", "#F2F2F7")
+UI_COLOR_TEXT_MUTED = ("#8E8E93", "#8E8E93")
+UI_COLOR_IMAGE_BG = ("#E5E5EA", "#1C1C1E")
+UI_COLOR_SWITCH_OFF = ("#D1D1D6", "#48484A")
 UI_COLOR_SWITCH_ON = "#10B981"
+UI_COLOR_SEPARATOR = ("#C6C6C8", "#38383A")
+UI_COLOR_INPUT_FOCUS = "#10B981"
 
 # --- 尺寸常量 ---
-UI_SIDEBAR_WIDTH = 280
-UI_WINDOW_WIDTH = 1340
-UI_WINDOW_HEIGHT = 900
+UI_SIDEBAR_WIDTH = 300
+UI_WINDOW_WIDTH = 1400
+UI_WINDOW_HEIGHT = 920
 
 
 def c(color_tuple, dark=False):
@@ -34,70 +40,110 @@ def c(color_tuple, dark=False):
 
 
 def generate_stylesheet(dark: bool = False) -> str:
-    """生成完整 QSS 样式表。"""
-    # TODO: Task 13 完善
+    """生成完整 QSS 样式表 — Apple 风格。"""
     bg = c(UI_COLOR_BG, dark)
+    sidebar_bg = c(UI_COLOR_SIDEBAR_BG, dark)
     card_bg = c(UI_COLOR_CARD_BG, dark)
     card_border = c(UI_COLOR_CARD_BORDER, dark)
+    card_shadow = c(UI_COLOR_CARD_SHADOW, dark)
     text_primary = c(UI_COLOR_TEXT_PRIMARY, dark)
     text_muted = c(UI_COLOR_TEXT_MUTED, dark)
     secondary_bg = c(UI_COLOR_SECONDARY_BG, dark)
     secondary_hover = c(UI_COLOR_SECONDARY_HOVER, dark)
+    secondary_pressed = c(UI_COLOR_SECONDARY_PRESSED, dark)
     secondary_text = c(UI_COLOR_SECONDARY_TEXT, dark)
     image_bg = c(UI_COLOR_IMAGE_BG, dark)
     switch_off = c(UI_COLOR_SWITCH_OFF, dark)
+    separator = c(UI_COLOR_SEPARATOR, dark)
 
     return f"""
+    /* === 全局 === */
     QMainWindow {{
         background-color: {bg};
     }}
     * {{
         color: {text_primary};
         font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
-        font-size: 12px;
+        font-size: 13px;
     }}
-    QWidget#centralWidget, QScrollArea, QFrame {{
+    QWidget#centralWidget {{
         background-color: {bg};
     }}
+
+    /* === 侧栏 === */
+    QScrollArea#sidebar {{
+        background-color: {sidebar_bg};
+        border: none;
+        border-right: 1px solid {separator};
+    }}
+    QScrollArea#sidebar > QWidget {{
+        background-color: {sidebar_bg};
+    }}
+
+    /* === 卡片 === */
     QFrame#card {{
         background-color: {card_bg};
         border: 1px solid {card_border};
-        border-radius: 8px;
-        padding: 4px;
+        border-bottom: 2px solid {card_shadow};
+        border-radius: 12px;
+        padding: 8px;
     }}
+
+    /* === 标签 === */
     QLabel {{
         color: {text_primary};
         background: transparent;
     }}
     QLabel#muted {{
         color: {text_muted};
+        font-size: 12px;
     }}
     QLabel#section {{
         color: {text_muted};
-        font-weight: bold;
-        font-size: 12px;
+        font-weight: 600;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
     }}
     QLabel#title {{
-        font-size: 24px;
-        font-weight: bold;
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: -0.5px;
     }}
+    QLabel#panelPlaceholder {{
+        color: {text_muted};
+        font-size: 14px;
+        background: transparent;
+    }}
+
+    /* === 按钮 === */
     QPushButton {{
         background-color: {secondary_bg};
         color: {secondary_text};
         border: none;
-        border-radius: 6px;
-        padding: 6px 12px;
-        font-weight: bold;
+        border-radius: 8px;
+        padding: 8px 14px;
+        font-weight: 600;
+        font-size: 13px;
     }}
     QPushButton:hover {{
         background-color: {secondary_hover};
     }}
+    QPushButton:pressed {{
+        background-color: {secondary_pressed};
+    }}
     QPushButton#primary {{
         background-color: {UI_COLOR_PRIMARY};
         color: white;
+        font-size: 14px;
+        font-weight: 700;
+        border-radius: 10px;
     }}
     QPushButton#primary:hover {{
         background-color: {UI_COLOR_PRIMARY_HOVER};
+    }}
+    QPushButton#primary:pressed {{
+        background-color: {UI_COLOR_PRIMARY_PRESSED};
     }}
     QPushButton#danger {{
         background-color: {UI_COLOR_DANGER};
@@ -106,43 +152,63 @@ def generate_stylesheet(dark: bool = False) -> str:
     QPushButton#danger:hover {{
         background-color: {UI_COLOR_DANGER_HOVER};
     }}
+    QPushButton#toolbarBtn {{
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 600;
+    }}
+
+    /* === 滑块 === */
     QSlider::groove:horizontal {{
-        height: 4px;
+        height: 6px;
         background: {switch_off};
-        border-radius: 2px;
+        border-radius: 3px;
     }}
     QSlider::handle:horizontal {{
-        background: {UI_COLOR_PRIMARY};
-        width: 14px;
-        height: 14px;
-        margin: -5px 0;
-        border-radius: 7px;
+        background: white;
+        border: 1px solid {card_border};
+        width: 18px;
+        height: 18px;
+        margin: -7px 0;
+        border-radius: 9px;
+    }}
+    QSlider::handle:horizontal:hover {{
+        border: 1px solid {UI_COLOR_PRIMARY};
     }}
     QSlider::sub-page:horizontal {{
         background: {UI_COLOR_PRIMARY};
-        border-radius: 2px;
+        border-radius: 3px;
     }}
+
+    /* === 进度条 === */
     QProgressBar {{
         background: {switch_off};
         border: none;
-        border-radius: 2px;
-        max-height: 4px;
-        min-height: 4px;
+        border-radius: 3px;
+        max-height: 6px;
+        min-height: 6px;
     }}
     QProgressBar::chunk {{
         background: {UI_COLOR_PRIMARY};
-        border-radius: 2px;
+        border-radius: 3px;
     }}
+
+    /* === 下拉框 === */
     QComboBox {{
         background-color: {secondary_bg};
         color: {secondary_text};
         border: 1px solid {card_border};
-        border-radius: 6px;
-        padding: 4px 8px;
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-weight: 500;
+    }}
+    QComboBox:hover {{
+        border: 1px solid {UI_COLOR_PRIMARY};
     }}
     QComboBox::drop-down {{
         border: none;
-        width: 20px;
+        width: 24px;
     }}
     QComboBox QAbstractItemView {{
         background-color: {card_bg};
@@ -150,25 +216,39 @@ def generate_stylesheet(dark: bool = False) -> str:
         selection-background-color: {UI_COLOR_PRIMARY};
         selection-color: white;
         border: 1px solid {card_border};
+        border-radius: 8px;
+        padding: 4px;
     }}
+
+    /* === 输入框 === */
     QLineEdit {{
         background-color: {secondary_bg};
         color: {secondary_text};
         border: 1px solid {card_border};
-        border-radius: 6px;
-        padding: 4px 8px;
+        border-radius: 8px;
+        padding: 6px 10px;
     }}
+    QLineEdit:focus {{
+        border: 2px solid {UI_COLOR_INPUT_FOCUS};
+    }}
+
+    /* === 复选框 === */
     QCheckBox {{
         color: {text_primary};
-        spacing: 6px;
+        spacing: 8px;
     }}
+
+    /* === 提示框 === */
     QToolTip {{
-        background-color: #1A1A1A;
-        color: #EDEDED;
-        border: 1px solid #333333;
-        padding: 4px 6px;
-        font-size: 10px;
+        background-color: {card_bg};
+        color: {text_primary};
+        border: 1px solid {card_border};
+        padding: 6px 8px;
+        border-radius: 6px;
+        font-size: 11px;
     }}
+
+    /* === 滚动区域 === */
     QScrollArea {{
         border: none;
         background: transparent;
@@ -176,20 +256,53 @@ def generate_stylesheet(dark: bool = False) -> str:
     QScrollBar:vertical {{
         background: transparent;
         width: 6px;
+        margin: 4px 0;
     }}
     QScrollBar::handle:vertical {{
         background: {switch_off};
         border-radius: 3px;
-        min-height: 20px;
+        min-height: 24px;
+    }}
+    QScrollBar::handle:vertical:hover {{
+        background: {text_muted};
     }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
         height: 0px;
     }}
+
+    /* === 图像面板 === */
     QGraphicsView {{
         background-color: {image_bg};
         border: 1px solid {card_border};
-        border-radius: 8px;
+        border-radius: 12px;
     }}
+
+    /* === SpinBox === */
+    QSpinBox {{
+        background-color: {secondary_bg};
+        color: {secondary_text};
+        border: 1px solid {card_border};
+        border-radius: 8px;
+        padding: 4px 8px;
+        min-height: 28px;
+    }}
+    QSpinBox:focus {{
+        border: 2px solid {UI_COLOR_INPUT_FOCUS};
+    }}
+    QSpinBox::up-button, QSpinBox::down-button {{
+        width: 20px;
+        border: none;
+    }}
+    QSpinBox::up-button {{
+        subcontrol-position: top right;
+        border-top-right-radius: 8px;
+    }}
+    QSpinBox::down-button {{
+        subcontrol-position: bottom right;
+        border-bottom-right-radius: 8px;
+    }}
+
+    /* === 分割线 === */
     """
 
 
@@ -299,9 +412,14 @@ class _ToggleTrack(QWidget):
         p.setBrush(track_color)
         p.drawRoundedRect(QRectF(0, 0, w, h), r, r)
 
-        # Thumb
+        # Thumb shadow
         thumb_x = margin + pos * (w - 2 * margin - 2 * thumb_r) + thumb_r
         thumb_y = h / 2.0
+        shadow_color = QColor(0, 0, 0, 40)
+        p.setBrush(shadow_color)
+        p.drawEllipse(QRectF(thumb_x - thumb_r, thumb_y - thumb_r + 1, thumb_r * 2, thumb_r * 2))
+
+        # Thumb
         p.setBrush(QColor("white"))
         p.drawEllipse(QRectF(thumb_x - thumb_r, thumb_y - thumb_r, thumb_r * 2, thumb_r * 2))
         p.end()
