@@ -170,7 +170,7 @@ class ImageDisplayWidget(QWidget):
             f"color: {UI_COLOR_TEXT_MUTED[0]}; "
             f"font-size: 14px; font-weight: bold;"
         )
-        self._overlay.setVisible(True)
+        self._overlay.setVisible(False)
         overlay_layout.addWidget(self._overlay)
 
         # Resolution labels
