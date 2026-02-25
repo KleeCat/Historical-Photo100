@@ -50,11 +50,6 @@ def load_icon(name: str, color: str | None = None, size: int = 16) -> QIcon:
     return icon
 
 
-def load_icon_dark(name: str, size: int = 16) -> QIcon:
-    """加载暗色模式图标（使用暗色文字色）。"""
-    return load_icon(name, UI_COLOR_TEXT_PRIMARY[1], size)
-
-
 def clear_cache() -> None:
     """清空图标缓存。"""
     _cache.clear()

@@ -49,8 +49,10 @@ def is_dark_mode() -> bool:
     return _dark_mode
 
 
-def c(color_tuple, dark=False):
+def c(color_tuple, dark=None):
     """从 (light, dark) 元组中选择颜色。"""
+    if dark is None:
+        dark = _dark_mode
     if isinstance(color_tuple, tuple):
         return color_tuple[1] if dark else color_tuple[0]
     return color_tuple

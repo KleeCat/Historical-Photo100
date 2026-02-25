@@ -127,6 +127,8 @@ class MainWindow(QMainWindow):
         if self._dark_mode:
             self.sidebar.set_dark_mode(True)
             self.sidebar.refresh_icons()
+            self.display.refresh_icons()
+            self.display.update_overlay_color(True)
 
     def _connect_signals(self) -> None:
         sb = self.sidebar
