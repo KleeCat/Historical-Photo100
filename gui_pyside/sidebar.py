@@ -116,7 +116,7 @@ class SidebarWidget(QScrollArea):
         self.entry_output_dir.setReadOnly(True)
         dir_row.addWidget(self.entry_output_dir, stretch=1)
         self.btn_output_dir = QPushButton("\U0001F4C1")
-        self.btn_output_dir.setFixedSize(32, 30)
+        self.btn_output_dir.setFixedSize(28, 28)
         self.btn_output_dir.setToolTip("Set output directory")
         self.btn_output_dir.clicked.connect(self.output_dir_clicked)
         dir_row.addWidget(self.btn_output_dir)
@@ -384,4 +384,7 @@ class SidebarWidget(QScrollArea):
     def set_output_dir_text(self, path: str) -> None:
         self.entry_output_dir.setReadOnly(False)
         self.entry_output_dir.setText(path)
+        self.entry_output_dir.setToolTip(path)
+        # Scroll to end so the most useful part (folder name) is visible
+        self.entry_output_dir.setCursorPosition(len(path))
         self.entry_output_dir.setReadOnly(True)
