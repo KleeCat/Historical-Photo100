@@ -135,6 +135,9 @@ def generate_stylesheet(dark: bool = False) -> str:
     QPushButton#primary {{
         background-color: {UI_COLOR_PRIMARY};
         color: white;
+        font-size: 14px;
+        font-weight: 700;
+        border-radius: 10px;
     }}
     QPushButton#primary:hover {{
         background-color: {UI_COLOR_PRIMARY_HOVER};
@@ -300,12 +303,6 @@ def generate_stylesheet(dark: bool = False) -> str:
     }}
 
     /* === 分割线 === */
-    QFrame#separator {{
-        background-color: {separator};
-        max-height: 1px;
-        min-height: 1px;
-        border: none;
-    }}
     """
 
 

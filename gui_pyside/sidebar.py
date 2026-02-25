@@ -12,8 +12,7 @@ from PySide6.QtWidgets import (
 
 from .styles import (
     UI_SIDEBAR_WIDTH, UI_COLOR_PRIMARY, UI_COLOR_PRIMARY_HOVER,
-    UI_COLOR_PRIMARY_PRESSED, UI_COLOR_DANGER, UI_COLOR_SECONDARY_BG,
-    ToggleSwitch,
+    UI_COLOR_DANGER, UI_COLOR_SECONDARY_BG, ToggleSwitch,
 )
 
 
@@ -253,11 +252,6 @@ class SidebarWidget(QScrollArea):
         self.btn_start = QPushButton("\u25B6  Start Restoration")
         self.btn_start.setObjectName("primary")
         self.btn_start.setFixedHeight(38)
-        self.btn_start.setStyleSheet(
-            f"font-size: 14px; font-weight: 700; "
-            f"background-color: {UI_COLOR_PRIMARY}; color: white; "
-            f"border-radius: 10px;"
-        )
         self.btn_start.setToolTip("Start the super-resolution process")
         self.btn_start.clicked.connect(self.start_clicked)
         lay.addWidget(self.btn_start)

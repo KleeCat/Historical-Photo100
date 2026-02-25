@@ -23,7 +23,7 @@ class StatusBarWidget(QWidget):
         self.elapsed_label.setObjectName("muted")
 
         self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedHeight(4)
+        self.progress_bar.setFixedHeight(6)
         self.progress_bar.setFixedWidth(300)
         self.progress_bar.setRange(0, 1000)
         self.progress_bar.setValue(0)

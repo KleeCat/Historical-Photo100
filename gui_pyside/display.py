@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QFrame, QSizePolicy,
 )
 
-from .styles import UI_COLOR_TEXT_MUTED, UI_COLOR_SECONDARY_BG, UI_COLOR_CARD_BORDER
+from .styles import UI_COLOR_TEXT_MUTED, UI_COLOR_SECONDARY_BG
 from .utils import numpy_to_qpixmap
 
 
@@ -33,9 +33,6 @@ class ImagePanel(QGraphicsView):
         self._placeholder.setObjectName("panelPlaceholder")
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setText(placeholder_text)
-        self._placeholder.setStyleSheet(
-            "background: transparent; color: #8E8E93; font-size: 14px;"
-        )
         self._placeholder.setVisible(True)
 
         # Rendering
@@ -209,7 +206,6 @@ class ImageDisplayWidget(QWidget):
         self.btn_save.setObjectName("toolbarBtn")
         self.btn_save.setToolTip("Save the processed result to disk")
         self.btn_save.setEnabled(False)
-        self.btn_save.setStyleSheet("font-weight: 700; font-size: 13px;")
         self.btn_save.clicked.connect(self.save_clicked)
 
         for btn in (self.btn_compare, self.btn_features, self.btn_open_folder, self.btn_save):
