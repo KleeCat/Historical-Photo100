@@ -263,6 +263,9 @@ class MainWindow(QMainWindow):
             return
 
         self.display.reset_view()
+        # Clear stale feature maps from previous run
+        with self.model_manager._state_lock:
+            self.model_manager.feature_maps = []
         settings = self._gather_settings()
         output_dir = self._get_output_dir()
 
