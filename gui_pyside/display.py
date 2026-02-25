@@ -267,9 +267,12 @@ class ImageDisplayWidget(QWidget):
     def show_overlay(self, text: str = "Waiting for processing...") -> None:
         self._overlay.setText(text)
         self._overlay.setVisible(True)
+        self.panel_output._placeholder.setVisible(False)
 
     def hide_overlay(self) -> None:
         self._overlay.setVisible(False)
+        if not self.panel_output.has_image():
+            self.panel_output._placeholder.setVisible(True)
 
     def set_toolbar_enabled(self, compare: bool = False, features: bool = False,
                             folder: bool = False, save: bool = False) -> None:
