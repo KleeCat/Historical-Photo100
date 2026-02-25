@@ -4,6 +4,7 @@
 所有用户操作通过 Signal 转发给 MainWindow。
 """
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QComboBox, QLineEdit, QCheckBox, QSlider, QFrame,
@@ -14,6 +15,7 @@ from .styles import (
     UI_SIDEBAR_WIDTH, UI_COLOR_PRIMARY, UI_COLOR_PRIMARY_HOVER,
     UI_COLOR_DANGER, UI_COLOR_SECONDARY_BG, ToggleSwitch,
 )
+from .icon_helper import load_icon
 
 
 def _make_card(title: str, parent_layout: QVBoxLayout) -> QFrame:
@@ -21,8 +23,8 @@ def _make_card(title: str, parent_layout: QVBoxLayout) -> QFrame:
     card = QFrame()
     card.setObjectName("card")
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(10, 8, 10, 8)
-    layout.setSpacing(6)
+    layout.setContentsMargins(10, 10, 10, 10)
+    layout.setSpacing(8)
     if title:
         lbl = QLabel(title)
         lbl.setObjectName("section")
@@ -85,13 +87,15 @@ class SidebarWidget(QScrollArea):
         card = _make_card("Input", self._layout)
         lay = card.layout()
 
-        self.btn_open = QPushButton("\U0001F4C2  Open Image")
+        self.btn_open = QPushButton("Open Image")
+        self.btn_open.setIcon(load_icon("folder-open"))
         self.btn_open.setFixedHeight(32)
         self.btn_open.setToolTip("Open an image file for super-resolution")
         self.btn_open.clicked.connect(self.open_image_clicked)
         lay.addWidget(self.btn_open)
 
-        self.btn_gt = QPushButton("\U0001F4CF  Load Ground Truth")
+        self.btn_gt = QPushButton("Load Ground Truth")
+        self.btn_gt.setIcon(load_icon("ruler"))
         self.btn_gt.setFixedHeight(32)
         self.btn_gt.setToolTip("Load ground truth image for quality metrics")
         self.btn_gt.clicked.connect(self.load_gt_clicked)
@@ -119,9 +123,10 @@ class SidebarWidget(QScrollArea):
         self.entry_output_dir.setPlaceholderText("Output directory...")
         self.entry_output_dir.setReadOnly(True)
         dir_row.addWidget(self.entry_output_dir, stretch=1)
-        self.btn_output_dir = QPushButton("\U0001F4C1")
+        self.btn_output_dir = QPushButton()
+        self.btn_output_dir.setIcon(load_icon("folder", size=14))
         self.btn_output_dir.setFixedSize(32, 32)
-        self.btn_output_dir.setStyleSheet("padding: 0px; font-size: 16px;")
+        self.btn_output_dir.setStyleSheet("padding: 0px;")
         self.btn_output_dir.setToolTip("Set output directory")
         self.btn_output_dir.clicked.connect(self.output_dir_clicked)
         dir_row.addWidget(self.btn_output_dir)
@@ -249,20 +254,23 @@ class SidebarWidget(QScrollArea):
         lay.setContentsMargins(12, 6, 12, 6)
         lay.setSpacing(6)
 
-        self.btn_start = QPushButton("\u25B6  Start Restoration")
+        self.btn_start = QPushButton("Start Restoration")
+        self.btn_start.setIcon(load_icon("play", "#FFFFFF"))
         self.btn_start.setObjectName("primary")
         self.btn_start.setFixedHeight(38)
         self.btn_start.setToolTip("Start the super-resolution process")
         self.btn_start.clicked.connect(self.start_clicked)
         lay.addWidget(self.btn_start)
 
-        self.btn_batch = QPushButton("\U0001F4C1  Run Folder (Batch)")
+        self.btn_batch = QPushButton("Run Folder (Batch)")
+        self.btn_batch.setIcon(load_icon("folders"))
         self.btn_batch.setFixedHeight(32)
         self.btn_batch.setToolTip("Process all images in a folder")
         self.btn_batch.clicked.connect(self.batch_clicked)
         lay.addWidget(self.btn_batch)
 
-        self.btn_cancel = QPushButton("\u2716  Cancel")
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setIcon(load_icon("x"))
         self.btn_cancel.setFixedHeight(32)
         self.btn_cancel.setToolTip("Cancel the current operation")
         self.btn_cancel.setEnabled(False)
@@ -328,8 +336,12 @@ class SidebarWidget(QScrollArea):
         self.combo_scale.setEnabled(not processing)
         if processing:
             self.btn_start.setText("Processing...")
+            self.btn_start.setIcon(QIcon())
         else:
             self.btn_start.setText("Start Restoration")
+            self.btn_start.setIcon(load_icon("play", "#FFFFFF"))
+            self.btn_cancel.setText("Cancel")
+            self.btn_cancel.setIcon(load_icon("x"))
 
     def set_batch_state(self, running: bool) -> None:
         """切换批处理状态。"""
@@ -338,10 +350,17 @@ class SidebarWidget(QScrollArea):
         self.btn_cancel.setEnabled(running)
         if running:
             self.btn_start.setText("Batch Processing...")
+            self.btn_start.setIcon(QIcon())
+        else:
+            self.btn_start.setText("Start Restoration")
+            self.btn_start.setIcon(load_icon("play", "#FFFFFF"))
+            self.btn_cancel.setText("Cancel")
+            self.btn_cancel.setIcon(load_icon("x"))
 
     def set_cancel_state(self) -> None:
         """显示取消中状态。"""
         self.btn_cancel.setText("Cancelling...")
+        self.btn_cancel.setIcon(QIcon())
         self.btn_cancel.setEnabled(False)
 
     def update_resolution(self, in_size: tuple | None, out_size: tuple | None) -> None:

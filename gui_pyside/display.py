@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QFrame, QSizePolicy,
 )
 
+from .icon_helper import load_icon
 from .styles import UI_COLOR_TEXT_MUTED, UI_COLOR_SECONDARY_BG
 from .utils import numpy_to_qpixmap
 
@@ -152,21 +153,25 @@ class ImageDisplayWidget(QWidget):
         panels_row = QHBoxLayout()
         panels_row.setSpacing(10)
 
-        self.panel_input = ImagePanel("\U0001F5BC  Open an image to begin")
-        self.panel_output = ImagePanel("\u2728  Output will appear here")
+        self.panel_input = ImagePanel("Open an image to begin")
+        self.panel_output = ImagePanel("Output will appear here")
         panels_row.addWidget(self.panel_input, stretch=1)
         panels_row.addWidget(self.panel_output, stretch=1)
         layout.addLayout(panels_row, stretch=1)
 
-        # Output overlay
-        self._overlay = QLabel("Waiting for processing...", self.panel_output)
+        # Output overlay — use a layout on viewport for auto-centering
+        viewport = self.panel_output.viewport()
+        overlay_layout = QVBoxLayout(viewport)
+        overlay_layout.setContentsMargins(0, 0, 0, 0)
+        self._overlay = QLabel("Waiting for processing...")
         self._overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._overlay.setStyleSheet(
-            f"background-color: {UI_COLOR_SECONDARY_BG[0]}; "
+            f"background-color: transparent; "
             f"color: {UI_COLOR_TEXT_MUTED[0]}; "
-            f"font-size: 14px; font-weight: bold; border-radius: 8px;"
+            f"font-size: 14px; font-weight: bold;"
         )
-        self._overlay.setVisible(True)
+        self._overlay.setVisible(False)
+        overlay_layout.addWidget(self._overlay)
 
         # Resolution labels
         res_row = QHBoxLayout()
@@ -178,32 +183,41 @@ class ImageDisplayWidget(QWidget):
         res_row.addWidget(self.lbl_res_out, stretch=1)
         layout.addLayout(res_row)
 
-        # Toolbar
-        toolbar = QFrame()
-        toolbar.setObjectName("card")
-        tb_layout = QHBoxLayout(toolbar)
-        tb_layout.setContentsMargins(6, 6, 6, 6)
+        # Toolbar separator
+        separator = QFrame()
+        separator.setObjectName("toolbarSeparator")
+        separator.setFixedHeight(1)
+        layout.addWidget(separator)
 
-        self.btn_compare = QPushButton("\u2194  Comparison")
+        # Toolbar
+        toolbar = QWidget()
+        tb_layout = QHBoxLayout(toolbar)
+        tb_layout.setContentsMargins(6, 4, 6, 4)
+
+        self.btn_compare = QPushButton("Comparison")
+        self.btn_compare.setIcon(load_icon("columns-2", size=14))
         self.btn_compare.setObjectName("toolbarBtn")
         self.btn_compare.setToolTip("Save side-by-side comparison image")
         self.btn_compare.setEnabled(False)
         self.btn_compare.clicked.connect(self.comparison_clicked)
 
-        self.btn_features = QPushButton("\U0001F9E0  Features")
+        self.btn_features = QPushButton("Features")
+        self.btn_features.setIcon(load_icon("brain", size=14))
         self.btn_features.setObjectName("toolbarBtn")
         self.btn_features.setToolTip("Export feature map visualizations")
         self.btn_features.setEnabled(False)
         self.btn_features.clicked.connect(self.features_clicked)
 
-        self.btn_open_folder = QPushButton("\U0001F4C2  Open Folder")
+        self.btn_open_folder = QPushButton("Open Folder")
+        self.btn_open_folder.setIcon(load_icon("folder-open", size=14))
         self.btn_open_folder.setObjectName("toolbarBtn")
         self.btn_open_folder.setToolTip("Open the output folder in file explorer")
         self.btn_open_folder.setEnabled(False)
         self.btn_open_folder.clicked.connect(self.open_folder_clicked)
 
-        self.btn_save = QPushButton("\U0001F4BE  Save Result")
-        self.btn_save.setObjectName("toolbarBtn")
+        self.btn_save = QPushButton("Save Result")
+        self.btn_save.setIcon(load_icon("save", "#FFFFFF", size=14))
+        self.btn_save.setObjectName("saveBtn")
         self.btn_save.setToolTip("Save the processed result to disk")
         self.btn_save.setEnabled(False)
         self.btn_save.clicked.connect(self.save_clicked)
@@ -227,14 +241,6 @@ class ImageDisplayWidget(QWidget):
 
     def _sync_input_zoom(self, zoom: float, cx: float, cy: float) -> None:
         self.panel_input.sync_transform(zoom, cx, cy)
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._update_overlay_geometry()
-
-    def _update_overlay_geometry(self) -> None:
-        if self._overlay.isVisible():
-            self._overlay.setGeometry(self.panel_output.rect())
 
     # --- Public API ---
 
@@ -261,10 +267,12 @@ class ImageDisplayWidget(QWidget):
     def show_overlay(self, text: str = "Waiting for processing...") -> None:
         self._overlay.setText(text)
         self._overlay.setVisible(True)
-        self._update_overlay_geometry()
+        self.panel_output._placeholder.setVisible(False)
 
     def hide_overlay(self) -> None:
         self._overlay.setVisible(False)
+        if not self.panel_output.has_image():
+            self.panel_output._placeholder.setVisible(True)
 
     def set_toolbar_enabled(self, compare: bool = False, features: bool = False,
                             folder: bool = False, save: bool = False) -> None:

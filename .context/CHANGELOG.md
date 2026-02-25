@@ -1,5 +1,17 @@
 # Changelog
 
+- 2026-02-25: UI 精致度提升 v2（分支 `feat/ui-refinement-v2`）。
+  - 彩色 Emoji 全部替换为 Lucide 单色线性 SVG 图标（11 个 SVG + icon_helper.py 加载模块）。
+  - 图标支持亮/暗模式自动着色（亮色 #1C1C1E，暗色 #F2F2F7）。
+  - 底部工具栏去容器化：移除白色 card 包裹，加 1px 分割线。
+  - "Save Result" 按钮改为深灰底 + 白字，建立视觉层级。
+  - Toggle Switch 从 52×28 缩小到 44×24，更轻巧。
+  - 非 primary 按钮加 1px 浅灰边框（#E5E5EA），轮廓更干脆。
+  - 卡片内控件间距从 6px 增加到 8px，增加呼吸感。
+
+  - 修复 overlay "Waiting for processing..." 定位问题：改为 viewport 布局自动居中。
+  - 修复 overlay 与 placeholder 文字重叠：初始隐藏 overlay，show/hide 时联动 placeholder 可见性。
+
 - 2026-02-25: Apple 风格 UI 全面优化（分支 `feat/apple-style-ui`，PR #4）。
   - QSS 全面重写：Apple/macOS 设计语言，12px 大圆角卡片，双层 border 模拟阴影。
   - 侧栏独立背景色 + 右侧 1px 分割线，与主区域形成层次。
