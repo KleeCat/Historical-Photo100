@@ -1,5 +1,18 @@
 # Changelog
 
+- 2026-02-25: Apple 风格 UI 全面优化（分支 `feat/apple-style-ui`，PR #4）。
+  - QSS 全面重写：Apple/macOS 设计语言，12px 大圆角卡片，双层 border 模拟阴影。
+  - 侧栏独立背景色 + 右侧 1px 分割线，与主区域形成层次。
+  - 按钮增加 hover/pressed 状态反馈，统一 8px 圆角。
+  - 滑块精致化：白色 handle 18x18 带 border + hover 高亮，groove 6px。
+  - 进度条加粗到 6px + 圆角。
+  - 输入框/下拉框 focus 状态加绿色边框。
+  - Toggle thumb 加微妙阴影。
+  - 空图像面板加占位图标 + 提示文字。
+  - 工具栏按钮加 emoji 图标前缀。
+  - 侧栏按钮加 emoji 图标，高度统一。
+  - SpinBox 上下箭头按钮区域优化。
+
 - 2026-02-25: PySide6 GUI 迁移 — 模块化重写。
   - 从 CustomTkinter 迁移到 PySide6，解决 Windows 最小化恢复黑块闪烁问题。
   - 12 个模块拆分到 `gui_pyside/` 目录：styles, utils, processing, models, metrics, workers, statusbar, sidebar, display, dialogs, main。

@@ -22,8 +22,8 @@ def _make_card(title: str, parent_layout: QVBoxLayout) -> QFrame:
     card = QFrame()
     card.setObjectName("card")
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(12, 10, 12, 10)
-    layout.setSpacing(8)
+    layout.setContentsMargins(10, 8, 10, 8)
+    layout.setSpacing(6)
     if title:
         lbl = QLabel(title)
         lbl.setObjectName("section")
@@ -62,8 +62,8 @@ class SidebarWidget(QScrollArea):
         container = QWidget()
         container.setObjectName("sidebarContainer")
         self._layout = QVBoxLayout(container)
-        self._layout.setContentsMargins(10, 12, 10, 12)
-        self._layout.setSpacing(10)
+        self._layout.setContentsMargins(10, 8, 10, 4)
+        self._layout.setSpacing(6)
         self.setWidget(container)
 
         self._build_title()
@@ -78,14 +78,8 @@ class SidebarWidget(QScrollArea):
         lbl = QLabel("Super Resolution")
         lbl.setObjectName("title")
         lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        lbl.setContentsMargins(4, 0, 0, 0)
+        lbl.setContentsMargins(4, 0, 0, 2)
         self._layout.addWidget(lbl)
-
-        # Decorative separator
-        sep = QFrame()
-        sep.setObjectName("separator")
-        sep.setFrameShape(QFrame.Shape.HLine)
-        self._layout.addWidget(sep)
 
     # --- Input Card ---
     def _build_input_card(self) -> None:
@@ -93,13 +87,13 @@ class SidebarWidget(QScrollArea):
         lay = card.layout()
 
         self.btn_open = QPushButton("\U0001F4C2  Open Image")
-        self.btn_open.setFixedHeight(36)
+        self.btn_open.setFixedHeight(32)
         self.btn_open.setToolTip("Open an image file for super-resolution")
         self.btn_open.clicked.connect(self.open_image_clicked)
         lay.addWidget(self.btn_open)
 
         self.btn_gt = QPushButton("\U0001F4CF  Load Ground Truth")
-        self.btn_gt.setFixedHeight(36)
+        self.btn_gt.setFixedHeight(32)
         self.btn_gt.setToolTip("Load ground truth image for quality metrics")
         self.btn_gt.clicked.connect(self.load_gt_clicked)
         lay.addWidget(self.btn_gt)
@@ -253,12 +247,14 @@ class SidebarWidget(QScrollArea):
     def _build_actions_card(self) -> None:
         card = _make_card("Actions", self._layout)
         lay = card.layout()
+        lay.setContentsMargins(12, 6, 12, 6)
+        lay.setSpacing(6)
 
         self.btn_start = QPushButton("\u25B6  Start Restoration")
         self.btn_start.setObjectName("primary")
-        self.btn_start.setFixedHeight(44)
+        self.btn_start.setFixedHeight(38)
         self.btn_start.setStyleSheet(
-            f"font-size: 15px; font-weight: 700; "
+            f"font-size: 14px; font-weight: 700; "
             f"background-color: {UI_COLOR_PRIMARY}; color: white; "
             f"border-radius: 10px;"
         )
@@ -267,13 +263,13 @@ class SidebarWidget(QScrollArea):
         lay.addWidget(self.btn_start)
 
         self.btn_batch = QPushButton("\U0001F4C1  Run Folder (Batch)")
-        self.btn_batch.setFixedHeight(36)
+        self.btn_batch.setFixedHeight(32)
         self.btn_batch.setToolTip("Process all images in a folder")
         self.btn_batch.clicked.connect(self.batch_clicked)
         lay.addWidget(self.btn_batch)
 
         self.btn_cancel = QPushButton("\u2716  Cancel")
-        self.btn_cancel.setFixedHeight(36)
+        self.btn_cancel.setFixedHeight(32)
         self.btn_cancel.setToolTip("Cancel the current operation")
         self.btn_cancel.setEnabled(False)
         self.btn_cancel.clicked.connect(self.cancel_clicked)

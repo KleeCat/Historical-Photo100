@@ -86,7 +86,7 @@ def generate_stylesheet(dark: bool = False) -> str:
         border: 1px solid {card_border};
         border-bottom: 2px solid {card_shadow};
         border-radius: 12px;
-        padding: 12px;
+        padding: 8px;
     }}
 
     /* === 标签 === */
@@ -281,9 +281,22 @@ def generate_stylesheet(dark: bool = False) -> str:
         border: 1px solid {card_border};
         border-radius: 8px;
         padding: 4px 8px;
+        min-height: 28px;
     }}
     QSpinBox:focus {{
         border: 2px solid {UI_COLOR_INPUT_FOCUS};
+    }}
+    QSpinBox::up-button, QSpinBox::down-button {{
+        width: 20px;
+        border: none;
+    }}
+    QSpinBox::up-button {{
+        subcontrol-position: top right;
+        border-top-right-radius: 8px;
+    }}
+    QSpinBox::down-button {{
+        subcontrol-position: bottom right;
+        border-bottom-right-radius: 8px;
     }}
 
     /* === 分割线 === */
