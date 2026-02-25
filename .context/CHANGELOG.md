@@ -1,5 +1,14 @@
 # Changelog
 
+- 2026-02-25: PySide6 GUI 迁移 — 模块化重写。
+  - 从 CustomTkinter 迁移到 PySide6，解决 Windows 最小化恢复黑块闪烁问题。
+  - 12 个模块拆分到 `gui_pyside/` 目录：styles, utils, processing, models, metrics, workers, statusbar, sidebar, display, dialogs, main。
+  - QThread + Signal/Slot 替代 threading + queue，自动跨线程调度。
+  - QGraphicsView + QGraphicsScene 替代手动缩放/平移计算，硬件加速渲染。
+  - QSS 统一样式表，保持极简科技风配色。
+  - 新增 `run_gui.py` 启动器，原 CTk 入口文件保留。
+  - 全部功能 1:1 迁移：超分、人脸增强、划痕修复、纹理、批处理、对比模式、指标计算、特征图导出。
+
 - 2026-02-24: UI 美化第五轮 — 极简科技风 (Linear/Vercel 风格)。
   - 配色重构：去掉蓝色强调色，全局改为绿色唯一强调 + 黑白灰。
   - 颜色常量全部更新为新调色板（#FAFAFA/#0A0A0A 背景、#171717/#EDEDED 文字等）。

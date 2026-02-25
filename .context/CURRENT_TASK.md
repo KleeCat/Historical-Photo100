@@ -2,6 +2,15 @@
 
 Last update: 2026-02-24
 
+## Recently Completed (2026-02-25)
+- PySide6 GUI 迁移（分支 `feat/pyside6-migration`）：
+  - 12 模块拆分到 `gui_pyside/`：styles, utils, processing, models, metrics, workers, statusbar, sidebar, display, dialogs, main。
+  - QThread + Signal/Slot 替代 threading + queue。
+  - QGraphicsView 硬件加速图像显示。
+  - QSS 统一样式，保持极简科技风。
+  - `run_gui.py` 启动器。
+  - 全部功能 1:1 迁移。
+
 ## Recently Completed (2026-02-24)
 - UI 美化第五轮 — 极简科技风（分支 `ui/beautify-round5`）：
   - 配色重构：去掉蓝色，绿色唯一强调 + 黑白灰调色板。
