@@ -25,6 +25,9 @@ UI_COLOR_SWITCH_OFF = ("#D1D1D6", "#48484A")
 UI_COLOR_SWITCH_ON = "#10B981"
 UI_COLOR_SEPARATOR = ("#C6C6C8", "#38383A")
 UI_COLOR_INPUT_FOCUS = "#10B981"
+UI_COLOR_BTN_BORDER = ("#E5E5EA", "#38383A")
+UI_COLOR_SAVE_BG = ("#1C1C1E", "#F2F2F7")
+UI_COLOR_SAVE_TEXT = ("#FFFFFF", "#1C1C1E")
 
 # --- 尺寸常量 ---
 UI_SIDEBAR_WIDTH = 300
@@ -55,6 +58,9 @@ def generate_stylesheet(dark: bool = False) -> str:
     image_bg = c(UI_COLOR_IMAGE_BG, dark)
     switch_off = c(UI_COLOR_SWITCH_OFF, dark)
     separator = c(UI_COLOR_SEPARATOR, dark)
+    btn_border = c(UI_COLOR_BTN_BORDER, dark)
+    save_bg = c(UI_COLOR_SAVE_BG, dark)
+    save_text = c(UI_COLOR_SAVE_TEXT, dark)
 
     return f"""
     /* === 全局 === */
@@ -86,7 +92,7 @@ def generate_stylesheet(dark: bool = False) -> str:
         border: 1px solid {card_border};
         border-bottom: 2px solid {card_shadow};
         border-radius: 12px;
-        padding: 8px;
+        padding: 10px;
     }}
 
     /* === 标签 === */
@@ -120,7 +126,7 @@ def generate_stylesheet(dark: bool = False) -> str:
     QPushButton {{
         background-color: {secondary_bg};
         color: {secondary_text};
-        border: none;
+        border: 1px solid {btn_border};
         border-radius: 8px;
         padding: 8px 14px;
         font-weight: 600;
@@ -157,6 +163,19 @@ def generate_stylesheet(dark: bool = False) -> str:
         padding: 8px 12px;
         font-size: 12px;
         font-weight: 600;
+    }}
+    QPushButton#saveBtn {{
+        background-color: {save_bg};
+        color: {save_text};
+        border: none;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 600;
+    }}
+    QPushButton#saveBtn:hover {{
+        opacity: 0.85;
+        background-color: {secondary_text};
     }}
 
     /* === 滑块 === */
@@ -303,6 +322,12 @@ def generate_stylesheet(dark: bool = False) -> str:
     }}
 
     /* === 分割线 === */
+    QFrame#toolbarSeparator {{
+        background-color: {btn_border};
+        max-height: 1px;
+        min-height: 1px;
+        border: none;
+    }}
     """
 
 
@@ -322,8 +347,8 @@ class ToggleSwitch(QWidget):
         super().__init__(parent)
         self._checked = checked
         self._thumb_pos = 1.0 if checked else 0.0
-        self._track_w = 52
-        self._track_h = 28
+        self._track_w = 44
+        self._track_h = 24
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
