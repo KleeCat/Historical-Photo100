@@ -1,5 +1,12 @@
 # Changelog
 
+- 2026-02-26: 毕业论文封面持续修复（thesis-sr-system）。
+  - 校徽+校名顺序对调（圆形校徽在上，校名文字在下）。
+  - 裁掉 school_name.png 左侧嵌入的小金色校徽（x=0~95px）。
+  - CoverInfo 样式新增 space_before=0 / space_after=0，修复信息行被挤到第2页的问题。
+  - 空行段落添加 line=360（1.5倍行距）对标参考范文结构。
+  - H2/H3 间距对标范文（H2: before=7.8pt/after=0，H3: after=0）。
+
 - 2026-02-26: 毕业论文生成系统完成（独立私有仓库 `thesis-sr-system`）。
   - 基于 Python-docx 搭建论文自动生成框架（config.py + styles.py + generate_thesis.py）。
   - 完成 5 章正文 + 中英文摘要 + 参考文献 + 致谢，共 21142 字符。
