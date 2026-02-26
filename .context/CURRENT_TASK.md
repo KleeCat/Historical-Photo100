@@ -2,6 +2,21 @@
 
 Last update: 2026-02-25
 
+## Recently Completed (2026-02-26)
+- 毕业论文生成系统（独立私有仓库 `thesis-sr-system`）：
+  - 创建独立 Git 仓库 `D:\HuaweiMoveData\Users\ihggk\Desktop\thesis-sr-system`，推送至 GitHub 私有仓库 `KleeCat/thesis-sr-system`。
+  - 基于 Python-docx 搭建论文自动生成框架：`config.py`（元信息）、`styles.py`（格式定义）、`generate_thesis.py`（主脚本）。
+  - 完成全部章节内容编写：绪论、相关技术基础、系统设计与实现、实验与结果分析、总结与展望、中英文摘要、参考文献、致谢。
+  - 20 篇参考文献全部经 WebSearch 验证真实存在，15 篇为 2020-2024 年近 5 年文献，GB/T 7714 格式。
+  - 生成 3 张 Mermaid 架构图（系统架构、处理流水线、RRDB 网络结构）。
+  - 三轮格式修复：消除多余空白页、对齐参考范文字体/字号/间距、设置 docDefaults 避免 run 级字体覆盖。
+  - 最终生成论文：21142 字符、168 段落、5 张表格、20 篇参考文献。
+  - 共 13 次提交，全部推送至远程私有仓库。
+
+- 毕业论文参考文献整理（`references_gbt7714.md`）。
+  - 逐一验证 20 篇文献的标题、作者、年份、期刊/会议、页码。
+  - 总计 20 篇，GB/T 7714 格式，2020-2024 年文献 15 篇。
+
 ## Recently Completed (2026-02-25)
 - UI 精致度提升 v2（分支 `feat/ui-refinement-v2`）：
   - Lucide SVG 图标替换所有彩色 Emoji（11 个 SVG + icon_helper.py）。
@@ -239,6 +254,7 @@ Last update: 2026-02-25
   - 对比对象：`(gui)super-resolution processing.py` 与 `(gui)super-resolution processing_server.py`
 
 ## In Progress
+- 毕业论文后续完善（查重优化、内容扩充等，视需要在 `thesis-sr-system` 仓库进行）。
 - Drag-and-drop disabled (windnd/Win32 incompatible with customtkinter); revisit if CTk adds native DnD.
 
 ## Known Optimization Opportunities

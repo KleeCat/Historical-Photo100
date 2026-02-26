@@ -1,5 +1,18 @@
 # Changelog
 
+- 2026-02-26: 毕业论文生成系统完成（独立私有仓库 `thesis-sr-system`）。
+  - 基于 Python-docx 搭建论文自动生成框架（config.py + styles.py + generate_thesis.py）。
+  - 完成 5 章正文 + 中英文摘要 + 参考文献 + 致谢，共 21142 字符。
+  - 20 篇 WebSearch 验证参考文献（15 篇近 5 年），GB/T 7714 格式。
+  - 3 张 Mermaid 架构图（系统架构、处理流水线、RRDB 网络结构）。
+  - 三轮格式修复：消除空白页、对齐参考范文字体字号、设置 docDefaults。
+  - 13 次提交，推送至 GitHub 私有仓库 KleeCat/thesis-sr-system。
+
+- 2026-02-26: 毕业论文参考文献整理（`references_gbt7714.md`）。
+  - 逐一验证 17 篇现有文献的标题、作者、年份、期刊/会议、页码。
+  - 新增 4 篇补充文献（老照片修复、扩散模型、图像质量评估、经典超分辨率）。
+  - 总计 20 篇，GB/T 7714 格式，2021-2026 年文献 15 篇。
+
 - 2026-02-25: UI 精致度提升 v2（分支 `feat/ui-refinement-v2`）。
   - 彩色 Emoji 全部替换为 Lucide 单色线性 SVG 图标（11 个 SVG + icon_helper.py 加载模块）。
   - 图标支持亮/暗模式自动着色（亮色 #1C1C1E，暗色 #F2F2F7）。
