@@ -1,5 +1,12 @@
 # Changelog
 
+- 2026-02-26: 毕业论文封面行距与字体修复（thesis-sr-system）。
+  - 根因定位：docDefaults pPrDefault 含 after=200/line=276 默认段落间距，叠加导致信息行行距过大。
+  - 修复：移除 pPrDefault 中的 spacing，信息行行距恢复与范文一致。
+  - 修复：信息行 rFonts 加 eastAsia=宋体，解决 Word 回退 MS Mincho 问题。
+  - 修复：docGrid type=lines/linePitch=312、compat 对标范文（compatibilityMode=15）。
+  - 安装 claude-scholar 学术写作技能包（ml-paper-writing、results-analysis 等7个技能）。
+
 - 2026-02-26: 毕业论文封面持续修复（thesis-sr-system）。
   - 校徽+校名顺序对调（圆形校徽在上，校名文字在下）。
   - 裁掉 school_name.png 左侧嵌入的小金色校徽（x=0~95px）。

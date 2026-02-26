@@ -1,8 +1,15 @@
 # Current Task
 
-Last update: 2026-02-25
+Last update: 2026-02-26
 
 ## Recently Completed (2026-02-26)
+- 毕业论文封面行距与字体修复（thesis-sr-system）：
+  - 根因：docDefaults pPrDefault 含 after=200/line=276，叠加导致信息行行距过大。
+  - 修复：移除 pPrDefault spacing，信息行行距与范文一致。
+  - 修复：信息行 rFonts 加 eastAsia=宋体，解决 Word 回退 MS Mincho 问题。
+  - 修复：docGrid type=lines/linePitch=312、compat compatibilityMode=15 对标范文。
+  - 安装 claude-scholar 学术写作技能包（7个技能 + 5个hooks）。
+
 - 毕业论文生成系统（独立私有仓库 `thesis-sr-system`）：
   - 创建独立 Git 仓库 `D:\HuaweiMoveData\Users\ihggk\Desktop\thesis-sr-system`，推送至 GitHub 私有仓库 `KleeCat/thesis-sr-system`。
   - 基于 Python-docx 搭建论文自动生成框架：`config.py`（元信息）、`styles.py`（格式定义）、`generate_thesis.py`（主脚本）。
