@@ -1,5 +1,16 @@
 # Changelog
 
+- 2026-02-27: 毕业论文正文格式与参考文献完善（thesis-sr-system）。
+  - 表格字体修复：所有5个表格单元格设置宋体+TNR、五号(10.5pt)。
+  - Normal 样式补全：widowControl=0, jc=both, kern=2, sz=21, szCs=22。
+  - Body Text 样式添加 firstLineChars=200。
+  - Heading 1/2/3 样式修正：字体改为黑体、移除 color、修正 szCs、spacing 对齐范文。
+  - 参考文献引用补全：21篇文献全部在正文中引用（原仅8篇有引用标注）。
+  - 新增 [21] Restormer (CVPR 2022)，近5年文献达到15篇。
+  - 修正 [20] SinSR 作者信息（WANG Y F, YANG W H）。
+  - 全部21篇文献经 WebSearch 验证真实性。
+  - 修复摘要段落小黑点：将 spacing 从摘要段落移至独立空白段落。
+
 - 2026-02-27: 毕业论文摘要页格式对齐范文（thesis-sr-system）。
   - 添加"学号+姓名+指导教师"信息行（楷体 12pt 加粗居中）。
   - 摘要标签"【摘  要】"与正文合并为单段落，首行缩进 200 字符（对标范文）。
