@@ -4,6 +4,7 @@ __pycache__/
 venv/
 .idea/
 .worktrees/
+/tmp/
 
 # outputs / results
 output/
