@@ -600,12 +600,29 @@ def build_relative_focus_boxes(
     return absolute_boxes
 
 
+def json_safe_metric_value(value: float) -> float | None:
+    """Convert non-finite metrics to JSON-safe values."""
+    numeric_value = float(value)
+    if not np.isfinite(numeric_value):
+        return None
+    return numeric_value
+
+
 def get_default_focus_boxes(
     case_id: str,
     image_shape: tuple[int, ...],
 ) -> list[tuple[int, int, int, int]]:
     """Return paper focus boxes for known representative cases."""
     normalized = case_id.lower()
+    if normalized == "0844":
+        return build_relative_focus_boxes(
+            image_shape,
+            [
+                (0.22, 0.52, 0.16, 0.12),
+                (0.40, 0.68, 0.16, 0.14),
+                (0.69, 0.18, 0.16, 0.16),
+            ],
+        )
     if "lincoln" in normalized or "hesler" in normalized:
         return build_relative_focus_boxes(
             image_shape,
@@ -772,8 +789,8 @@ def write_metrics_files(
         "methods": [
             {
                 "name": result["name"],
-                "psnr": result["psnr"],
-                "ssim": result["ssim"],
+                "psnr": json_safe_metric_value(result["psnr"]),
+                "ssim": json_safe_metric_value(result["ssim"]),
             }
             for result in method_results
         ],

@@ -1,3 +1,4 @@
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -19,10 +20,12 @@ from paper_compare_single_case import (
     fit_image_into_box,
     format_figure_title,
     format_metric_lines,
+    get_default_focus_boxes,
     make_input_display_image,
     normalize_esrgan_state_dict_keys,
     render_comparison_figure,
     validate_inputs,
+    write_metrics_files,
 )
 
 
@@ -107,6 +110,35 @@ class TestPaperCompareSingleCase(unittest.TestCase):
         self.assertEqual(output_map["metrics_json"].name, "metrics.json")
         self.assertEqual(output_map["metrics_txt"].name, "metrics.txt")
         self.assertEqual(output_map["comparison"].name, "comparison_with_metrics.png")
+
+    def test_write_metrics_files_serializes_infinite_psnr_as_null(self):
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            output_map = build_output_file_map(tmp_path)
+            image = np.zeros((16, 16, 3), dtype=np.uint8)
+            perfect_result = build_method_result("Perfect", image, image)
+
+            write_metrics_files(
+                lr_path=tmp_path / "lr.png",
+                hr_path=tmp_path / "hr.png",
+                method_results=[perfect_result],
+                output_file_map=output_map,
+            )
+
+            payload = json.loads(output_map["metrics_json"].read_text(encoding="utf-8"))
+            self.assertIsNone(payload["methods"][0]["psnr"])
+            self.assertEqual(payload["methods"][0]["ssim"], 1.0)
+
+    def test_get_default_focus_boxes_returns_regions_for_default_0844_case(self):
+        focus_boxes = get_default_focus_boxes("0844", (1356, 2040, 3))
+
+        self.assertEqual(len(focus_boxes), 3)
+        for focus_box in focus_boxes:
+            x, y, width, height = focus_box
+            self.assertGreater(width, 0)
+            self.assertGreater(height, 0)
+            self.assertGreaterEqual(x, 0)
+            self.assertGreaterEqual(y, 0)
 
     def test_make_input_display_image_matches_reference_shape(self):
         lr = np.zeros((4, 5, 3), dtype=np.uint8)
