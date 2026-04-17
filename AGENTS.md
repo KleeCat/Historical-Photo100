@@ -45,13 +45,18 @@
 - `rtk proxy` 默认不要用于 `python` / `node` / `powershell`。
 - Git 场景优先 `rtk git ...`（或 tiny 探测用原生命令），不要默认走 `rtk proxy git ...`；仅在必须保留原始透传行为（交互流、二进制输出、包装器不兼容）时再用 proxy。
 - Git tiny 探测白名单（可原生命令）：`git status --short`、`git branch --show-current`、`git rev-parse --abbrev-ref HEAD`。
+- Docker 场景优先专用 RTK 子命令：`docker ps/images/logs` 用 `rtk docker ...`，`docker compose ps/logs/build` 用 `rtk docker compose ...`。
+- `docker build`、`docker inspect`、`docker compose up/down/pull/restart`，以及非 tiny 的 `docker exec` / `docker compose exec`，优先用 `rtk summary docker ...`；只关心报错时用 `rtk err docker ...`。
+- 仅当容器内命令是可预期微小输出的探针（如 `echo`、`pwd`、`whoami`、`printenv VAR`）时，才允许原生 `docker exec` / `docker compose exec`。
 - `where.exe`、`Get-Command`、`Test-Path`、`git status --short` 这类探测命令保持原生命令，不用 `rtk proxy`。
 - `rtk read` 仅用于中大文件；小片段优先 `rg`、`Select-String`、`Get-Content -TotalCount/-Tail`。
 - 对单文件且可预期微小输出的检索（如 `rg -n <pattern> <file>`、`Select-String -Path <file> -Pattern <pattern>`）优先原生命令；递归或大范围检索再用 RTK 包装。
 - 对大小不确定的文本/代码文件，在使用 `rtk read` 前先做小探针：优先 `rg -n`、`Get-Content -TotalCount 40` 或 `Get-Content -Tail 40`，除非你已明确需要整文件上下文。
+- 对代码文件默认先做定点检索和局部摘录；只有定点检查仍不足时才退回 `rtk read`，除非用户明确要求整文件阅读/审查。
 - `rtk read` 仅用于明显更大的文件（约 >300 行或 >40KB），且定点提取仍不够时。
 - 小型配置/文档文件（`.md`、`.toml`、`.yaml`、`.yml`、`.ini`、`.env`、小型 `.json`）默认不要用 `rtk read`，除非确实需要整文件上下文。
 - 对本轮刚创建、刚编辑、刚补丁过的文件，默认不要立刻用 `rtk read` 全量回读；优先用 `git diff`、`rg` 或小片段核验。
+- 同一轮里对同一文件默认不要重复 `rtk read`；做过一次整文件读取后，后续优先 `rg`、邻近片段和 diff 核验，除非用户明确还要再做整文件通读。
 - 同一轮里不要反复对小配置/文档文件使用 `rtk read`；已知结构后改用定点检索命令。
 - `Get-Content -TotalCount N` 中，`N <= 120` 可原生命令；`N > 120` 必须走 RTK。
 - `Get-Content ... | Select-Object ...` 若没有明确小上限（如 `-First <= 80`），必须走 RTK。
