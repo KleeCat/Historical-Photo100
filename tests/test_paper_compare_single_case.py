@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -21,6 +24,7 @@ from paper_compare_single_case import (
     format_figure_title,
     format_metric_lines,
     get_default_focus_boxes,
+    load_case_metadata,
     make_input_display_image,
     normalize_esrgan_state_dict_keys,
     render_comparison_figure,
@@ -30,6 +34,49 @@ from paper_compare_single_case import (
 
 
 class TestPaperCompareSingleCase(unittest.TestCase):
+    @staticmethod
+    def _fake_structural_similarity(reference_gray, image_gray, data_range=255):
+        diff = np.abs(reference_gray.astype(np.float32) - image_gray.astype(np.float32))
+        normalized_error = float(np.mean(diff) / max(float(data_range), 1.0))
+        return max(0.0, 1.0 - normalized_error)
+
+    def test_module_import_survives_torch_runtime_load_failure(self):
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            torch_pkg = tmp_path / "torch"
+            torch_pkg.mkdir()
+            (torch_pkg / "__init__.py").write_text(
+                "raise OSError('simulated torch DLL load failure')\n",
+                encoding="utf-8",
+            )
+
+            env = os.environ.copy()
+            pythonpath_entries = [
+                str(tmp_path),
+                str(Path(__file__).resolve().parents[1]),
+            ]
+            existing_pythonpath = env.get("PYTHONPATH")
+            if existing_pythonpath:
+                pythonpath_entries.append(existing_pythonpath)
+            env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import paper_compare_single_case as m; "
+                        "print(m.format_figure_title('Bicubic x4'))"
+                    ),
+                ],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Bicubic ×4", result.stdout)
+
     def test_bicubic_upscale_to_size_matches_target_shape(self):
         img = np.zeros((4, 5, 3), dtype=np.uint8)
         out = bicubic_upscale_to_size(img, (17, 19))
@@ -72,7 +119,11 @@ class TestPaperCompareSingleCase(unittest.TestCase):
         sr = hr.copy()
         sr[0, 0] = 120
 
-        result = compute_psnr_ssim(sr, hr)
+        with patch(
+            "paper_compare_single_case._structural_similarity",
+            side_effect=self._fake_structural_similarity,
+        ):
+            result = compute_psnr_ssim(sr, hr)
 
         self.assertIn("psnr", result)
         self.assertIn("ssim", result)
@@ -84,7 +135,11 @@ class TestPaperCompareSingleCase(unittest.TestCase):
         sr = hr.copy()
         sr[0, 0] = 120
 
-        result = build_method_result("Bicubic", sr, hr)
+        with patch(
+            "paper_compare_single_case._structural_similarity",
+            side_effect=self._fake_structural_similarity,
+        ):
+            result = build_method_result("Bicubic", sr, hr)
 
         self.assertEqual(result["name"], "Bicubic")
         self.assertEqual(result["image"].shape, sr.shape)
@@ -116,7 +171,11 @@ class TestPaperCompareSingleCase(unittest.TestCase):
             tmp_path = Path(tmp_dir)
             output_map = build_output_file_map(tmp_path)
             image = np.zeros((16, 16, 3), dtype=np.uint8)
-            perfect_result = build_method_result("Perfect", image, image)
+            with patch(
+                "paper_compare_single_case._structural_similarity",
+                side_effect=self._fake_structural_similarity,
+            ):
+                perfect_result = build_method_result("Perfect", image, image)
 
             write_metrics_files(
                 lr_path=tmp_path / "lr.png",
@@ -129,8 +188,43 @@ class TestPaperCompareSingleCase(unittest.TestCase):
             self.assertIsNone(payload["methods"][0]["psnr"])
             self.assertEqual(payload["methods"][0]["ssim"], 1.0)
 
-    def test_get_default_focus_boxes_returns_regions_for_default_0844_case(self):
-        focus_boxes = get_default_focus_boxes("0844", (1356, 2040, 3))
+    def test_load_case_metadata_reads_project_case_config(self):
+        with TemporaryDirectory() as tmp_dir:
+            project_root = Path(tmp_dir)
+            metadata_dir = project_root / "paper_compare_cases" / "0844"
+            metadata_dir.mkdir(parents=True)
+            metadata_path = metadata_dir / "meta.json"
+            metadata_path.write_text(
+                json.dumps(
+                    {
+                        "paper_compare_focus_boxes": [
+                            [0.22, 0.52, 0.16, 0.12],
+                            [0.40, 0.68, 0.16, 0.14],
+                            [0.69, 0.18, 0.16, 0.16],
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            metadata = load_case_metadata(
+                lr_path=project_root / "LR" / "0844x4.png",
+                hr_path=project_root / "HR" / "0844.png",
+                case_id="0844",
+                project_root=project_root,
+            )
+
+            self.assertEqual(metadata["paper_compare_focus_boxes"][0], [0.22, 0.52, 0.16, 0.12])
+
+    def test_get_default_focus_boxes_returns_regions_from_case_metadata(self):
+        metadata = {
+            "paper_compare_focus_boxes": [
+                [0.22, 0.52, 0.16, 0.12],
+                [0.40, 0.68, 0.16, 0.14],
+                [0.69, 0.18, 0.16, 0.16],
+            ]
+        }
+        focus_boxes = get_default_focus_boxes("0844", (1356, 2040, 3), case_metadata=metadata)
 
         self.assertEqual(len(focus_boxes), 3)
         for focus_box in focus_boxes:

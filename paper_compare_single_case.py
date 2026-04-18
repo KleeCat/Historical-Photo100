@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import urllib.request
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import cv2
 import numpy as np
@@ -17,13 +18,6 @@ except ImportError:  # pragma: no cover - optional dependency at runtime
     Image = None
     ImageDraw = None
     ImageFont = None
-
-try:
-    import torch
-    import torch.nn as nn
-except ImportError:  # pragma: no cover - optional dependency at runtime
-    torch = None
-    nn = None
 
 try:
     from skimage.metrics import structural_similarity as _structural_similarity
@@ -50,17 +44,35 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_LR_PATH = PROJECT_ROOT / "LR" / "0844x4.png"
 DEFAULT_HR_PATH = PROJECT_ROOT / "HR" / "0844.png"
 DEFAULT_MODEL_DIR = PROJECT_ROOT / "models" / "paper_compare"
-MODEL_URLS = {
-    "srcnn": "https://www.dropbox.com/s/pd5b2ketm0oamhj/srcnn_x4.pth?dl=1",
-    "esrgan": (
-        "https://github.com/xinntao/Real-ESRGAN/releases/download/"
-        "v0.1.1/ESRGAN_SRx4_DF2KOST_official-ff704c30.pth"
-    ),
-    "realesrgan": (
-        "https://github.com/xinntao/Real-ESRGAN/releases/download/"
-        "v0.1.0/RealESRGAN_x4plus.pth"
-    ),
+CASE_METADATA_FILENAME = "meta.json"
+FOCUS_BOXES_METADATA_KEY = "paper_compare_focus_boxes"
+MODEL_SPECS: dict[str, dict[str, str]] = {
+    "srcnn": {
+        "subdir": "srcnn",
+        "filename": "srcnn_x4.pth",
+        "url": "https://www.dropbox.com/s/pd5b2ketm0oamhj/srcnn_x4.pth?dl=1",
+    },
+    "esrgan": {
+        "subdir": "esrgan",
+        "filename": "RRDB_ESRGAN_x4.pth",
+        "url": (
+            "https://github.com/xinntao/Real-ESRGAN/releases/download/"
+            "v0.1.1/ESRGAN_SRx4_DF2KOST_official-ff704c30.pth"
+        ),
+    },
+    "realesrgan": {
+        "subdir": "realesrgan",
+        "filename": "RealESRGAN_x4plus.pth",
+        "url": (
+            "https://github.com/xinntao/Real-ESRGAN/releases/download/"
+            "v0.1.0/RealESRGAN_x4plus.pth"
+        ),
+    },
 }
+_TORCH_MODULE: Any | None = None
+_TORCH_NN_MODULE: Any | None = None
+_TORCH_IMPORT_ATTEMPTED = False
+_TORCH_IMPORT_ERROR: Exception | None = None
 
 
 def bicubic_upscale_to_size(
@@ -98,6 +110,23 @@ def format_metric_lines(psnr: float, ssim: float) -> list[str]:
 def format_figure_title(name: str) -> str:
     """Format figure titles for paper-style display."""
     return name.replace(" x4", " ×4")
+
+
+def load_optional_torch_modules() -> tuple[Any | None, Any | None]:
+    """Lazily import torch/torch.nn and tolerate runtime DLL load failures."""
+    global _TORCH_IMPORT_ATTEMPTED, _TORCH_IMPORT_ERROR, _TORCH_MODULE, _TORCH_NN_MODULE
+    if _TORCH_IMPORT_ATTEMPTED:
+        return _TORCH_MODULE, _TORCH_NN_MODULE
+
+    _TORCH_IMPORT_ATTEMPTED = True
+    try:
+        _TORCH_MODULE = importlib.import_module("torch")
+        _TORCH_NN_MODULE = importlib.import_module("torch.nn")
+    except Exception as exc:  # pragma: no cover - depends on local runtime
+        _TORCH_IMPORT_ERROR = exc
+        _TORCH_MODULE = None
+        _TORCH_NN_MODULE = None
+    return _TORCH_MODULE, _TORCH_NN_MODULE
 
 
 def validate_inputs(
@@ -191,9 +220,8 @@ def build_model_file_map(model_dir: str | Path) -> dict[str, Path]:
     """Build the fixed model path map for the paper figure."""
     base_dir = Path(model_dir)
     return {
-        "srcnn": base_dir / "srcnn" / "srcnn_x4.pth",
-        "esrgan": base_dir / "esrgan" / "RRDB_ESRGAN_x4.pth",
-        "realesrgan": base_dir / "realesrgan" / "RealESRGAN_x4plus.pth",
+        name: base_dir / spec["subdir"] / spec["filename"]
+        for name, spec in MODEL_SPECS.items()
     }
 
 
@@ -222,6 +250,49 @@ def infer_case_id(lr_path: Path, hr_path: Path) -> str:
     return hr_path.stem or lr_path.stem.replace("x4", "")
 
 
+def _iter_case_metadata_candidates(
+    lr_path: Path,
+    hr_path: Path,
+    case_id: str,
+    project_root: Path = PROJECT_ROOT,
+) -> list[Path]:
+    candidates = [
+        hr_path.parent / CASE_METADATA_FILENAME,
+        hr_path.parent.parent / CASE_METADATA_FILENAME,
+        lr_path.parent / CASE_METADATA_FILENAME,
+        lr_path.parent.parent / CASE_METADATA_FILENAME,
+        project_root / "paper_compare_cases" / case_id / CASE_METADATA_FILENAME,
+    ]
+    deduplicated: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            deduplicated.append(resolved)
+    return deduplicated
+
+
+def load_case_metadata(
+    lr_path: str | Path,
+    hr_path: str | Path,
+    case_id: str,
+    project_root: str | Path = PROJECT_ROOT,
+) -> dict[str, Any]:
+    """Load the nearest case metadata JSON, falling back to project case config."""
+    lr = Path(lr_path).expanduser().resolve()
+    hr = Path(hr_path).expanduser().resolve()
+    root = Path(project_root).expanduser().resolve()
+    for metadata_path in _iter_case_metadata_candidates(lr, hr, case_id, root):
+        if not metadata_path.is_file():
+            continue
+        try:
+            return json.loads(metadata_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Failed to parse case metadata: {metadata_path}") from exc
+    return {}
+
+
 def load_image_bgr(image_path: str | Path) -> np.ndarray:
     """Read a BGR image from disk."""
     image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
@@ -240,7 +311,7 @@ def save_image_bgr(image_path: str | Path, image_bgr: np.ndarray) -> Path:
 
 
 def download_model_file(model_path: str | Path, model_url: str) -> Path:
-    """Download a model to the configured D-drive project directory."""
+    """Download a model into the configured model directory if needed."""
     target_path = Path(model_path)
     if target_path.is_file():
         return target_path
@@ -257,9 +328,28 @@ def download_model_file(model_path: str | Path, model_url: str) -> Path:
     return target_path
 
 
-def _require_torch() -> None:
-    if torch is None or nn is None:
+def ensure_model_files(
+    model_dir: str | Path,
+    methods: Sequence[str] | None = None,
+) -> dict[str, Path]:
+    """Ensure required model files exist locally and return their resolved paths."""
+    model_file_map = build_model_file_map(model_dir)
+    method_names = list(methods or MODEL_SPECS.keys())
+    ensured_paths: dict[str, Path] = {}
+    for method_name in method_names:
+        spec = MODEL_SPECS[method_name]
+        ensured_paths[method_name] = download_model_file(
+            model_file_map[method_name],
+            spec["url"],
+        )
+    return ensured_paths
+
+
+def _require_torch() -> tuple[Any, Any]:
+    torch_module, nn_module = load_optional_torch_modules()
+    if torch_module is None or nn_module is None:
         raise ImportError("PyTorch is required for SRCNN/ESRGAN/Real-ESRGAN inference")
+    return torch_module, nn_module
 
 
 def _require_pillow() -> None:
@@ -269,21 +359,21 @@ def _require_pillow() -> None:
 
 def resolve_device(device_name: str):
     """Resolve auto/cpu/cuda to a torch device."""
-    _require_torch()
+    torch_module, _ = _require_torch()
     if device_name == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if device_name == "cuda" and not torch.cuda.is_available():
+        return torch_module.device("cuda" if torch_module.cuda.is_available() else "cpu")
+    if device_name == "cuda" and not torch_module.cuda.is_available():
         raise RuntimeError("CUDA requested but no CUDA device is available")
-    return torch.device(device_name)
+    return torch_module.device(device_name)
 
 
 def _torch_load_state_dict(model_path: Path, device) -> dict[str, Any]:
     """Load a torch checkpoint and normalize its top-level structure."""
-    _require_torch()
+    torch_module, _ = _require_torch()
     try:
-        state = torch.load(str(model_path), map_location=device, weights_only=True)
+        state = torch_module.load(str(model_path), map_location=device, weights_only=True)
     except TypeError:
-        state = torch.load(str(model_path), map_location=device)
+        state = torch_module.load(str(model_path), map_location=device)
 
     if isinstance(state, dict):
         for key in ("params_ema", "params", "state_dict", "model_state_dict"):
@@ -335,15 +425,15 @@ def normalize_esrgan_state_dict_keys(
 
 def create_srcnn_model():
     """Build the minimal classic SRCNN network."""
-    _require_torch()
+    _, nn_module = _require_torch()
 
-    class _SRCNN(nn.Module):
+    class _SRCNN(nn_module.Module):
         def __init__(self) -> None:
             super().__init__()
-            self.conv1 = nn.Conv2d(1, 64, kernel_size=9, padding=4)
-            self.conv2 = nn.Conv2d(64, 32, kernel_size=5, padding=2)
-            self.conv3 = nn.Conv2d(32, 1, kernel_size=5, padding=2)
-            self.relu = nn.ReLU(inplace=True)
+            self.conv1 = nn_module.Conv2d(1, 64, kernel_size=9, padding=4)
+            self.conv2 = nn_module.Conv2d(64, 32, kernel_size=5, padding=2)
+            self.conv3 = nn_module.Conv2d(32, 1, kernel_size=5, padding=2)
+            self.relu = nn_module.ReLU(inplace=True)
 
         def forward(self, x):
             x = self.relu(self.conv1(x))
@@ -353,26 +443,38 @@ def create_srcnn_model():
     return _SRCNN()
 
 
-def load_srcnn_model(model_path: Path, device):
-    """Load a pretrained SRCNN x4 model."""
-    model = create_srcnn_model().to(device)
+def _load_state_dict_model(
+    model,
+    model_path: Path,
+    device,
+    state_dict_normalizer=None,
+):
+    """Load state dict into a model and switch it to eval mode."""
     state_dict = _torch_load_state_dict(model_path, device)
+    if state_dict_normalizer is not None:
+        state_dict = state_dict_normalizer(state_dict)
     model.load_state_dict(state_dict, strict=True)
     model.eval()
     return model
+
+
+def load_srcnn_model(model_path: Path, device):
+    """Load a pretrained SRCNN x4 model."""
+    model = create_srcnn_model().to(device)
+    return _load_state_dict_model(model, model_path, device)
 
 
 def load_esrgan_model(model_path: Path, device):
     """Load the ESRGAN RRDBNet x4 model."""
-    _require_torch()
     if _ESRGANRRDBNet is None:
         raise ImportError("Local RRDBNet_arch.py is required for ESRGAN inference")
     model = _ESRGANRRDBNet(3, 3, 64, 23, gc=32).to(device)
-    state_dict = _torch_load_state_dict(model_path, device)
-    state_dict = normalize_esrgan_state_dict_keys(state_dict)
-    model.load_state_dict(state_dict, strict=True)
-    model.eval()
-    return model
+    return _load_state_dict_model(
+        model,
+        model_path,
+        device,
+        state_dict_normalizer=normalize_esrgan_state_dict_keys,
+    )
 
 
 def create_realesrgan_upsampler(model_path: Path, device):
@@ -413,14 +515,15 @@ def run_srcnn_method(
     device,
 ) -> dict[str, Any]:
     """Run classic SRCNN x4 on bicubic-upscaled input."""
+    torch_module, _ = _require_torch()
     bicubic_bgr = bicubic_upscale_to_size(lr_bgr, hr_bgr.shape[:2])
     model = load_srcnn_model(model_path, device)
     ycrcb = cv2.cvtColor(bicubic_bgr, cv2.COLOR_BGR2YCrCb)
     y_channel = ycrcb[:, :, 0].astype(np.float32) / 255.0
 
-    with torch.no_grad():
+    with torch_module.no_grad():
         input_tensor = (
-            torch.from_numpy(y_channel)
+            torch_module.from_numpy(y_channel)
             .unsqueeze(0)
             .unsqueeze(0)
             .to(device)
@@ -445,16 +548,17 @@ def run_esrgan_method(
     device,
 ) -> dict[str, Any]:
     """Run ESRGAN x4 with the local RRDBNet reference architecture."""
+    torch_module, _ = _require_torch()
     model = load_esrgan_model(model_path, device)
     rgb = cv2.cvtColor(lr_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
     input_tensor = (
-        torch.from_numpy(np.transpose(rgb, (2, 0, 1)))
+        torch_module.from_numpy(np.transpose(rgb, (2, 0, 1)))
         .unsqueeze(0)
         .to(device)
         .float()
     )
 
-    with torch.no_grad():
+    with torch_module.no_grad():
         output_tensor = model(input_tensor).clamp(0.0, 1.0)
 
     output_rgb = np.transpose(
@@ -608,31 +712,35 @@ def json_safe_metric_value(value: float) -> float | None:
     return numeric_value
 
 
+def _extract_focus_box_config(
+    case_metadata: Mapping[str, Any] | None,
+) -> list[tuple[float, float, float, float]]:
+    if not case_metadata:
+        return []
+
+    raw_boxes = case_metadata.get(FOCUS_BOXES_METADATA_KEY) or case_metadata.get("focus_boxes")
+    if not raw_boxes:
+        return []
+
+    parsed_boxes: list[tuple[float, float, float, float]] = []
+    for raw_box in raw_boxes:
+        if not isinstance(raw_box, Sequence) or len(raw_box) != 4:
+            raise ValueError(f"Invalid focus box config: {raw_box!r}")
+        parsed_boxes.append(tuple(float(value) for value in raw_box))
+    return parsed_boxes
+
+
 def get_default_focus_boxes(
     case_id: str,
     image_shape: tuple[int, ...],
+    case_metadata: Mapping[str, Any] | None = None,
 ) -> list[tuple[int, int, int, int]]:
-    """Return paper focus boxes for known representative cases."""
-    normalized = case_id.lower()
-    if normalized == "0844":
-        return build_relative_focus_boxes(
-            image_shape,
-            [
-                (0.22, 0.52, 0.16, 0.12),
-                (0.40, 0.68, 0.16, 0.14),
-                (0.69, 0.18, 0.16, 0.16),
-            ],
-        )
-    if "lincoln" in normalized or "hesler" in normalized:
-        return build_relative_focus_boxes(
-            image_shape,
-            [
-                (0.23, 0.16, 0.22, 0.14),
-                (0.46, 0.28, 0.18, 0.12),
-                (0.41, 0.47, 0.22, 0.12),
-            ],
-        )
-    return []
+    """Return paper focus boxes configured in case metadata."""
+    del case_id  # case selection now lives in metadata resolution
+    relative_boxes = _extract_focus_box_config(case_metadata)
+    if not relative_boxes:
+        return []
+    return build_relative_focus_boxes(image_shape, relative_boxes)
 
 
 def _load_font(size: int):
@@ -828,8 +936,9 @@ def generate_single_case_comparison(
     device = resolve_device(device_name)
     output_dir_path = ensure_dir(output_dir)
     output_file_map = build_output_file_map(output_dir_path)
-    model_file_map = build_model_file_map(model_dir)
     case_id = infer_case_id(lr_resolved, hr_resolved)
+    case_metadata = load_case_metadata(lr_resolved, hr_resolved, case_id, PROJECT_ROOT)
+    model_file_map = ensure_model_files(model_dir)
 
     lr_bgr = load_image_bgr(lr_resolved)
     hr_bgr = load_image_bgr(hr_resolved)
@@ -843,27 +952,18 @@ def generate_single_case_comparison(
     save_image_bgr(output_file_map["bicubic"], bicubic_result["image"])
     method_results.append(bicubic_result)
 
-    srcnn_model_path = download_model_file(model_file_map["srcnn"], MODEL_URLS["srcnn"])
-    srcnn_result = run_srcnn_method(lr_bgr, hr_bgr, srcnn_model_path, device)
+    srcnn_result = run_srcnn_method(lr_bgr, hr_bgr, model_file_map["srcnn"], device)
     save_image_bgr(output_file_map["srcnn"], srcnn_result["image"])
     method_results.append(srcnn_result)
 
-    esrgan_model_path = download_model_file(
-        model_file_map["esrgan"],
-        MODEL_URLS["esrgan"],
-    )
-    esrgan_result = run_esrgan_method(lr_bgr, hr_bgr, esrgan_model_path, device)
+    esrgan_result = run_esrgan_method(lr_bgr, hr_bgr, model_file_map["esrgan"], device)
     save_image_bgr(output_file_map["esrgan"], esrgan_result["image"])
     method_results.append(esrgan_result)
 
-    realesrgan_model_path = download_model_file(
-        model_file_map["realesrgan"],
-        MODEL_URLS["realesrgan"],
-    )
     realesrgan_result = run_realesrgan_method(
         lr_bgr,
         hr_bgr,
-        realesrgan_model_path,
+        model_file_map["realesrgan"],
         device,
     )
     save_image_bgr(output_file_map["realesrgan"], realesrgan_result["image"])
@@ -875,7 +975,7 @@ def generate_single_case_comparison(
         method_results=method_results,
         output_path=output_file_map["comparison"],
         display_max_height=display_max_height,
-        focus_boxes=get_default_focus_boxes(case_id, hr_bgr.shape),
+        focus_boxes=get_default_focus_boxes(case_id, hr_bgr.shape, case_metadata=case_metadata),
     )
     return {
         "output_dir": output_dir_path,
