@@ -1,0 +1,23 @@
+{
+  "title": "Default paper comparison sample 0844",
+  "paper_compare_focus_boxes": [
+    [
+      0.22,
+      0.52,
+      0.16,
+      0.12
+    ],
+    [
+      0.4,
+      0.68,
+      0.16,
+      0.14
+    ],
+    [
+      0.69,
+      0.18,
+      0.16,
+      0.16
+    ]
+  ]
+}
