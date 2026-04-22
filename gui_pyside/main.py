@@ -223,6 +223,7 @@ class MainWindow(QMainWindow):
         self.gt_path = None
 
         self.display.show_input(img, os.path.basename(path))
+        self.display.set_output_mode("super_resolution")
         self.display.clear_output()
         self.display.show_overlay("Waiting for processing...")
         self.display.set_toolbar_enabled()
@@ -297,6 +298,7 @@ class MainWindow(QMainWindow):
         settings = self._gather_settings()
         output_dir = self._get_output_dir()
 
+        self.display.set_output_mode("super_resolution")
         self._process_worker = ProcessWorker(
             self.model_manager, self.img_input, self.input_path,
             self.img_gt, settings, output_dir,
@@ -328,8 +330,9 @@ class MainWindow(QMainWindow):
             input_path=self.input_path,
             output_base_dir=self.default_output_dir,
         )
+        self.display.set_output_mode("colorization")
         self._colorize_worker.progress.connect(self._on_process_progress)
-        self._colorize_worker.image_ready.connect(self._on_process_image_ready)
+        self._colorize_worker.image_ready.connect(self._on_colorize_image_ready)
         self._colorize_worker.finished.connect(self._on_colorize_finished)
 
         self.sidebar.set_processing_state(True)
@@ -346,6 +349,14 @@ class MainWindow(QMainWindow):
             self.img_output = img
             base = safe_basename(self.input_path)
             self.display.show_output(img, f"{base}_x{self.scale_factor}.png")
+
+    def _on_colorize_image_ready(self, img: object) -> None:
+        if isinstance(img, np.ndarray):
+            self.img_output = img
+            default_name = f"{safe_basename(self.input_path)}_colorized.png"
+            output_path = getattr(self._colorize_worker, "output_path", None)
+            output_name = os.path.basename(output_path) if output_path else default_name
+            self.display.show_output(img, output_name)
 
     def _on_process_finished(self, success: bool, msg: str) -> None:
         self.statusbar.stop_timer()

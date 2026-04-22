@@ -111,6 +111,10 @@ class ImagePanel(QGraphicsView):
 
 
 class ImageDisplayWidget(QWidget):
+    OUTPUT_MODE_TEXT = {
+        "super_resolution": ("Super-Resolution Output", "Output"),
+        "colorization": ("Colorized Output", "Colorized"),
+    }
     """双面板图像显示区 + 底部工具栏。"""
 
     # Toolbar signals
@@ -130,11 +134,11 @@ class ImageDisplayWidget(QWidget):
         lbl_in = QLabel("Original Input")
         lbl_in.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_in.setStyleSheet("font-size: 14px; font-weight: bold;")
-        lbl_out = QLabel("Super-Resolution Output")
-        lbl_out.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_out.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.lbl_output_title = QLabel("Super-Resolution Output")
+        self.lbl_output_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_output_title.setStyleSheet("font-size: 14px; font-weight: bold;")
         header_row.addWidget(lbl_in, stretch=1)
-        header_row.addWidget(lbl_out, stretch=1)
+        header_row.addWidget(self.lbl_output_title, stretch=1)
         layout.addLayout(header_row)
 
         # Filename labels
@@ -235,6 +239,8 @@ class ImageDisplayWidget(QWidget):
         self._compare_split = 0.5
         self._compare_input_pixmap: QPixmap | None = None
         self._compare_output_pixmap: QPixmap | None = None
+        self._output_mode = "super_resolution"
+        self._output_prefix = "Output"
 
     def _sync_output_zoom(self, zoom: float, cx: float, cy: float) -> None:
         self.panel_output.sync_transform(zoom, cx, cy)
@@ -243,6 +249,24 @@ class ImageDisplayWidget(QWidget):
         self.panel_input.sync_transform(zoom, cx, cy)
 
     # --- Public API ---
+
+    def set_output_mode(self, mode: str = "super_resolution") -> None:
+        title, prefix = self.OUTPUT_MODE_TEXT.get(
+            mode,
+            self.OUTPUT_MODE_TEXT["super_resolution"],
+        )
+        self._output_mode = mode if mode in self.OUTPUT_MODE_TEXT else "super_resolution"
+        self._output_prefix = prefix
+        self.lbl_output_title.setText(title)
+
+        if self.lbl_filename_out.text():
+            _, _, suffix = self.lbl_filename_out.text().partition(": ")
+            self.lbl_filename_out.setText(f"{prefix}: {suffix}" if suffix else "")
+        else:
+            self.lbl_filename_out.setText("")
+
+        _, _, suffix = self.lbl_res_out.text().partition(": ")
+        self.lbl_res_out.setText(f"{prefix}: {suffix or '-- x --'}")
 
     def show_input(self, img_bgr: np.ndarray, filename: str = "") -> None:
         self.panel_input.set_image(img_bgr)
@@ -255,14 +279,14 @@ class ImageDisplayWidget(QWidget):
         self.panel_output.set_image(img_bgr)
         self.hide_overlay()
         if filename:
-            self.lbl_filename_out.setText(f"Output: {filename}")
+            self.lbl_filename_out.setText(f"{self._output_prefix}: {filename}")
         h, w = img_bgr.shape[:2]
-        self.lbl_res_out.setText(f"Output: {w} x {h}")
+        self.lbl_res_out.setText(f"{self._output_prefix}: {w} x {h}")
 
     def clear_output(self) -> None:
         self.panel_output.clear_image()
         self.lbl_filename_out.setText("")
-        self.lbl_res_out.setText("Output: -- x --")
+        self.lbl_res_out.setText(f"{self._output_prefix}: -- x --")
 
     def show_overlay(self, text: str = "Waiting for processing...") -> None:
         self._overlay.setText(text)

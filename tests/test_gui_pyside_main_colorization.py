@@ -3,6 +3,7 @@ import os
 import sys
 import types
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -129,6 +130,7 @@ class TestMainWindowColorization(unittest.TestCase):
     def _make_window_like(self):
         return SimpleNamespace(
             img_input=None,
+            img_output=None,
             input_path=None,
             default_output_dir="outputs",
             _process_worker=None,
@@ -138,7 +140,12 @@ class TestMainWindowColorization(unittest.TestCase):
                 set_processing_state=Mock(),
                 set_cancel_state=Mock(),
             ),
-            display=SimpleNamespace(show_overlay=Mock()),
+            display=SimpleNamespace(
+                show_overlay=Mock(),
+                show_output=Mock(),
+                set_output_mode=Mock(),
+                set_toolbar_enabled=Mock(),
+            ),
             statusbar=SimpleNamespace(
                 start_timer=Mock(),
                 stop_timer=Mock(),
@@ -146,6 +153,7 @@ class TestMainWindowColorization(unittest.TestCase):
             ),
             _on_process_progress=Mock(),
             _on_process_image_ready=Mock(),
+            _on_colorize_image_ready=Mock(),
             _on_colorize_finished=Mock(),
         )
 
@@ -172,6 +180,7 @@ class TestMainWindowColorization(unittest.TestCase):
         worker_cls.assert_called_once()
         window.sidebar.set_processing_state.assert_called_once_with(True)
         window.statusbar.start_timer.assert_called_once()
+        window.display.set_output_mode.assert_called_once_with("colorization")
         worker.start.assert_called_once()
         info_box.assert_not_called()
 
@@ -187,6 +196,19 @@ class TestMainWindowColorization(unittest.TestCase):
 
         colorize_worker.requestInterruption.assert_called_once()
         window.sidebar.set_cancel_state.assert_called_once()
+
+    def test_on_colorize_image_ready_uses_colorized_filename(self):
+        window = self._make_window_like()
+        image = np.zeros((12, 10, 3), dtype=np.uint8)
+        window.input_path = "portrait.png"
+        window._colorize_worker = SimpleNamespace(
+            output_path=str(Path("outputs") / "portrait_colorized.png")
+        )
+
+        MainWindow._on_colorize_image_ready(window, image)
+
+        self.assertIs(window.img_output, image)
+        window.display.show_output.assert_called_once_with(image, "portrait_colorized.png")
 
 
 if __name__ == "__main__":

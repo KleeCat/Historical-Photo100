@@ -21,6 +21,11 @@ outputs/
 *.onnx
 *.ckpt
 *.safetensors
+*.caffemodel
+
+# local colorization assets
+models/colorization/*.prototxt
+models/colorization/*.npy
 
 # archives
 *.zip
