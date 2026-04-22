@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 from PySide6.QtCore import QThread, Signal
 
+from .colorization import run_colorization_pipeline
 from .models import ModelManager
 from .processing import (
     UserCancelledError, auto_tile_size, blend_images, blend_with_lr,
@@ -244,6 +245,60 @@ class ProcessWorker(QThread):
         except Exception as e:
             self.elapsed = time.perf_counter() - start_time
             logger.error("Processing failed: %s", e)
+            self.finished.emit(False, str(e))
+
+
+class ColorizeWorker(QThread):
+    """后台单张老照片彩色化。"""
+
+    progress = Signal(float, str)
+    image_ready = Signal(object)
+    finished = Signal(bool, str)
+
+    def __init__(
+        self,
+        img_input: np.ndarray,
+        input_path: Optional[str],
+        output_base_dir: Optional[str] = None,
+        model_path: Optional[str] = None,
+        max_side: int = 1024,
+    ) -> None:
+        super().__init__()
+        self.img_input = img_input.copy()
+        self.input_path = input_path
+        self.output_base_dir = output_base_dir
+        self.model_path = model_path
+        self.max_side = max_side
+        self.output_path: Optional[str] = None
+        self.run_dir: Optional[str] = None
+        self.run_meta: Dict[str, Any] = {}
+        self.elapsed: Optional[float] = None
+
+    def run(self) -> None:
+        try:
+            self.progress.emit(0.1, "Checking colorization model...")
+            result = run_colorization_pipeline(
+                input_img=self.img_input,
+                input_path=self.input_path,
+                output_base_dir=self.output_base_dir,
+                model_path=self.model_path,
+                max_side=self.max_side,
+                cancel_check=self.isInterruptionRequested,
+            )
+            self.output_path = result.output_path
+            self.run_dir = result.run_dir
+            self.run_meta = dict(result.run_meta)
+            self.elapsed = result.elapsed
+            self.progress.emit(1.0, "Colorization complete")
+            self.image_ready.emit(result.output_image)
+            self.finished.emit(
+                True,
+                f"Colorization complete: {os.path.basename(self.output_path)}",
+            )
+        except UserCancelledError:
+            self.finished.emit(False, "Colorization cancelled")
+        except Exception as e:
+            logger.error("Colorization failed: %s", e)
             self.finished.emit(False, str(e))
 
 
