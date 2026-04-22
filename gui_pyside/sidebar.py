@@ -50,6 +50,7 @@ class SidebarWidget(QScrollArea):
     compare_toggled = Signal(bool)
     compare_split_changed = Signal(float)
     start_clicked = Signal()
+    colorize_clicked = Signal()
     batch_clicked = Signal()
     cancel_clicked = Signal()
     dark_mode_toggled = Signal(bool)
@@ -275,6 +276,13 @@ class SidebarWidget(QScrollArea):
         self.btn_start.clicked.connect(self.start_clicked)
         lay.addWidget(self.btn_start)
 
+        self.btn_colorize = QPushButton("Start Colorization")
+        self.btn_colorize.setIcon(load_icon("sparkles"))
+        self.btn_colorize.setFixedHeight(32)
+        self.btn_colorize.setToolTip("Convert a black-and-white photo into color")
+        self.btn_colorize.clicked.connect(self.colorize_clicked)
+        lay.addWidget(self.btn_colorize)
+
         self.btn_batch = QPushButton("Run Folder (Batch)")
         self.btn_batch.setIcon(load_icon("folders"))
         self.btn_batch.setFixedHeight(32)
@@ -344,6 +352,7 @@ class SidebarWidget(QScrollArea):
     def set_processing_state(self, processing: bool) -> None:
         """切换处理中/空闲状态的按钮可用性。"""
         self.btn_start.setEnabled(not processing)
+        self.btn_colorize.setEnabled(not processing)
         self.btn_batch.setEnabled(not processing)
         self.btn_cancel.setEnabled(processing)
         self.combo_scale.setEnabled(not processing)
@@ -359,6 +368,7 @@ class SidebarWidget(QScrollArea):
     def set_batch_state(self, running: bool) -> None:
         """切换批处理状态。"""
         self.btn_start.setEnabled(not running)
+        self.btn_colorize.setEnabled(not running)
         self.btn_batch.setEnabled(not running)
         self.btn_cancel.setEnabled(running)
         if running:
@@ -441,5 +451,6 @@ class SidebarWidget(QScrollArea):
         self.btn_gt.setIcon(load_icon("ruler"))
         self.btn_output_dir.setIcon(load_icon("folder", size=14))
         self.btn_start.setIcon(load_icon("play", "#FFFFFF"))
+        self.btn_colorize.setIcon(load_icon("sparkles"))
         self.btn_batch.setIcon(load_icon("folders"))
         self.btn_cancel.setIcon(load_icon("x"))

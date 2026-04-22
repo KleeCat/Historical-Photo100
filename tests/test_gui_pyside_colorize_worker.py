@@ -1,4 +1,5 @@
 import importlib
+import os
 import sys
 import types
 import unittest
@@ -6,10 +7,16 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
-from PySide6.QtCore import QCoreApplication
+from PySide6.QtWidgets import QApplication
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 def _install_worker_dependency_stubs():
+    originals = {
+        name: sys.modules.get(name)
+        for name in ("gui_pyside.processing", "gui_pyside.models", "gui_pyside.workers")
+    }
     processing_stub = types.ModuleType("gui_pyside.processing")
 
     class UserCancelledError(Exception):
@@ -38,7 +45,15 @@ def _install_worker_dependency_stubs():
     sys.modules["gui_pyside.processing"] = processing_stub
     sys.modules["gui_pyside.models"] = models_stub
     sys.modules.pop("gui_pyside.workers", None)
-    return importlib.import_module("gui_pyside.workers"), UserCancelledError
+    workers_module = importlib.import_module("gui_pyside.workers")
+
+    for name, original in originals.items():
+        if original is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = original
+
+    return workers_module, UserCancelledError
 
 
 workers_module, UserCancelledError = _install_worker_dependency_stubs()
@@ -48,7 +63,7 @@ ColorizeWorker = workers_module.ColorizeWorker
 class TestColorizeWorker(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.app = QCoreApplication.instance() or QCoreApplication([])
+        cls.app = QApplication.instance() or QApplication([])
 
     def test_worker_emits_success_and_image(self):
         image = np.full((8, 8, 3), 128, dtype=np.uint8)
@@ -63,7 +78,7 @@ class TestColorizeWorker(unittest.TestCase):
         image_events = []
         finished_events = []
 
-        with patch("gui_pyside.workers.run_colorization_pipeline", return_value=fake_result):
+        with patch.object(workers_module, "run_colorization_pipeline", return_value=fake_result):
             worker = ColorizeWorker(
                 img_input=np.zeros((8, 8, 3), dtype=np.uint8),
                 input_path="demo.png",
@@ -85,7 +100,7 @@ class TestColorizeWorker(unittest.TestCase):
     def test_worker_emits_failure_message(self):
         finished_events = []
 
-        with patch("gui_pyside.workers.run_colorization_pipeline", side_effect=RuntimeError("boom")):
+        with patch.object(workers_module, "run_colorization_pipeline", side_effect=RuntimeError("boom")):
             worker = ColorizeWorker(
                 img_input=np.zeros((8, 8, 3), dtype=np.uint8),
                 input_path="demo.png",
@@ -99,10 +114,7 @@ class TestColorizeWorker(unittest.TestCase):
     def test_worker_honors_interruption(self):
         finished_events = []
 
-        with patch(
-            "gui_pyside.workers.run_colorization_pipeline",
-            side_effect=UserCancelledError("Cancelled"),
-        ):
+        with patch.object(workers_module, "run_colorization_pipeline", side_effect=UserCancelledError("Cancelled")):
             worker = ColorizeWorker(
                 img_input=np.zeros((8, 8, 3), dtype=np.uint8),
                 input_path="demo.png",

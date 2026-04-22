@@ -32,7 +32,7 @@ from .utils import (
     ensure_dir, read_image, save_image, safe_basename, timestamp_str,
     write_json_file,
 )
-from .workers import ModelLoadWorker, ProcessWorker, BatchWorker
+from .workers import ModelLoadWorker, ProcessWorker, BatchWorker, ColorizeWorker
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,7 @@ class MainWindow(QMainWindow):
         self._model_worker: Optional[ModelLoadWorker] = None
         self._process_worker: Optional[ProcessWorker] = None
         self._batch_worker: Optional[BatchWorker] = None
+        self._colorize_worker: Optional[ColorizeWorker] = None
 
         # Settings cache
         self._face_enhance = False
@@ -145,6 +146,7 @@ class MainWindow(QMainWindow):
         sb.compare_toggled.connect(self.display.set_compare_mode)
         sb.compare_split_changed.connect(self.display.set_compare_split)
         sb.start_clicked.connect(self.start_processing)
+        sb.colorize_clicked.connect(self.start_colorization)
         sb.batch_clicked.connect(self.run_batch)
         sb.cancel_clicked.connect(self._cancel_processing)
         sb.dark_mode_toggled.connect(self._toggle_dark_mode)
@@ -308,6 +310,33 @@ class MainWindow(QMainWindow):
         self.display.show_overlay("Processing...")
         self._process_worker.start()
 
+    def start_colorization(self) -> None:
+        if self._process_worker and self._process_worker.isRunning():
+            QMessageBox.information(self, "Info", "Processing is already running.")
+            return
+        if self._batch_worker and self._batch_worker.isRunning():
+            QMessageBox.information(self, "Info", "Batch processing is running.")
+            return
+        if self._colorize_worker and self._colorize_worker.isRunning():
+            return
+        if self.img_input is None:
+            QMessageBox.information(self, "Info", "Please load an input image first.")
+            return
+
+        self._colorize_worker = ColorizeWorker(
+            img_input=self.img_input,
+            input_path=self.input_path,
+            output_base_dir=self.default_output_dir,
+        )
+        self._colorize_worker.progress.connect(self._on_process_progress)
+        self._colorize_worker.image_ready.connect(self._on_process_image_ready)
+        self._colorize_worker.finished.connect(self._on_colorize_finished)
+
+        self.sidebar.set_processing_state(True)
+        self.statusbar.start_timer()
+        self.display.show_overlay("Colorizing...")
+        self._colorize_worker.start()
+
     def _on_process_progress(self, value: float, text: str) -> None:
         self.statusbar.set_progress(value)
         self.statusbar.set_status(text)
@@ -344,12 +373,42 @@ class MainWindow(QMainWindow):
                 self.display.show_overlay("Processing failed")
                 QMessageBox.critical(self, "Error", f"Processing failed: {msg}")
 
+    def _on_colorize_finished(self, success: bool, msg: str) -> None:
+        self.statusbar.stop_timer()
+        self.sidebar.set_processing_state(False)
+
+        if success:
+            self.statusbar.set_status(msg)
+            self.last_run_dir = self._colorize_worker.run_dir if self._colorize_worker else None
+            self.display.set_toolbar_enabled(
+                compare=True,
+                features=False,
+                folder=self.last_run_dir is not None,
+                save=True,
+            )
+            self.sidebar.update_resolution(
+                (self.img_input.shape[1], self.img_input.shape[0]) if self.img_input is not None else None,
+                (self.img_output.shape[1], self.img_output.shape[0]) if self.img_output is not None else None,
+            )
+            self._update_metrics()
+        else:
+            if msg == "Colorization cancelled":
+                self.statusbar.set_status("Cancelled")
+                self.display.show_overlay("Cancelled")
+            else:
+                self.statusbar.set_status("Colorization failed")
+                self.display.show_overlay("Colorization failed")
+                QMessageBox.critical(self, "Error", f"Colorization failed: {msg}")
+
     def _cancel_processing(self) -> None:
         if self._process_worker and self._process_worker.isRunning():
             self._process_worker.requestInterruption()
             self.sidebar.set_cancel_state()
         if self._batch_worker and self._batch_worker.isRunning():
             self._batch_worker.requestInterruption()
+            self.sidebar.set_cancel_state()
+        if self._colorize_worker and self._colorize_worker.isRunning():
+            self._colorize_worker.requestInterruption()
             self.sidebar.set_cancel_state()
 
     # --- Batch processing ---
@@ -606,6 +665,9 @@ class MainWindow(QMainWindow):
         if self._batch_worker and self._batch_worker.isRunning():
             self._batch_worker.requestInterruption()
             self._batch_worker.wait(3000)
+        if self._colorize_worker and self._colorize_worker.isRunning():
+            self._colorize_worker.requestInterruption()
+            self._colorize_worker.wait(3000)
         event.accept()
 
 
